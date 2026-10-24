@@ -30,8 +30,9 @@ scheduled on the VPS.
 
 ## Repos
 
-The picker lists every repo the fine-grained `GITHUB_TOKEN` can reach (Contents + Pull requests:
-write). To let agents work on another repo, add it to the token on GitHub. Repo-specific rules for
+The picker lists the repos in `AGENT_REPOS` (env file, comma-separated `owner/name`). To let agents
+work on another repo, add it there **and** grant it on the fine-grained `GITHUB_TOKEN` (Contents +
+Pull requests: write) — the token can read every public repo, so visibility alone proves nothing. Repo-specific rules for
 the brief live in `lib/config.ts` (`REPO_NOTES`). Agents never push the default branch; every change
 lands as a PR.
 

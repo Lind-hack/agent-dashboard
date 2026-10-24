@@ -138,21 +138,26 @@ type ActivityContent = { __typename: string; body?: string; action?: string; par
 
 export async function codexConversation(issueId: string): Promise<CodexMessage[]> {
   const codex = await codexUser();
+  // Kept small on purpose: Linear rejects nested connections above its complexity budget.
   const data = await gql<{
-    issue: { id: string; comments: { nodes: { body: string; createdAt: string; user: { isMe: boolean } | null }[] } } | null;
-    agentSessions: {
-      nodes: { issue: { id: string } | null; activities: { nodes: { createdAt: string; content: ActivityContent }[] } }[];
-    };
+    issue: {
+      id: string;
+      comments: { nodes: { body: string; createdAt: string; user: { isMe: boolean } | null }[] };
+      agentSessions: { nodes: { activities: { nodes: { createdAt: string; content: ActivityContent }[] } }[] };
+    } | null;
   }>(
     `query($id: String!) {
-      issue(id: $id) { id comments(first: 100) { nodes { body createdAt user { isMe } } } }
-      agentSessions(first: 50) { nodes { issue { id } activities(first: 100) { nodes { createdAt content { __typename
-        ... on AgentActivityResponseContent { body }
-        ... on AgentActivityThoughtContent { body }
-        ... on AgentActivityErrorContent { body }
-        ... on AgentActivityElicitationContent { body }
-        ... on AgentActivityActionContent { action parameter }
-      } } } } }
+      issue(id: $id) {
+        id
+        comments(first: 50) { nodes { body createdAt user { isMe } } }
+        agentSessions(first: 10) { nodes { activities(first: 40) { nodes { createdAt content { __typename
+          ... on AgentActivityResponseContent { body }
+          ... on AgentActivityThoughtContent { body }
+          ... on AgentActivityErrorContent { body }
+          ... on AgentActivityElicitationContent { body }
+          ... on AgentActivityActionContent { action parameter }
+        } } } } }
+      }
     }`,
     { id: issueId },
   );
@@ -163,9 +168,8 @@ export async function codexConversation(issueId: string): Promise<CodexMessage[]
     if (!c?.user?.isMe || !codex || !c.body?.includes(codex.url)) continue;
     msgs.push({ at: c.createdAt, role: "you", text: c.body.replace(codex.url, "").trim() });
   }
-  for (const s of data.agentSessions?.nodes ?? []) {
-    if (s?.issue?.id !== issue.id) continue;
-    for (const a of s.activities?.nodes ?? []) {
+  for (const s of issue.agentSessions?.nodes ?? []) {
+    for (const a of s?.activities?.nodes ?? []) {
       const t = a?.content?.__typename ?? "";
       if (t.includes("Prompt")) continue; // that's our own comment, listed above
       if (t.includes("Response") || t.includes("Elicitation")) msgs.push({ at: a.createdAt, role: "codex", text: a.content.body ?? "" });

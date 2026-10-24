@@ -1,7 +1,9 @@
 import { githubToken, type RepoKey } from "./config";
 
-// Repos the fine-grained token can reach = the repos agents may work on.
-// Add a repo to the token on GitHub and it appears in the picker (cached 5 min).
+// Repos agents may work on = AGENT_REPOS (comma-separated full names), checked against what the
+// token can see. The allowlist is needed because a fine-grained token can *read* every public repo
+// and GitHub reports the owner's permissions, not the token's — so "visible" ≠ "can push".
+// To add a repo: grant it on the token AND add it to AGENT_REPOS. Cached 5 min.
 
 export type RepoInfo = { name: RepoKey; base: string; private: boolean };
 
@@ -24,8 +26,12 @@ export async function listRepos(): Promise<RepoInfo[]> {
   if (!res.ok || !Array.isArray(body)) {
     throw new Error(`GitHub repos: ${(body as { message?: string } | null)?.message ?? res.status}`);
   }
+  const allow = (process.env.AGENT_REPOS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
   const repos = body
-    .filter((r) => r?.full_name && !r.archived)
+    .filter((r) => r?.full_name && !r.archived && (!allow.length || allow.includes(r.full_name.toLowerCase())))
     .map((r) => ({ name: r.full_name!, base: r.default_branch ?? "main", private: !!r.private }));
   cache = { at: Date.now(), repos };
   return repos;
