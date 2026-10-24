@@ -18,7 +18,9 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
   return (body?.text ?? "").trim();
 }
 
-export type TaskDraft = { title: string; description: string; agent: AgentKey; repo: RepoKey };
+const FALLBACK_MODELS = ["llama-3.3-70b-versatile", "openai/gpt-oss-20b"];
+
+export type TaskDraft ={ title: string; description: string; agent: AgentKey; repo: RepoKey };
 
 export async function draftTask(
   text: string,
@@ -31,32 +33,39 @@ Return JSON: {"title": string, "description": string, "agent": "claude"|"codex"|
 - Keep the note's language (Albanian stays Albanian, English stays English).
 - agent: "codex" only if the note asks for Codex, "claude" if it asks for Claude, else null.
 - repo: "383" for the 383 / 383lajme news site, "agent-dashboard" for this agent dashboard, else null.`;
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${groqKey()}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: groqModel(),
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: text },
-      ],
-    }),
-  });
-  const body = (await res.json().catch(() => null)) as {
-    choices?: { message?: { content?: string } }[];
-    error?: { message?: string };
-  } | null;
-  if (!res.ok) throw new Error(`Groq: ${body?.error?.message ?? res.status}`);
+  // The Groq key is shared with other tools, so a model's daily quota can be gone. Each model has
+  // its own quota — walk the ladder, and if every model fails, file the raw note rather than lose it.
   let parsed: Partial<{ title: string; description: string; agent: string | null; repo: string | null }> = {};
-  try {
-    parsed = JSON.parse(body?.choices?.[0]?.message?.content ?? "{}") ?? {};
-  } catch {
-    // fall through to the raw-text fallback below
+  for (const model of [...new Set([groqModel(), ...FALLBACK_MODELS])]) {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${groqKey()}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: text },
+        ],
+      }),
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
+    if (!res?.ok) continue;
+    try {
+      parsed = JSON.parse(body?.choices?.[0]?.message?.content ?? "{}") ?? {};
+      break;
+    } catch {
+      // malformed JSON — try the next model
+    }
   }
-  const agent = parsed?.agent === "codex" || parsed?.agent === "claude" ? parsed.agent : null;
-  const repo = REPO_KEYS.includes(parsed?.repo as RepoKey) ? (parsed?.repo as RepoKey) : null;
+  const agent =
+    parsed?.agent === "codex" || parsed?.agent === "claude" ? parsed.agent : /\bcodex\b/i.test(text) ? "codex" : /\bclaude\b/i.test(text) ? "claude" : null;
+  const repo = REPO_KEYS.includes(parsed?.repo as RepoKey)
+    ? (parsed?.repo as RepoKey)
+    : /\bdashboard\b/i.test(text)
+      ? "agent-dashboard"
+      : null;
   return {
     title: (parsed?.title || text.slice(0, 80)).trim(),
     description: (parsed?.description || text).trim() + `\n\n---\n_Voice note:_ ${text}`,
