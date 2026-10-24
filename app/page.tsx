@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AGENT_LABELS } from "@/lib/agents";
+import { repoShort } from "@/lib/config";
 import { agentIssues, type LinearIssue } from "@/lib/linear";
 import { failedUnits, timers, type TimerRow } from "@/lib/ops";
 import { listJobs, readHeartbeat, type Job } from "@/lib/store";
@@ -41,9 +43,10 @@ function JobRow({ job }: { job: Job }) {
   const last = job.turns.at(-1);
   return (
     <Link href={`/jobs/${job.id}`} className="flex items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
-      <span className="w-20 shrink-0 font-mono text-xs text-muted">{job.id}</span>
+      <span className="w-14 shrink-0 text-xs text-accent">{AGENT_LABELS[job.agent ?? "claude"]}</span>
+      <span className="hidden w-24 shrink-0 font-mono text-xs text-muted sm:inline">{job.id}</span>
       <span className="min-w-0 flex-1 truncate text-sm">{job.title}</span>
-      <span className="hidden text-xs text-muted sm:inline">{job.repo}</span>
+      <span className="hidden text-xs text-muted sm:inline">{repoShort(job.repo ?? "")}</span>
       {job.prUrl && <span className="text-xs text-muted">PR</span>}
       <span className={cn("w-16 text-right text-xs", statusTone[job.status])}>{job.status}</span>
       <span className="w-16 text-right text-xs text-muted">{ago(last?.endedAt ?? last?.startedAt ?? job.updatedAt)}</span>
@@ -53,13 +56,12 @@ function JobRow({ job }: { job: Job }) {
 
 function CodexRow({ issue }: { issue: LinearIssue }) {
   return (
-    <a href={issue.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
+    <Link href={`/codex/${issue.identifier}`} className="flex items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
       <span className="w-20 shrink-0 font-mono text-xs text-muted">{issue.identifier}</span>
       <span className="min-w-0 flex-1 truncate text-sm">{issue.title}</span>
-      <span className="text-xs text-muted">{issue.delegate?.name ?? "not delegated"}</span>
       <span className="w-24 text-right text-xs">{issue.state?.name ?? "—"}</span>
       <span className="w-16 text-right text-xs text-muted">{ago(issue.updatedAt)}</span>
-    </a>
+    </Link>
   );
 }
 
@@ -85,7 +87,7 @@ function TimerTable({ rows }: { rows: TimerRow[] }) {
 export default async function Overview() {
   const jobs = listJobs();
   const heartbeat = readHeartbeat();
-  const [codex, timerRows, failed] = await Promise.all([safe(agentIssues("codex", 15)), safe(timers()), safe(failedUnits())]);
+  const [codex, timerRows, failed] = await Promise.all([safe(agentIssues("codex-cloud", 15)), safe(timers()), safe(failedUnits())]);
   const runnerAlive = heartbeat.at && Date.now() - new Date(heartbeat.at).getTime() < 60_000;
   const open = jobs.filter((j) => j.status !== "closed" && j.status !== "cancelled");
   const closed = jobs.filter((j) => j.status === "closed" || j.status === "cancelled").slice(0, 10);
@@ -94,7 +96,7 @@ export default async function Overview() {
     <>
       <div className="mb-8 flex flex-wrap items-center gap-3 text-sm">
         <span className={cn("rounded-full border px-3 py-1", runnerAlive ? "border-ok/40 text-ok" : "border-bad/40 text-bad")}>
-          runner {runnerAlive ? (heartbeat.activeJob ? `working on ${heartbeat.activeJob}` : "idle") : `down (seen ${ago(heartbeat.at)})`}
+          runner {runnerAlive ? (heartbeat.active?.length ? `working on ${heartbeat.active.join(", ")}` : "idle") : `down (seen ${ago(heartbeat.at)})`}
         </span>
         {failed.data && failed.data.length > 0 && (
           <span className="rounded-full border border-bad/40 px-3 py-1 text-bad">
@@ -102,16 +104,20 @@ export default async function Overview() {
           </span>
         )}
         <Link href="/voice" className="ml-auto rounded-full bg-accent px-4 py-1.5 font-medium text-bg">
-          + New task
+          + New chat
         </Link>
       </div>
 
-      <Section title="Claude · on the VPS">
-        {open.length ? open.map((j) => <JobRow key={j.id} job={j} />) : <Empty>No open Claude tasks. Dictate one, or add the agent:claude label to a Linear issue.</Empty>}
+      <Section title="Claude & Codex · on the VPS">
+        {open.length ? (
+          open.map((j) => <JobRow key={j.id} job={j} />)
+        ) : (
+          <Empty>Nothing open. Start a chat, or add the agent:claude / agent:codex label to a Linear issue.</Empty>
+        )}
       </Section>
 
-      <Section title="Codex · in the cloud">
-        {codex.error ? <Empty>{codex.error}</Empty> : codex.data?.length ? codex.data.map((i) => <CodexRow key={i.id} issue={i} />) : <Empty>No Codex issues.</Empty>}
+      <Section title="Codex cloud · via Linear">
+        {codex.error ? <Empty>{codex.error}</Empty> : codex.data?.length ? codex.data.map((i) => <CodexRow key={i.id} issue={i} />) : <Empty>No Codex cloud tasks.</Empty>}
       </Section>
 
       <Section title="Scheduled on the VPS" right={<span className="text-xs text-muted">next run →</span>}>

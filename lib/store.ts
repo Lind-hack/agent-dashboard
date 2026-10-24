@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR, type RepoKey } from "./config";
+import { DATA_DIR, repoFromLabel, type AgentKey, type RepoKey } from "./config";
 
 // One JSON file per job plus an NDJSON log per job. Personal scale — no database needed.
 
@@ -9,7 +9,7 @@ export type JobStatus = "queued" | "running" | "waiting" | "failed" | "cancelled
 
 export type Turn = {
   prompt: string;
-  source: "linear" | "dashboard" | "linear-comment";
+  source: "linear" | "dashboard" | "linear-comment" | "handoff";
   startedAt?: string;
   endedAt?: string;
   ok?: boolean;
@@ -18,13 +18,16 @@ export type Turn = {
 };
 
 export type Job = {
-  id: string; // Linear identifier, e.g. LIN-42
-  issueId: string;
-  issueUrl: string;
+  id: string; // Linear identifier (LIN-42), or C-xxxx for a chat that isn't tracked in Linear
+  agent: AgentKey;
+  issueId?: string;
+  issueUrl?: string;
   title: string;
   description: string;
-  repo: RepoKey;
+  repo: RepoKey; // GitHub full name
+  base?: string; // branch the work starts from / the PR targets
   branch: string;
+  fromBranch?: string; // hand-off: continue an existing branch instead of starting from base
   status: JobStatus;
   sessionId?: string;
   prUrl?: string;
@@ -51,8 +54,12 @@ export function readJob(id: string): Job | null {
   try {
     const raw = JSON.parse(fs.readFileSync(jobFile(id), "utf8")) as Partial<Job>;
     // Files may predate the current shape — fill what's missing.
+    const repo = raw?.repo ?? "";
     return {
       ...(raw as Job),
+      agent: raw?.agent ?? "claude",
+      // Early jobs stored "383" / "agent-dashboard" instead of the GitHub full name.
+      repo: repo.includes("/") ? repo : (repoFromLabel(`repo:${repo}`) ?? repo),
       turns: raw?.turns ?? [],
       seenCommentIds: raw?.seenCommentIds ?? [],
     };
@@ -101,9 +108,21 @@ export function readLog(id: string, maxLines = 400): Record<string, unknown>[] {
 
 // Only the runner writes job files. The web app drops requests into an inbox the runner drains,
 // so a reply sent mid-run can't be overwritten by the runner's next save.
+export type NewChat = {
+  id: string;
+  agent: AgentKey;
+  repo: RepoKey;
+  title: string;
+  prompt: string;
+  fromBranch?: string;
+  source: "dashboard" | "handoff";
+};
+
 export type InboxItem =
+  | { kind: "create"; chat: NewChat } // a chat not tracked in Linear
   | { kind: "reply"; jobId: string; prompt: string }
   | { kind: "cancel"; jobId: string }
+  | { kind: "archive"; jobId: string } // a finished chat: close it and free its worktree
   | { kind: "sync" }; // a new issue was created from the dashboard — poll Linear now
 
 const inboxDir = path.join(DATA_DIR, "inbox");
@@ -133,12 +152,12 @@ export function drainInbox(): InboxItem[] {
 // Runner liveness, shown on the dashboard.
 const heartbeatFile = () => path.join(DATA_DIR, "runner-heartbeat.json");
 
-export function writeHeartbeat(info: { activeJob?: string }) {
+export function writeHeartbeat(info: { active: string[] }) {
   ensureDirs();
   fs.writeFileSync(heartbeatFile(), JSON.stringify({ at: new Date().toISOString(), ...info }));
 }
 
-export function readHeartbeat(): { at?: string; activeJob?: string } {
+export function readHeartbeat(): { at?: string; active?: string[] } {
   try {
     return JSON.parse(fs.readFileSync(heartbeatFile(), "utf8")) ?? {};
   } catch {

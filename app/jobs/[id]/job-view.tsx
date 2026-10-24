@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ReplyBar } from "@/components/reply-bar";
+import { AGENT_LABELS } from "@/lib/agents";
 import type { Job } from "@/lib/store";
 import { ago, cn } from "@/lib/utils";
 
@@ -9,7 +11,7 @@ type LogEvent = { t?: string; kind?: string; text?: string; ok?: boolean; costUs
 const kindStyle: Record<string, string> = {
   text: "text-text whitespace-pre-wrap",
   tool: "font-mono text-xs text-muted",
-  turn: "mt-4 border-t border-line pt-3 text-xs font-semibold uppercase tracking-wider text-accent",
+  turn: "mt-4 border-t border-line pt-3 text-xs font-semibold text-accent whitespace-pre-wrap",
   result: "whitespace-pre-wrap rounded-lg bg-white/[0.03] p-3 text-text",
   error: "whitespace-pre-wrap text-bad",
   init: "font-mono text-xs text-muted",
@@ -18,9 +20,6 @@ const kindStyle: Record<string, string> = {
 export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLog: LogEvent[] }) {
   const [job, setJob] = useState(initialJob);
   const [log, setLog] = useState<LogEvent[]>(initialLog);
-  const [reply, setReply] = useState("");
-  const [sending, setSending] = useState(false);
-  const [notice, setNotice] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,38 +35,37 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
         });
       }
     }
-    const id = setInterval(poll, 3000);
+    const id = setInterval(poll, 2500);
     return () => {
       stop = true;
       clearInterval(id);
     };
   }, [initialJob.id]);
 
-  async function act(action: "reply" | "cancel") {
-    setSending(true);
-    setNotice("");
+  async function post(payload: Record<string, string>) {
     const res = await fetch(`/api/jobs/${job.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, prompt: reply }),
+      body: JSON.stringify(payload),
     });
-    setSending(false);
-    if (!res.ok) return setNotice("Didn't go through — try again.");
-    if (action === "reply") {
-      setReply("");
-      setNotice(job.status === "running" ? "Queued — Claude gets it when this turn ends." : "Sent — Claude is picking it up.");
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
   }
 
   const running = job.status === "running" || job.status === "queued";
   const cost = (job.turns ?? []).reduce((s, t) => s + (t.costUsd ?? 0), 0);
+  const agentName = AGENT_LABELS[job.agent ?? "claude"];
 
   return (
     <div className="pb-40">
-      <div className="mb-1 flex items-center gap-3 font-mono text-xs text-muted">
-        <a href={job.issueUrl} target="_blank" rel="noreferrer" className="hover:text-text">
-          {job.id} ↗
-        </a>
+      <div className="mb-1 flex flex-wrap items-center gap-3 font-mono text-xs text-muted">
+        <span className="rounded bg-white/5 px-1.5 py-0.5 text-text">{agentName}</span>
+        {job.issueUrl ? (
+          <a href={job.issueUrl} target="_blank" rel="noreferrer" className="hover:text-text">
+            {job.id} ↗
+          </a>
+        ) : (
+          <span>{job.id}</span>
+        )}
         <span>{job.repo}</span>
         <span>{job.branch}</span>
       </div>
@@ -86,8 +84,14 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
           {cost > 0 && ` · $${cost.toFixed(2)} equiv.`}
         </span>
         {running && (
-          <button onClick={() => act("cancel")} disabled={sending} className="ml-auto text-sm text-bad hover:underline">
+          <button onClick={() => post({ action: "cancel" })} className="ml-auto text-sm text-bad hover:underline">
             Stop
+          </button>
+        )}
+        {/* Linear jobs close when the issue is closed; plain chats are archived here. */}
+        {!running && !job.issueId && job.status !== "closed" && (
+          <button onClick={() => post({ action: "archive" })} className="ml-auto text-sm text-muted hover:text-text">
+            Archive
           </button>
         )}
       </div>
@@ -99,30 +103,18 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             {e.kind === "init" ? `session ${e.sessionId ?? ""}` : e.text}
           </div>
         ))}
-        {running && <div className="animate-pulse text-xs text-muted">working…</div>}
+        {running && <div className="animate-pulse text-xs text-muted">{job.status === "queued" ? "waiting for a free slot…" : `${agentName} is working…`}</div>}
         <div ref={bottom} />
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-line bg-bg/95 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl gap-2 px-4 py-3">
-          <textarea
-            value={reply}
-            onChange={(e) => setReply(e.target.value)}
-            rows={2}
-            placeholder={job.status === "closed" ? "Issue is closed in Linear" : "Continue this session…"}
-            disabled={job.status === "closed"}
-            className="min-w-0 flex-1 resize-none rounded-lg border border-line bg-panel px-3 py-2 text-sm outline-none focus:border-accent"
-          />
-          <button
-            onClick={() => act("reply")}
-            disabled={sending || !reply.trim() || job.status === "closed"}
-            className="rounded-lg bg-accent px-4 text-sm font-medium text-bg disabled:opacity-40"
-          >
-            Send
-          </button>
-        </div>
-        {notice && <p className="mx-auto max-w-5xl px-4 pb-2 text-xs text-muted">{notice}</p>}
-      </div>
+      <ReplyBar
+        placeholder={job.status === "closed" ? (job.issueId ? "Issue is closed in Linear" : "Chat archived") : `Message ${agentName}…`}
+        disabled={job.status === "closed"}
+        onSend={async (prompt) => {
+          await post({ action: "reply", prompt });
+          return job.status === "running" ? `Queued — ${agentName} gets it when this turn ends.` : `Sent — ${agentName} is picking it up.`;
+        }}
+      />
     </div>
   );
 }

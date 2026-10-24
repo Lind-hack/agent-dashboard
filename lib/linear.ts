@@ -1,4 +1,4 @@
-import { linearKey, linearTeamKey, type AgentKey, type RepoKey, LABELS } from "./config";
+import { linearKey, linearTeamKey, type RepoKey, type TaskAgent, LABELS } from "./config";
 
 // Thin Linear GraphQL client (https://linear.app/developers/graphql), personal API key auth.
 
@@ -67,17 +67,22 @@ async function labelId(teamId: string, name: string): Promise<string> {
 }
 
 // Codex is installed into the workspace as an app user ("Codex for Linear").
-async function codexUserId(): Promise<string | null> {
-  const data = await gql<{ users: { nodes: { id: string; name: string; displayName: string }[] } }>(
-    `{ users(filter: { app: { eq: true } }) { nodes { id name displayName } } }`,
+let codexCache: { id: string; url: string } | null = null;
+
+export async function codexUser(): Promise<{ id: string; url: string } | null> {
+  if (codexCache) return codexCache;
+  const data = await gql<{ users: { nodes: { id: string; name: string; displayName: string; url: string }[] } }>(
+    `{ users(filter: { app: { eq: true } }) { nodes { id name displayName url } } }`,
   );
-  return data.users?.nodes?.find((u) => /codex/i.test(`${u.name} ${u.displayName}`))?.id ?? null;
+  const u = data.users?.nodes?.find((x) => /codex/i.test(`${x.name} ${x.displayName}`));
+  codexCache = u ? { id: u.id, url: u.url } : null;
+  return codexCache;
 }
 
 export async function createAgentIssue(input: {
   title: string;
   description: string;
-  agent: AgentKey;
+  agent: TaskAgent;
   repo: RepoKey;
 }): Promise<{ issue: LinearIssue; note?: string }> {
   const team = await getTeam();
@@ -85,26 +90,24 @@ export async function createAgentIssue(input: {
     await labelId(team.id, LABELS.agent(input.agent)),
     await labelId(team.id, LABELS.repo(input.repo)),
   ];
-  const base = { title: input.title, description: input.description, teamId: team.id, labelIds };
-  const create = (extra: Record<string, unknown>) =>
-    gql<{ issueCreate: { issue: LinearIssue } }>(
+  const { issue } = (
+    await gql<{ issueCreate: { issue: LinearIssue } }>(
       `mutation($input: IssueCreateInput!) { issueCreate(input: $input) { issue { ${ISSUE_FIELDS} } } }`,
-      { input: { ...base, ...extra } },
-    );
+      { input: { title: input.title, description: input.description, teamId: team.id, labelIds } },
+    )
+  ).issueCreate;
+  if (input.agent !== "codex-cloud") return { issue };
 
-  if (input.agent !== "codex") return { issue: (await create({})).issueCreate.issue };
-
-  const codex = await codexUserId();
+  const codex = await codexUser();
   if (!codex) {
-    return {
-      issue: (await create({})).issueCreate.issue,
-      note: "Codex isn't installed in this Linear workspace — install Codex for Linear, then assign the issue to it.",
-    };
+    return { issue, note: "Codex isn't installed in this Linear workspace — install Codex for Linear, then assign the issue to it." };
   }
-  return { issue: (await create({ delegateId: codex })).issueCreate.issue };
+  // The mention starts Codex and names the repo, so it doesn't have to guess the environment.
+  await askCodex(issue.id, `Please work on this issue in ${input.repo}.`);
+  return { issue };
 }
 
-export async function agentIssues(agent: AgentKey, first = 30): Promise<LinearIssue[]> {
+export async function agentIssues(agent: TaskAgent, first = 30): Promise<LinearIssue[]> {
   const data = await gql<{ issues: { nodes: LinearIssue[] } }>(
     `query($label: String!, $first: Int!) {
       issues(first: $first, orderBy: updatedAt, filter: { labels: { name: { eq: $label } } }) { nodes { ${ISSUE_FIELDS} } }
@@ -112,6 +115,66 @@ export async function agentIssues(agent: AgentKey, first = 30): Promise<LinearIs
     { label: LABELS.agent(agent), first },
   );
   return data.issues?.nodes ?? [];
+}
+
+export async function getIssue(id: string): Promise<LinearIssue | null> {
+  const data = await gql<{ issue: LinearIssue | null }>(`query($id: String!) { issue(id: $id) { ${ISSUE_FIELDS} } }`, { id });
+  return data.issue ?? null;
+}
+
+// --- Codex cloud conversation ---------------------------------------------------------------
+// A message to Codex is a Linear comment containing Codex's profile URL: Linear renders that as an
+// @mention and starts an agent session (verified 2026-10-25). Codex answers through session activities.
+
+export async function askCodex(issueId: string, text: string): Promise<void> {
+  const codex = await codexUser();
+  if (!codex) throw new Error("Codex for Linear isn't installed in this workspace");
+  await comment(issueId, `${codex.url} ${text}`);
+}
+
+export type CodexMessage = { at: string; role: "you" | "codex" | "status"; text: string };
+
+type ActivityContent = { __typename: string; body?: string; action?: string; parameter?: string };
+
+export async function codexConversation(issueId: string): Promise<CodexMessage[]> {
+  const codex = await codexUser();
+  const data = await gql<{
+    issue: { id: string; comments: { nodes: { body: string; createdAt: string; user: { isMe: boolean } | null }[] } } | null;
+    agentSessions: {
+      nodes: { issue: { id: string } | null; activities: { nodes: { createdAt: string; content: ActivityContent }[] } }[];
+    };
+  }>(
+    `query($id: String!) {
+      issue(id: $id) { id comments(first: 100) { nodes { body createdAt user { isMe } } } }
+      agentSessions(first: 50) { nodes { issue { id } activities(first: 100) { nodes { createdAt content { __typename
+        ... on AgentActivityResponseContent { body }
+        ... on AgentActivityThoughtContent { body }
+        ... on AgentActivityErrorContent { body }
+        ... on AgentActivityElicitationContent { body }
+        ... on AgentActivityActionContent { action parameter }
+      } } } } }
+    }`,
+    { id: issueId },
+  );
+  const issue = data.issue;
+  if (!issue) return [];
+  const msgs: CodexMessage[] = [];
+  for (const c of issue.comments?.nodes ?? []) {
+    if (!c?.user?.isMe || !codex || !c.body?.includes(codex.url)) continue;
+    msgs.push({ at: c.createdAt, role: "you", text: c.body.replace(codex.url, "").trim() });
+  }
+  for (const s of data.agentSessions?.nodes ?? []) {
+    if (s?.issue?.id !== issue.id) continue;
+    for (const a of s.activities?.nodes ?? []) {
+      const t = a?.content?.__typename ?? "";
+      if (t.includes("Prompt")) continue; // that's our own comment, listed above
+      if (t.includes("Response") || t.includes("Elicitation")) msgs.push({ at: a.createdAt, role: "codex", text: a.content.body ?? "" });
+      else if (t.includes("Error")) msgs.push({ at: a.createdAt, role: "status", text: `Error: ${a.content.body ?? ""}` });
+      else if (t.includes("Action")) msgs.push({ at: a.createdAt, role: "status", text: `${a.content.action ?? ""} ${a.content.parameter ?? ""}`.trim() });
+      else if (a.content?.body) msgs.push({ at: a.createdAt, role: "status", text: a.content.body });
+    }
+  }
+  return msgs.sort((a, b) => a.at.localeCompare(b.at));
 }
 
 export type LinearComment = { id: string; body: string; createdAt: string; user: { isMe: boolean } | null };

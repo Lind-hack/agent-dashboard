@@ -12,7 +12,7 @@ export const viewport: Viewport = { themeColor: "#0b0c0e", width: "device-width"
 
 const links = [
   { href: "/", label: "Overview" },
-  { href: "/voice", label: "Voice" },
+  { href: "/voice", label: "New chat" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

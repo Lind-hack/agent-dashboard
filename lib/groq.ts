@@ -1,4 +1,4 @@
-import { groqKey, groqModel, REPO_KEYS, type AgentKey, type RepoKey } from "./config";
+import { groqKey, groqModel, repoShort, type RepoKey, type TaskAgent } from "./config";
 
 // Groq free tier: Whisper for speech-to-text, gpt-oss for turning a ramble into a ticket.
 // https://console.groq.com/docs/speech-to-text — OpenAI-compatible endpoints.
@@ -20,19 +20,21 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
 
 const FALLBACK_MODELS = ["llama-3.3-70b-versatile", "openai/gpt-oss-20b"];
 
-export type TaskDraft ={ title: string; description: string; agent: AgentKey; repo: RepoKey };
+export type TaskDraft = { title: string; description: string; agent: TaskAgent; repo: RepoKey };
 
+// `repos` = what the picker offers; the model may only choose among those.
 export async function draftTask(
   text: string,
-  defaults: { agent?: AgentKey; repo?: RepoKey },
+  defaults: { agent?: TaskAgent; repo?: RepoKey; repos: RepoKey[]; fallbackRepo: RepoKey },
 ): Promise<TaskDraft> {
+  const shorts = defaults.repos.map(repoShort);
   const system = `You turn a dictated voice note into one Linear issue for a coding agent.
-Return JSON: {"title": string, "description": string, "agent": "claude"|"codex"|null, "repo": ${REPO_KEYS.map((r) => `"${r}"`).join("|")}|null}.
+Return JSON: {"title": string, "description": string, "agent": "claude"|"codex"|"codex-cloud"|null, "repo": string|null}.
 - title: imperative, under 80 chars.
 - description: markdown. Restate exactly what to build or fix, with every concrete detail from the note (names, numbers, pages, behaviour). Add an "Acceptance" checklist. Do not invent requirements.
 - Keep the note's language (Albanian stays Albanian, English stays English).
-- agent: "codex" only if the note asks for Codex, "claude" if it asks for Claude, else null.
-- repo: "383" for the 383 / 383lajme news site, "agent-dashboard" for this agent dashboard, else null.`;
+- agent: "codex-cloud" if the note asks for Codex cloud, "codex" if it asks for Codex, "claude" if it asks for Claude, else null.
+- repo: one of ${JSON.stringify(shorts)} if the note names it (383 / the news site = "383lajme"), else null.`;
   // The Groq key is shared with other tools, so a model's daily quota can be gone. Each model has
   // its own quota — walk the ladder, and if every model fails, file the raw note rather than lose it.
   let parsed: Partial<{ title: string; description: string; agent: string | null; repo: string | null }> = {};
@@ -59,18 +61,20 @@ Return JSON: {"title": string, "description": string, "agent": "claude"|"codex"|
       // malformed JSON — try the next model
     }
   }
-  const agent =
-    parsed?.agent === "codex" || parsed?.agent === "claude" ? parsed.agent : /\bcodex\b/i.test(text) ? "codex" : /\bclaude\b/i.test(text) ? "claude" : null;
-  const repo = REPO_KEYS.includes(parsed?.repo as RepoKey)
-    ? (parsed?.repo as RepoKey)
-    : /\bdashboard\b/i.test(text)
-      ? "agent-dashboard"
-      : null;
+  const agents: TaskAgent[] = ["claude", "codex", "codex-cloud"];
+  const agent = agents.includes(parsed?.agent as TaskAgent)
+    ? (parsed?.agent as TaskAgent)
+    : /\bcodex\b/i.test(text)
+      ? "codex"
+      : /\bclaude\b/i.test(text)
+        ? "claude"
+        : null;
+  const repo = defaults.repos.find((r) => repoShort(r) === parsed?.repo) ?? null;
   return {
     title: (parsed?.title || text.slice(0, 80)).trim(),
     description: (parsed?.description || text).trim() + `\n\n---\n_Voice note:_ ${text}`,
     // An explicit choice in the UI wins over what the model guessed.
     agent: defaults.agent ?? agent ?? "claude",
-    repo: defaults.repo ?? repo ?? "383",
+    repo: defaults.repo ?? repo ?? defaults.fallbackRepo,
   };
 }

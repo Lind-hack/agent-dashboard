@@ -1,48 +1,59 @@
 # agent-dashboard
 
-Personal control panel for coding agents: dictate a task on the phone → Linear issue →
-Claude Code (on the VPS) or Codex (in the cloud) does it → PR. Also shows what's scheduled on
-the VPS.
+Personal control panel for coding agents. From the phone: pick an AI (Claude, Codex, or Codex
+cloud) and a repo, talk or type, and keep chatting with it while it works → PR. Also shows what's
+scheduled on the VPS.
 
 ```
-phone /voice ──Groq Whisper──▶ gpt-oss drafts the ticket ──▶ Linear issue
-                                                           │  labels agent:claude|codex, repo:<key>
-              agent:codex ─ delegated to "Codex for Linear" (runs in Codex cloud, nothing here)
-              agent:claude ─ runner polls Linear every 30s ─▶ worktree ─▶ claude -p ─▶ push ─▶ PR
-                                                                    ▲
-              reply from the dashboard or a Linear comment "@claude …" ─┘ (claude -p --resume)
+/voice (New chat) ── Whisper ──┬─ plain chat ─────────────────────────┐
+                               └─ "Track in Linear" ─▶ Linear issue ──┤ labels agent:<a>, repo:<name>
+                                                                      ▼
+  Claude / Codex: runner on the VPS ─▶ worktree ─▶ claude -p | codex exec ─▶ push ─▶ PR
+                  replies: dashboard, or a Linear comment "@claude …" / "@codex …" (--resume)
+  Codex cloud:    Linear issue + @Codex mention ─▶ Codex for Linear (OpenAI's cloud)
+                  replies: /codex/[id] posts the mention for you, reads Codex's agent activities
+  PC hand-off:    /handoff skill ─▶ pushes a branch ─▶ POST /api/handoff ─▶ VPS chat on that branch
 ```
 
 ## Pieces
 
 | Path | What |
 |---|---|
-| `app/` | Next.js 16 UI: overview (`/`), voice capture (`/voice`, installable PWA), job log + reply (`/jobs/[id]`) |
-| `runner/` | Long-running worker. The only writer of `data/jobs/*.json`; the web app talks to it through `data/inbox/` |
-| `lib/linear.ts` | Linear GraphQL (personal API key) |
-| `lib/groq.ts` | Whisper transcription + ticket drafting (free tier) |
+| `app/` | Next.js 16 UI: overview (`/`), new chat (`/voice`, installable PWA), VPS chat (`/jobs/[id]`), Codex cloud chat (`/codex/[id]`) |
+| `runner/` | Long-running worker, one turn per agent at a time. The only writer of `data/jobs/*.json`; the web app talks to it through `data/inbox/` |
+| `lib/linear.ts` | Linear GraphQL (personal API key), incl. the Codex mention/activity bridge |
+| `lib/github.ts` | Repo picker = whatever the GitHub token can access |
+| `lib/groq.ts` | Whisper transcription + ticket drafting (free tier, model fallback ladder) |
 | `lib/ops.ts` | `systemctl list-timers` / failed units, read-only |
+| `handoff/` | `/handoff` skill + `handoff.mjs`, installed on the PC (see below) |
 | `deploy/` | `setup.sh` (once), `update.sh` (every deploy) |
+
+## Repos
+
+The picker lists every repo the fine-grained `GITHUB_TOKEN` can reach (Contents + Pull requests:
+write). To let agents work on another repo, add it to the token on GitHub. Repo-specific rules for
+the brief live in `lib/config.ts` (`REPO_NOTES`). Agents never push the default branch; every change
+lands as a PR.
 
 ## Linear conventions
 
-- `agent:claude` / `agent:codex` — who does it. Created automatically on first use.
-- `repo:383` / `repo:agent-dashboard` — where. Add a repo in `lib/config.ts` (`REPOS`).
-- Any issue gets picked up when it carries `agent:claude` — dictated or made by hand in Linear.
-- The runner moves the issue to the team's first "started" state; you close it yourself after
-  merging. Closing or cancelling the issue removes its worktree.
-- The runner's own comments start with 🤖 and are ignored. A comment starting `@claude` continues
-  the session.
+- `agent:claude` / `agent:codex` → runs on the VPS. `agent:codex-cloud` → Codex for Linear.
+- `repo:<name>` (e.g. `repo:383lajme`) → where. Old `repo:383` / `repo:agent-dashboard` still work.
+- The runner moves the issue to the first "started" state; closing the issue removes its worktree.
+  Plain chats are closed with **Archive** on the chat page.
+- The runner's own comments start with 🤖 and are ignored.
 
 ## VPS
 
-- Runs as the unprivileged `agent` user (no sudo). Claude uses `--permission-mode bypassPermissions`
-  inside its worktree, so this user deliberately has no access to anything else on the box.
-- Secrets live in `/etc/agent-dashboard.env` (root, 600) and reach the services via systemd.
-  Claude's child process gets them stripped from its env, but it runs as the same user, so keep
-  `GITHUB_TOKEN` a **fine-grained token limited to the agent repos** (Contents + Pull requests: write).
-- Claude Code authenticates with Lind's own subscription: `sudo -iu agent claude`, then `/login`.
-- Web listens on `127.0.0.1:3100`; it's public only through the Cloudflare tunnel hostname.
+- Both services run as the unprivileged `agent` user (no sudo); Claude (`bypassPermissions`) and
+  Codex (`--dangerously-bypass-approvals-and-sandbox`) get full access only inside that account.
+- Secrets live in `/etc/agent-dashboard.env` (root, 600). Agents get them stripped from their env,
+  but run as the same user, so keep `GITHUB_TOKEN` limited to the agent repos.
+- Logins (Lind's own subscriptions, official CLIs): `sudo -iu agent claude` → `/login`;
+  `sudo -iu agent ~/.local/bin/codex login --device-auth`.
+- Codex on the VPS and Codex cloud draw from the same ChatGPT plan limits as anything else on that
+  account (incl. the 383 news pipeline's Codex auth).
+- Web listens on `127.0.0.1:3100`, public only via the Cloudflare tunnel (`agents.383ks.com`).
 
 ```bash
 bash deploy/setup.sh     # once
@@ -50,9 +61,14 @@ bash deploy/update.sh    # pull main, build, restart both services
 journalctl -u agent-dashboard-runner -f
 ```
 
+## PC hand-off
+
+`handoff/SKILL.md` is installed to `~/.claude/skills/handoff/` and `~/.codex/skills/handoff/`,
+`handoff.mjs` to `~/.agent-dashboard/`, next to `handoff.env` (`HANDOFF_TOKEN` from the VPS env file,
+`AGENT_DASHBOARD_URL`). In a session: `/handoff` (Claude Code) or `$handoff` (Codex).
+
 ## Not here on purpose
 
-- No Claude/Codex login inside the dashboard. Anthropic's terms don't allow third-party apps to use
-  subscription OAuth. The dashboard drives the official `claude` CLI on our own server and links out
-  to claude.ai/code and chatgpt.com/codex for everything else.
-- Chats started on the PC stay on the PC: continue those with Claude Code Remote Control.
+- No Claude/Codex login inside the web app — the dashboard drives the official CLIs on our own
+  server, and Codex cloud through Linear.
+- Chats that live only on the PC can't be joined; hand them off, or use Claude Code Remote Control.

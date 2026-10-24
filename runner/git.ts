@@ -2,12 +2,12 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { githubToken, REPOS, WORK_DIR, type RepoKey } from "../lib/config";
+import { githubToken, WORK_DIR, type RepoKey } from "../lib/config";
 
 const exec = promisify(execFile);
 
 // The token only ever travels as a per-command header — it is never written to a remote URL
-// or git config, so Claude (which runs in the same checkout) can't read it back.
+// or git config, so the agent (which runs in the same checkout) can't read it back from there.
 function authArgs(): string[] {
   const basic = Buffer.from(`x-access-token:${githubToken()}`).toString("base64");
   return ["-c", `http.https://github.com/.extraheader=Authorization: Basic ${basic}`];
@@ -22,22 +22,22 @@ export async function git(cwd: string, args: string[], withAuth = false): Promis
   return stdout.trim();
 }
 
-const repoDir = (repo: RepoKey) => path.join(WORK_DIR, "repos", repo);
+const repoDir = (repo: RepoKey) => path.join(WORK_DIR, "repos", repo.replace("/", "__"));
 export const worktreeDir = (jobId: string) => path.join(WORK_DIR, "wt", jobId);
 
-export async function ensureWorktree(repo: RepoKey, jobId: string, branch: string): Promise<string> {
-  const { github, base } = REPOS[repo];
-  const dir = repoDir(repo);
+// New work branches off `base`; a hand-off continues `fromBranch` exactly where the PC left it.
+export async function ensureWorktree(opts: { repo: RepoKey; base: string; jobId: string; branch: string; fromBranch?: string }) {
+  const dir = repoDir(opts.repo);
   if (!fs.existsSync(path.join(dir, ".git"))) {
     fs.mkdirSync(path.dirname(dir), { recursive: true });
-    await git(path.dirname(dir), ["clone", `https://github.com/${github}.git`, dir], true);
+    await git(path.dirname(dir), ["clone", `https://github.com/${opts.repo}.git`, dir], true);
   }
   await git(dir, ["fetch", "--prune", "origin"], true);
-  const wt = worktreeDir(jobId);
+  const wt = worktreeDir(opts.jobId);
   if (!fs.existsSync(wt)) {
     fs.mkdirSync(path.dirname(wt), { recursive: true });
     await git(dir, ["worktree", "prune"]);
-    await git(dir, ["worktree", "add", "-B", branch, wt, `origin/${base}`]);
+    await git(dir, ["worktree", "add", "-B", opts.branch, wt, `origin/${opts.fromBranch ?? opts.base}`]);
   }
   return wt;
 }
@@ -48,9 +48,8 @@ export async function removeWorktree(repo: RepoKey, jobId: string) {
   await git(repoDir(repo), ["worktree", "remove", "--force", wt]).catch(() => fs.rmSync(wt, { recursive: true, force: true }));
 }
 
-// Commits anything Claude left uncommitted, then pushes the branch. Returns false when there is nothing to push.
-export async function pushBranch(repo: RepoKey, wt: string, branch: string, jobId: string): Promise<boolean> {
-  const { base } = REPOS[repo];
+// Commits anything the agent left uncommitted, then pushes the branch. Returns false when there is nothing to push.
+export async function pushBranch(wt: string, base: string, branch: string, jobId: string): Promise<boolean> {
   if (await git(wt, ["status", "--porcelain"])) {
     await git(wt, ["add", "-A"]);
     await git(wt, ["commit", "-m", `${jobId}: uncommitted agent changes`]);
@@ -61,21 +60,20 @@ export async function pushBranch(repo: RepoKey, wt: string, branch: string, jobI
   return true;
 }
 
-export async function ensurePullRequest(repo: RepoKey, branch: string, title: string, body: string): Promise<string | null> {
-  const { github, base } = REPOS[repo];
+export async function ensurePullRequest(opts: { repo: RepoKey; base: string; branch: string; title: string; body: string }): Promise<string | null> {
   const headers = {
     Authorization: `Bearer ${githubToken()}`,
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",
   };
-  const owner = github.split("/")[0];
-  const existing = await fetch(`https://api.github.com/repos/${github}/pulls?head=${owner}:${branch}&state=open`, { headers });
+  const owner = opts.repo.split("/")[0];
+  const existing = await fetch(`https://api.github.com/repos/${opts.repo}/pulls?head=${owner}:${opts.branch}&state=open`, { headers });
   const open = (await existing.json().catch(() => [])) as { html_url?: string }[];
   if (Array.isArray(open) && open[0]?.html_url) return open[0].html_url;
-  const res = await fetch(`https://api.github.com/repos/${github}/pulls`, {
+  const res = await fetch(`https://api.github.com/repos/${opts.repo}/pulls`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ title, head: branch, base, body, draft: false }),
+    body: JSON.stringify({ title: opts.title, head: opts.branch, base: opts.base, body: opts.body }),
   });
   const pr = (await res.json().catch(() => null)) as { html_url?: string; message?: string } | null;
   if (!res.ok) throw new Error(`GitHub PR: ${pr?.message ?? res.status}`);
