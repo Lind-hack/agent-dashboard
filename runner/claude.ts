@@ -6,8 +6,9 @@ import { claudeBin, claudeModel, jobTimeoutMs } from "../lib/config";
 
 export type TurnResult = { ok: boolean; sessionId?: string; result: string; costUsd?: number };
 
-// Secrets the runner needs but Claude doesn't.
-const HIDDEN_ENV = ["GITHUB_TOKEN", "LINEAR_API_KEY", "GROQ_API_KEY", "SESSION_SECRET", "DASHBOARD_PASSWORD"];
+// Secrets the runner needs but Claude doesn't. NODE_ENV=production (for the services) would make
+// `npm ci` in the repo skip devDependencies, so typecheck/build fail inside the worktree.
+const HIDDEN_ENV = ["GITHUB_TOKEN", "LINEAR_API_KEY", "GROQ_API_KEY", "SESSION_SECRET", "DASHBOARD_PASSWORD", "NODE_ENV"];
 
 type StreamEvent = {
   type?: string;
