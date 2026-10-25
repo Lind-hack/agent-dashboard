@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-25T01:00:00Z",
+  "title": "Design System: Agentic OS",
+  "extensions": {
+    "colorMeta": {
+      "claude-coral": { "role": "primary", "displayName": "Claude Coral", "canonical": "#e2825f", "tonalRamp": ["#3a1d13", "#5c2e1e", "#7f3f29", "#9c4a31", "#c4613f", "#e2825f", "#f0a07f", "#f8cdb9"] },
+      "codex-blue": { "role": "secondary", "displayName": "Codex Blue", "canonical": "#7c98ff", "tonalRamp": ["#141c40", "#1f2b63", "#2c3c87", "#3a4fae", "#5168d6", "#7c98ff", "#a9bcff", "#d6e0ff"] },
+      "hermes-violet": { "role": "tertiary", "displayName": "Hermes Violet", "canonical": "#b392f0", "tonalRamp": ["#22163a", "#352359", "#4a3279", "#614399", "#8a68cc", "#b392f0", "#cdb7f6", "#e8ddfb"] },
+      "canvas": { "role": "neutral", "displayName": "Night Canvas", "canonical": "#08080a", "tonalRamp": ["#08080a", "#0e0e11", "#16161a", "#202026", "#2c2c33", "#6b6e78", "#9a9ca6", "#ededf0"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Dashboard greeting only." },
+      "numeral": { "displayName": "Numeral", "purpose": "Usage percentages and website stats; tabular." },
+      "data": { "displayName": "Data mono", "purpose": "Commits, unit names, branches, tool steps." }
+    },
+    "shadows": [
+      { "name": "panel", "value": "0 1px 0 rgb(255 255 255 / 0.04) inset, 0 18px 40px -24px rgb(0 0 0 / 0.8)", "purpose": "Glass panel lift with top light." },
+      { "name": "meter-track", "value": "0 2px 10px rgb(0 0 0 / 0.6) inset", "purpose": "Recessed usage-meter track." },
+      { "name": "orb-tab", "value": "0 12px 30px -8px rgb(179 146 240 / 0.6)", "purpose": "Raised Talk orb in the phone tab bar." }
+    ],
+    "motion": [
+      { "name": "ease-out-expo", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Entrances (rise), meter fill, orb card hover." },
+      { "name": "rise", "value": "0.6s ease-out-expo, from 6px down + 4px blur", "purpose": "Staggered dashboard section entrance (60ms steps)." },
+      { "name": "meter-drift", "value": "14s linear infinite", "purpose": "Dot grain drifting inside meter fills." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Send / New chat.",
+      "html": "<button class=\"ds-btn-primary\">New chat</button>",
+      "css": ".ds-btn-primary { background: var(--color-text, #ededf0); color: var(--color-bg, #08080a); padding: 8px 16px; border: 0; border-radius: 9999px; font: 500 14px Geist, system-ui, sans-serif; transition: opacity .2s; } .ds-btn-primary:hover { opacity: .9; } .ds-btn-primary:focus-visible { outline: 2px solid #7c98ff; outline-offset: 2px; } .ds-btn-primary:disabled { opacity: .2; }"
+    },
+    {
+      "name": "Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip-filter-on",
+      "description": "Chats filter pills.",
+      "html": "<span class=\"ds-chip ds-chip-on\">Open</span><span class=\"ds-chip\">Claude</span>",
+      "css": ".ds-chip { display: inline-block; margin-right: 6px; padding: 6px 14px; border-radius: 9999px; border: 1px solid rgb(255 255 255 / .07); color: #9a9ca6; font: 14px Geist, system-ui, sans-serif; } .ds-chip:hover { color: #ededf0; } .ds-chip-on { background: #fff; color: #08080a; border-color: transparent; }"
+    },
+    {
+      "name": "Glass Panel Row",
+      "kind": "card",
+      "refersTo": "list-row",
+      "description": "Panel with hairline-divided rows.",
+      "html": "<div class=\"ds-panel\"><div class=\"ds-row\"><span class=\"ds-dot\"></span>Research YouTube<span class=\"ds-time\">1h ago</span></div><div class=\"ds-row\"><span class=\"ds-dot ds-blue\"></span>Codex smoke test<span class=\"ds-time\">2h ago</span></div></div>",
+      "css": ".ds-panel { background: linear-gradient(180deg, rgb(255 255 255 / .04), rgb(255 255 255 / .015)); border: 1px solid rgb(255 255 255 / .07); border-radius: 22px; box-shadow: 0 1px 0 rgb(255 255 255 / .04) inset, 0 18px 40px -24px rgb(0 0 0 / .8); overflow: hidden; color: #ededf0; font: 15px Geist, system-ui, sans-serif; } .ds-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 16px; border-bottom: 1px solid rgb(255 255 255 / .07); } .ds-row:last-child { border-bottom: 0; } .ds-row:hover { background: rgb(255 255 255 / .02); } .ds-dot { width: 8px; height: 8px; border-radius: 9999px; background: #e2825f; } .ds-blue { background: #7c98ff; } .ds-time { margin-left: auto; font-size: 12px; color: #85888f; }"
+    },
+    {
+      "name": "Usage Meter",
+      "kind": "custom",
+      "refersTo": "numeral",
+      "description": "Signature plan-usage meter.",
+      "html": "<div class=\"ds-meter\"><div class=\"ds-track\"><div class=\"ds-fill\" style=\"width:68%\"></div></div><b>68<small>%</small></b></div>",
+      "css": ".ds-meter { display: flex; align-items: center; gap: 20px; font-family: Geist, system-ui, sans-serif; color: #ededf0; } .ds-track { flex: 1; height: 44px; border-radius: 9999px; background: rgb(0 0 0 / .4); border: 1px solid rgb(255 255 255 / .07); box-shadow: 0 2px 10px rgb(0 0 0 / .6) inset; overflow: hidden; } .ds-fill { height: 100%; border-radius: 9999px; background: radial-gradient(circle at 20% 30%, rgb(255 255 255 / .35) 0 1px, transparent 1.5px) 0 0 / 9px 7px, linear-gradient(90deg, #3a4fae, #7c98ff 70%, #a9bcff); box-shadow: 0 0 24px -4px rgb(124 152 255 / .6); } .ds-meter b { font-size: 54px; font-weight: 600; letter-spacing: -.05em; font-variant-numeric: tabular-nums; } .ds-meter small { font-size: .42em; color: #9a9ca6; vertical-align: top; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Console",
+    "overview": "A control room you hold in one hand at 1 a.m. The canvas is near-black under a faint coral-and-blue nebula wash. Everything sits on soft glass panels lit from a hairline above. The only spectacle is the live nebula orb. It is the logo, the Talk button and a status light, and it glows more while agents work. Everything else is quiet, so the two agent colours read instantly: coral means Claude, blue means Codex.",
+    "keyCharacteristics": [
+      "Near-black canvas, glass panels, hairline borders.",
+      "Agent identity carried by colour (coral Claude, blue Codex, violet Hermes / Codex cloud, mint OpenCode).",
+      "One live signature, the canvas nebula orb. Everything else is still.",
+      "Big tabular numerals for usage, Geist everywhere, mono only for data."
+    ],
+    "rules": [
+      { "name": "The Agent Owns Its Colour Rule", "body": "Coral and blue mean Claude and Codex, nothing else. A third use of coral for \"accent\" would make the status dots lie.", "section": "colors" },
+      { "name": "The Signal Is Not Decoration Rule", "body": "Green, amber and red appear only as state: health dots, error panels, a meter at ≥80%.", "section": "colors" },
+      { "name": "The Numerals Are Tabular Rule", "body": "Any number that is compared or ticks (usage, ms, counts) uses tabular figures.", "section": "typography" },
+      { "name": "The One Glass Layer Rule", "body": "Panels don't nest. A list inside a panel uses hairline-divided rows, never cards inside a card.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do colour anything agent-related with that agent's own colour (claude-coral, codex-blue, hermes-violet).",
+      "Do keep rows at least 56px tall and every action within thumb reach on a 390px screen.",
+      "Do show an honest empty state when data is missing. Never a demo number.",
+      "Do use real icons (lucide, 1.75 stroke) for every arrow and affordance."
+    ],
+    "donts": [
+      "Don't add business or finance demo cards. Lind ruled them out.",
+      "Don't nest panels or use coloured side-stripes on rows.",
+      "Don't use text glyphs (→, ↗) as icons.",
+      "Don't add a light theme."
+    ]
+  }
+}

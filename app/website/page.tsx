@@ -70,7 +70,7 @@ export default async function WebsitePage() {
       </div>
 
       <section className="mt-8">
-        <SectionTitle right="next run →">Scheduled on the VPS</SectionTitle>
+        <SectionTitle right="next run">Scheduled on the VPS</SectionTitle>
         <Panel className="overflow-hidden">
           {s.units.length === 0 ? (
             <Empty>No 383 timers found on the VPS.</Empty>

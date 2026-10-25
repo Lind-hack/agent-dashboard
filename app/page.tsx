@@ -1,4 +1,4 @@
-import { ArrowUpRight, Radio } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Radio } from "lucide-react";
 import Link from "next/link";
 import { InboxList } from "@/components/inbox-list";
 import { Dot, Empty, Panel, SectionTitle } from "@/components/kit";
@@ -50,7 +50,7 @@ export default async function Dashboard() {
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <section className="rise" style={{ animationDelay: "120ms" }}>
-          <SectionTitle right={<Link href="/inbox" className="hover:text-text">Inbox →</Link>}>Needs you</SectionTitle>
+          <SectionTitle right={<Link href="/inbox" className="flex items-center gap-1 hover:text-text">Inbox <ArrowRight className="h-3.5 w-3.5" /></Link>}>Needs you</SectionTitle>
           <Panel className="overflow-hidden">
             <InboxList items={inbox} limit={5} empty="Nothing waiting. PRs, finished agents and failed timers show up here." />
           </Panel>
@@ -77,7 +77,7 @@ export default async function Dashboard() {
           </section>
 
           <section className="rise" style={{ animationDelay: "240ms" }}>
-            <SectionTitle right={<Link href="/website" className="hover:text-text">Website →</Link>}>383 overnight</SectionTitle>
+            <SectionTitle right={<Link href="/website" className="flex items-center gap-1 hover:text-text">Website <ArrowRight className="h-3.5 w-3.5" /></Link>}>383 overnight</SectionTitle>
             <Panel className="flex flex-col gap-3 p-4 text-sm">
               {site ? (
                 <>
@@ -106,7 +106,7 @@ export default async function Dashboard() {
       </div>
 
       <section className="rise" style={{ animationDelay: "300ms" }}>
-        <SectionTitle right={<Link href="/chat" className="hover:text-text">All chats →</Link>}>Recent chats</SectionTitle>
+        <SectionTitle right={<Link href="/chat" className="flex items-center gap-1 hover:text-text">All chats <ArrowRight className="h-3.5 w-3.5" /></Link>}>Recent chats</SectionTitle>
         <Panel className="overflow-hidden">
           {recent.length === 0 ? (
             <Empty>No chats yet.</Empty>

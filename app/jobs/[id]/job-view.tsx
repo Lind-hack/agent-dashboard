@@ -112,8 +112,8 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             <GitBranch className="h-3.5 w-3.5" /> {job.repo.split("/")[1] ?? job.repo}
           </span>
           {job.issueUrl ? (
-            <a href={job.issueUrl} target="_blank" rel="noreferrer" className="hover:text-text">
-              {job.id} ↗
+            <a href={job.issueUrl} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-text">
+              {job.id} <ArrowUpRight className="h-3 w-3" />
             </a>
           ) : (
             <span>{job.id}</span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useRef, useState } from "react";
+import { ArrowUpRight } from "lucide-react";
 import { Dot } from "@/components/kit";
 import { ReplyBar } from "@/components/reply-bar";
 import { ago, cn } from "@/lib/utils";
@@ -66,8 +67,8 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
             <Dot tone="hermes" pulse={lastRole === "you"} /> Codex cloud
           </span>
           {issue && (
-            <a href={issue.url} target="_blank" rel="noreferrer" className="hover:text-text">
-              {issue.identifier} ↗
+            <a href={issue.url} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-text">
+              {issue.identifier} <ArrowUpRight className="h-3 w-3" />
             </a>
           )}
           {issue?.state && <span>{issue.state.name}</span>}

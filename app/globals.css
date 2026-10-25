@@ -11,7 +11,7 @@
   --color-line-hi: rgb(255 255 255 / 0.12);
   --color-text: #ededf0;
   --color-muted: #9a9ca6;
-  --color-faint: #6b6e78;
+  --color-faint: #85888f; /* ≥4.5:1 on the canvas — it carries small text */
 
   --color-claude: #e2825f;
   --color-claude-deep: #9c4a31;
