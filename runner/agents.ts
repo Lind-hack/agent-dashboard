@@ -15,6 +15,17 @@ const opencodeModel = () => process.env.OPENCODE_MODEL ?? "opencode/deepseek-v4.
 
 export type TurnResult = { ok: boolean; sessionId?: string; result: string; costUsd?: number };
 
+// Agents run in their own process group (spawned detached) so a stop or timeout also ends the tools
+// they started, not just the CLI.
+export function killTree(child: ChildProcess | undefined, signal: NodeJS.Signals = "SIGTERM") {
+  if (!child?.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
+}
+
 type Emit = (e: Record<string, unknown>) => void;
 
 // Secrets the runner needs but the agents don't. NODE_ENV=production (for the services) would make
@@ -138,11 +149,11 @@ function opencodeParser(resume?: string): Parser {
 // Hermes answers in one block: the reply, then a "session_id: …" line.
 function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChild: (c: ChildProcess) => void }): Promise<TurnResult> {
   return new Promise((resolve) => {
-    const child = spawn("sudo", ["-n", "/usr/local/bin/ask-hermes", ...(opts.resume ? [opts.resume] : [])], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("sudo", ["-n", "/usr/local/bin/ask-hermes", ...(opts.resume ? [opts.resume] : [])], { stdio: ["pipe", "pipe", "pipe"], detached: true });
     opts.onChild(child);
     let out = "";
     let err = "";
-    const timer = setTimeout(() => child.kill("SIGTERM"), jobTimeoutMs());
+    const timer = setTimeout(() => killTree(child), jobTimeoutMs());
     child.stdout!.on("data", (c: Buffer) => (out += c.toString()));
     child.stderr!.on("data", (c: Buffer) => (err = (err + c.toString()).slice(-4000)));
     child.stdin!.end(opts.prompt);
@@ -205,14 +216,14 @@ export function runAgent(opts: {
   for (const k of HIDDEN_ENV) delete env[k];
 
   return new Promise((resolve) => {
-    const child = spawn(bin, args, { cwd: opts.cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(bin, args, { cwd: opts.cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
     opts.onChild(child);
     let buf = "";
     let stderr = "";
 
     const timer = setTimeout(() => {
       opts.onEvent({ kind: "error", text: `Timed out after ${jobTimeoutMs() / 60_000} min` });
-      child.kill("SIGTERM");
+      killTree(child);
     }, jobTimeoutMs());
 
     child.stdout!.on("data", (chunk: Buffer) => {
@@ -235,7 +246,11 @@ export function runAgent(opts: {
     child.on("close", (code, signal) => {
       clearTimeout(timer);
       const final = parser.finish();
-      if (final) return resolve(final);
+      // A parsed result only counts if the CLI also exited cleanly.
+      if (final && code === 0) return resolve(final);
+      if (final) return resolve({ ...final, ok: false, result: `${final.result}
+
+(${opts.agent} exited ${signal ? `on ${signal}` : `with code ${code}`} after its result)` });
       const why = signal ? `killed (${signal})` : `exit code ${code}`;
       if (stderr.trim()) opts.onEvent({ kind: "error", text: stderr.trim() });
       resolve({ ok: false, sessionId: parser.sessionId(), result: `${opts.agent} stopped without a result: ${why}. ${stderr.trim().slice(-500)}` });

@@ -44,23 +44,36 @@ function withRepoLock<T>(repo: string, fn: () => Promise<T>): Promise<T> {
 const repoDir = (repo: RepoKey) => path.join(WORK_DIR, "repos", repo.replace("/", "__"));
 export const worktreeDir = (jobId: string) => path.join(WORK_DIR, "wt", jobId);
 
-// New work branches off `base`; a hand-off continues `fromBranch` exactly where the PC left it.
-export function ensureWorktree(opts: { repo: RepoKey; base: string; jobId: string; branch: string; fromBranch?: string }) {
+// New work branches off `base`; a hand-off continues `fromBranch` exactly where the PC left it, or (v2)
+// starts at `fromSha`, the PC snapshot commit published under the hidden ref `fetchRef`.
+type WorktreeOpts = { repo: RepoKey; base: string; jobId: string; branch: string; fromBranch?: string; fromSha?: string; fetchRef?: string };
+
+export function ensureWorktree(opts: WorktreeOpts) {
   return withRepoLock(opts.repo, () => ensureWorktreeLocked(opts));
 }
 
-async function ensureWorktreeLocked(opts: { repo: RepoKey; base: string; jobId: string; branch: string; fromBranch?: string }) {
+async function ensureWorktreeLocked(opts: WorktreeOpts) {
   const dir = repoDir(opts.repo);
   if (!fs.existsSync(path.join(dir, ".git"))) {
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     await git(path.dirname(dir), ["clone", `https://github.com/${opts.repo}.git`, dir], true);
   }
   await git(dir, ["fetch", "--prune", "origin"], true);
+  if (opts.fetchRef && /^refs\/agent-handoff\/[\w-]+\/\d+$/.test(opts.fetchRef)) {
+    await git(dir, ["fetch", "origin", `+${opts.fetchRef}:${opts.fetchRef}`], true);
+  }
+  // Hand-off context lives beside the code and must never be committed.
+  const exclude = path.join(dir, ".git", "info", "exclude");
+  if (!fs.existsSync(exclude) || !fs.readFileSync(exclude, "utf8").includes(".handoff/")) {
+    fs.mkdirSync(path.dirname(exclude), { recursive: true });
+    fs.appendFileSync(exclude, "\n.handoff/\n");
+  }
   const wt = worktreeDir(opts.jobId);
   if (!fs.existsSync(wt)) {
     fs.mkdirSync(path.dirname(wt), { recursive: true });
     await git(dir, ["worktree", "prune"]);
-    await git(dir, ["worktree", "add", "-B", opts.branch, wt, `origin/${opts.fromBranch ?? opts.base}`]);
+    const start = opts.fromSha && /^[0-9a-f]{40}$/.test(opts.fromSha) ? opts.fromSha : `origin/${opts.fromBranch ?? opts.base}`;
+    await git(dir, ["worktree", "add", "-B", opts.branch, wt, start]);
   }
   return wt;
 }

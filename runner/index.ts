@@ -1,12 +1,16 @@
 import type { ChildProcess } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { RELAY_STEPS, VPS_AGENTS } from "../lib/agents";
 import { AGENT_LABELS, BOT_MARK, repoFromLabel, repoNotes, replyPrefix, WORK_DIR, type AgentKey } from "../lib/config";
 import { repoBase } from "../lib/github";
 import { agentIssues, comment, issueComments, moveToStateType, type LinearIssue } from "../lib/linear";
 import { recordClaudeUsage } from "../lib/usage";
-import { appendLog, drainInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
-import { runAgent } from "./agents";
+import { pendingImports, releaseReservation } from "../lib/handoff";
+import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
+import { killTree, runAgent } from "./agents";
 import { ensurePullRequest, ensureWorktree, pushBranch, removeWorktree } from "./git";
+import { handoffPreamble, jobFromHandoff, prepareHandoff } from "./handoff";
 
 // The runner owns every job file. It polls Linear for `agent:claude` / `agent:codex` issues, takes
 // untracked chats from the dashboard inbox, runs one turn per agent at a time, pushes the branch,
@@ -27,12 +31,14 @@ const save = (job: Job) => {
 };
 const isActive = (job: Job) => active.get(job.agent)?.id === job.id;
 
-// Jobs that were mid-turn when the runner last stopped get that turn retried.
+// Jobs that were mid-turn when the runner last stopped are not replayed (the agent may already have
+// acted): they're marked interrupted and show up in the Inbox for Lind to resend.
 for (const job of jobs.values()) {
   if (job.status === "running") {
-    const last = job.turns.pop();
-    job.pending = last ? { prompt: last.prompt, source: last.source } : job.pending;
-    job.status = "queued";
+    const last = job.turns.at(-1);
+    if (last && !last.endedAt) Object.assign(last, { endedAt: new Date().toISOString(), ok: false, result: "Interrupted by a runner restart." });
+    job.status = "failed";
+    job.error = "Interrupted by a runner restart — send your message again to continue.";
     save(job);
   }
 }
@@ -150,41 +156,112 @@ async function createChat(chat: NewChat) {
 }
 
 async function handleInbox() {
-  for (const item of drainInbox()) {
+  for (const { item, ack } of claimInbox()) {
     if (item.kind === "sync") {
       forceSync = true;
+      ack();
       continue;
     }
     if (item.kind === "create") {
       await createChat(item.chat).catch((e) => log("create chat", e instanceof Error ? e.message : e));
+      ack();
       continue;
     }
     const job = jobs.get(item.jobId);
-    if (!job) continue;
+    if (!job) {
+      ack();
+      continue;
+    }
+    // Already applied before a crash (the event id is saved in the same write as its effect).
+    if (item.eventId && job.seenEvents?.includes(item.eventId)) {
+      ack();
+      continue;
+    }
+    const seen = (j: Job) => {
+      if (item.eventId) j.seenEvents = [...(j.seenEvents ?? []), item.eventId].slice(-200);
+    };
     if (item.kind === "cancel") {
-      if (isActive(job)) active.get(job.agent)?.child?.kill("SIGTERM");
+      if (isActive(job)) killTree(active.get(job.agent)?.child);
       job.pending = undefined;
       job.status = "cancelled";
+      seen(job);
       save(job);
       appendLog(job.id, { kind: "error", text: "Stopped from the dashboard" });
     }
-    if (item.kind === "archive" && !isActive(job)) {
+    if (item.kind === "archive" && !isActive(job) && job.status !== "preparing") {
       job.status = "closed";
       job.pending = undefined;
+      seen(job);
       save(job);
-      await removeWorktree(job.repo, job.id).catch((e) => log("worktree cleanup", job.id, e.message));
+      if (job.imported) releaseReservation(job.imported.sessionId, job.imported.generation);
+      if (job.repo) await removeWorktree(job.repo, job.id).catch((e) => log("worktree cleanup", job.id, e.message));
     }
     if (item.kind === "reply" && item.prompt.trim()) {
-      // A reply to a running turn waits until that turn ends.
+      // A reply to a running turn waits until that turn ends; a hand-off still preparing gets it after.
       job.pending = {
         prompt: [job.pending?.prompt, item.prompt.trim()].filter(Boolean).join("\n\n"),
         source: "dashboard",
       };
-      if (!isActive(job)) job.status = "queued";
+      if (!isActive(job) && job.status !== "preparing") job.status = "queued";
+      seen(job);
       save(job);
     }
+    ack();
   }
 }
+
+// Hand-off v2: published uploads become jobs; their context is prepared in the background.
+const preparing = new Set<string>();
+
+function startPrepare(job: Job) {
+  if (preparing.has(job.id)) return;
+  preparing.add(job.id);
+  const update = (patch: Partial<NonNullable<Job["imported"]>>, logText?: string) => {
+    const j = jobs.get(job.id)!;
+    j.imported = { ...j.imported!, ...patch };
+    save(j);
+    if (logText) appendLog(j.id, { kind: "tool", text: logText });
+  };
+  appendLog(job.id, { kind: "turn", text: `Handed off from the PC — preparing context (${job.imported?.mode === "native" ? "live chat" : "summary"})` });
+  void prepareHandoff(
+    job,
+    async () => {
+      const j = jobs.get(job.id)!;
+      const base = j.base ?? (j.base = await repoBase(j.repo));
+      return ensureWorktree({ repo: j.repo, base, jobId: j.id, branch: j.branch, fromSha: j.fromSha, fetchRef: j.fetchRef });
+    },
+    update,
+  )
+    .catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      log("handoff prepare", job.id, msg);
+      update({ dossier: "failed", dossierError: msg }, `Preparing failed: ${msg}`);
+    })
+    .finally(() => {
+      preparing.delete(job.id);
+      const j = jobs.get(job.id)!;
+      j.status = j.pending ? "queued" : "waiting";
+      save(j);
+    });
+}
+
+async function importHandoffs() {
+  for (const { dir, meta } of pendingImports()) {
+    const existing = [...jobs.values()].find((j) => j.imported?.generation === meta.generation && j.imported.sessionId === meta.sessionId);
+    if (!existing) {
+      const base = meta.repo ? await repoBase(meta.repo).catch(() => undefined) : undefined;
+      const job = jobFromHandoff(meta, base);
+      save(job);
+      log("handoff imported", job.id, meta.agent, meta.repo ?? "(no repo)", meta.mode);
+      startPrepare(job);
+    }
+    // Written after the job exists, so a crash in between just re-finds the job above.
+    fs.writeFileSync(path.join(dir, "imported.json"), JSON.stringify({ at: new Date().toISOString() }));
+  }
+}
+
+// A restart mid-preparation picks it up again.
+for (const job of jobs.values()) if (job.status === "preparing") startPrepare(job);
 
 // Extra instructions for each relay step (plan → build → review on one branch).
 function relayNote(job: Job): string {
@@ -266,9 +343,13 @@ async function continueRelay(job: Job, result: string, pushed: boolean) {
 async function runTurn(job: Job) {
   const agent = job.agent;
   const turn: Turn = { ...job.pending!, startedAt: new Date().toISOString() };
-  // No session yet (first turn, or the first one died before the agent started): send the full
-  // brief. For a chat or hand-off, the opening message *is* the task, so it's already in the brief.
-  if (!job.sessionId) {
+  const shown = turn.prompt;
+  if (job.imported?.needsPreamble) {
+    // First message after a PC hand-off: where the agent is now and where its context lives.
+    turn.prompt = `${handoffPreamble(job)}\n\n## Lind's message\n${turn.prompt}`;
+  } else if (!job.sessionId) {
+    // No session yet (first turn, or the first one died before the agent started): send the full
+    // brief. For a chat or hand-off, the opening message *is* the task, so it's already in the brief.
     const extra = turn.source === "dashboard" && job.turns.length ? turn.prompt : "";
     turn.prompt = brief(job) + (extra ? `\n\n## Additional instructions from Lind\n${extra}` : "");
   }
@@ -281,9 +362,9 @@ async function runTurn(job: Job) {
   appendLog(job.id, {
     kind: "turn",
     text:
-      job.turns.length === 1
+      job.turns.length === 1 && !job.imported
         ? `Started (${[AGENT_LABELS[agent], job.repo, job.group?.kind === "relay" ? `relay ${RELAY_STEPS[job.group.step] ?? ""}` : ""].filter(Boolean).join(" · ")})`
-        : `You: ${turn.prompt}`,
+        : `You: ${shown}`,
   });
 
   try {
@@ -294,7 +375,11 @@ async function runTurn(job: Job) {
     // Hermes works in its own container; every other agent gets a worktree of the repo.
     const usesRepo = agent !== "hermes" && !!job.repo;
     const base = usesRepo ? (job.base ?? (job.base = await repoBase(job.repo))) : "";
-    const wt = usesRepo ? await ensureWorktree({ repo: job.repo, base, jobId: job.id, branch: job.branch, fromBranch: job.fromBranch }) : WORK_DIR;
+    const wt = usesRepo
+      ? await ensureWorktree({ repo: job.repo, base, jobId: job.id, branch: job.branch, fromBranch: job.fromBranch, fromSha: job.fromSha, fetchRef: job.fetchRef })
+      : job.imported?.contextDir
+        ? path.dirname(job.imported.contextDir)
+        : WORK_DIR;
     const res = await runAgent({
       agent,
       cwd: wt,
@@ -307,6 +392,7 @@ async function runTurn(job: Job) {
       },
     });
     if (res.sessionId) job.sessionId = res.sessionId;
+    if (res.ok && job.imported) job.imported.needsPreamble = false;
     Object.assign(turn, { endedAt: new Date().toISOString(), ok: res.ok, result: res.result, costUsd: res.costUsd });
 
     // A stop during the run already set the status — keep it.
@@ -360,6 +446,7 @@ async function runTurn(job: Job) {
 async function tick() {
   writeHeartbeat({ active: [...active.values()].map((a) => a.id) });
   await handleInbox();
+  await importHandoffs().catch((e) => log("handoff import", e instanceof Error ? e.message : e));
   if (forceSync || Date.now() - lastSync > SYNC_MS) {
     forceSync = false;
     lastSync = Date.now();

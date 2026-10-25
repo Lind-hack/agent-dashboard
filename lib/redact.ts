@@ -12,16 +12,17 @@ const PATTERNS: [string, RegExp][] = [
   ["slack", /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g],
   ["linear", /\blin_(?:api|oauth)_[A-Za-z0-9]{20,}\b/g],
   ["jwt", /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g],
-  ["auth-header", /\b(Authorization|Cookie|Set-Cookie|X-Api-Key)(\s*[:=]\s*)(?:Bearer\s+|Basic\s+)?[^\s"'\\]{8,}/gi],
+  // Values are token characters only, so code like `Bearer ${token}` or path.join(...) isn't a secret.
+  ["auth-header", /\b(Authorization|Cookie|Set-Cookie|X-Api-Key)(\s*[:=]\s*(?:Bearer\s+|Basic\s+)?)([A-Za-z0-9._~+/=-]{8,})(?![\w(])/gi],
   ["url-credentials", /\b([a-z][a-z0-9+.-]*:\/\/)[^\s:/@"']+:[^\s@/"']+@/gi],
   [
     "env-assignment",
-    /\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD|CREDENTIALS?|PRIVATE|SESSION|COOKIE|AUTH)[A-Z0-9_]*)(\s*[=:]\s*)(["']?)[^\s"'`]{8,}\3/g,
+    /\b([A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD|CREDENTIALS?|PRIVATE|SESSION|COOKIE|AUTH)[A-Z0-9_]*)(\s*[=:]\s*["']?)([A-Za-z0-9_~+/=-]{8,})(?![\w(.])/g,
   ],
 ];
 
-// Long random-looking tokens that don't match a known shape.
-const HIGH_ENTROPY = /\b[A-Za-z0-9+/_-]{40,}\b/g;
+// Long random-looking tokens that don't match a known shape. No "/" in the class: long paths aren't tokens.
+const HIGH_ENTROPY = /\b[A-Za-z0-9+_-]{40,}\b/g;
 
 function entropy(s: string): number {
   const counts = new Map<string, number>();
@@ -31,7 +32,9 @@ function entropy(s: string): number {
   return h;
 }
 
-const looksRandom = (s: string) => entropy(s) > 4.3 && /[A-Z]/.test(s) && /[a-z]/.test(s) && /\d/.test(s) && !/^[0-9a-f]+$/i.test(s);
+const randomRun = (s: string) => entropy(s) > 4.1 && /[A-Z]/.test(s) && /[a-z]/.test(s) && /\d/.test(s) && !/^[0-9a-f]+$/i.test(s);
+// Tokens have a long unbroken random run; hyphenated names (Claude project dirs, slugs) are short words.
+const looksRandom = (s: string) => entropy(s) > 4.3 && s.split(/[-_]/).some((part) => part.length >= 20 && randomRun(part));
 
 export type RedactResult = { text: string; hits: Record<string, number> };
 
@@ -41,7 +44,9 @@ export function redact(input: string): RedactResult {
   const bump = (k: string) => (hits[k] = (hits[k] ?? 0) + 1);
   let text = input;
   for (const [kind, re] of PATTERNS) {
-    text = text.replace(re, (m: string, a?: string, b?: string) => {
+    text = text.replace(re, (m: string, a?: string, b?: string, value?: string) => {
+      // An ALL_CAPS value is a variable name ("Bearer HANDOFF_TOKEN"), not a secret.
+      if ((kind === "auth-header" || kind === "env-assignment") && /^[A-Z][A-Z0-9_]+$/.test(String(value))) return m;
       bump(kind);
       if (kind === "auth-header" || kind === "env-assignment") return `${a}${b}[redacted:${kind}]`;
       if (kind === "url-credentials") return `${a}[redacted]@`;

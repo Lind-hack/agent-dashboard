@@ -8,6 +8,7 @@ import { ReplyBar } from "@/components/reply-bar";
 import { AGENT_LABELS } from "@/lib/agents";
 import type { Job } from "@/lib/store";
 import { ago, cn } from "@/lib/utils";
+import { ContextPanel, EarlierOnPc, HandoffStrip } from "./handoff-panels";
 
 type LogEvent = { t?: string; kind?: string; text?: string; ok?: boolean; costUsd?: number; sessionId?: string };
 
@@ -62,8 +63,11 @@ function Tools({ items }: { items: string[] }) {
   );
 }
 
+type Tab = "chat" | "context" | "earlier";
+
 export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLog: LogEvent[] }) {
   const [job, setJob] = useState(initialJob);
+  const [tab, setTab] = useState<Tab>("chat");
   const [log, setLog] = useState<LogEvent[]>(initialLog);
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -98,6 +102,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
   }
 
   const running = job.status === "running" || job.status === "queued";
+  const preparing = job.status === "preparing";
   const agentName = AGENT_LABELS[job.agent ?? "claude"];
   const blocks = toBlocks(log);
 
@@ -128,7 +133,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
               job.status === "failed" ? "bg-bad/15 text-bad" : running ? "bg-claude/15 text-claude" : "bg-white/[0.06] text-muted",
             )}
           >
-            {job.status === "queued" ? "waiting for a free slot" : job.status === "running" ? `${agentName} is working` : job.status}
+            {job.status === "queued" ? "waiting for a free slot" : job.status === "running" ? `${agentName} is working` : preparing ? "preparing context" : job.status}
           </span>
           {job.prUrl && (
             <a href={job.prUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded-full border border-line px-3 py-1 text-xs hover:border-line-hi">
@@ -141,15 +146,40 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             </button>
           )}
           {/* Linear jobs close when the issue is closed; plain chats are archived here. */}
-          {!running && !job.issueId && job.status !== "closed" && (
+          {!running && !preparing && !job.issueId && job.status !== "closed" && (
             <button onClick={() => post({ action: "archive" })} className="ml-auto flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-muted hover:text-text">
               <Archive className="h-3.5 w-3.5" /> Archive
             </button>
           )}
         </div>
+        {job.imported && <HandoffStrip imported={job.imported} status={job.status} />}
+        {job.imported && (
+          <div className="mt-4 flex gap-1 rounded-full border border-line p-1 text-sm" role="tablist" aria-label="Chat views">
+            {(
+              [
+                ["chat", "Chat"],
+                ["context", "Context"],
+                ["earlier", "Earlier on PC"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                role="tab"
+                aria-selected={tab === k}
+                onClick={() => setTab(k)}
+                className={cn("min-h-9 flex-1 rounded-full px-3 transition-colors", tab === k ? "bg-text text-bg" : "text-muted hover:text-text")}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </header>
 
-      <div className="flex flex-col gap-4 text-[15px] leading-relaxed">
+      {job.imported && tab === "context" && <ContextPanel jobId={job.id} dossierState={job.imported.dossier} />}
+      {job.imported && tab === "earlier" && <EarlierOnPc jobId={job.id} Tools={Tools} />}
+
+      <div className={cn("flex flex-col gap-4 text-[15px] leading-relaxed", job.imported && tab !== "chat" && "hidden")}>
         {blocks.map((b, i) => {
           if (b.kind === "tools") return <Tools key={i} items={b.items} />;
           if (b.kind === "start") return <p key={i} className="text-xs text-faint">{b.text}</p>;
@@ -177,6 +207,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             </div>
           );
         })}
+        {preparing && <p className="animate-pulse text-xs text-muted">Getting the code, the chat and the project dossier ready…</p>}
         {running && <p className="animate-pulse text-xs text-muted">{job.status === "queued" ? "Waiting for a free slot…" : `${agentName} is working…`}</p>}
         <div ref={bottom} />
       </div>

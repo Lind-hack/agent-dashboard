@@ -5,8 +5,24 @@ import { DATA_DIR, repoFromLabel, type AgentKey, type RepoKey } from "./config";
 
 // One JSON file per job plus an NDJSON log per job. Personal scale — no database needed.
 
-// waiting = turn finished, a reply continues the session; closed = the Linear issue was completed or cancelled.
-export type JobStatus = "queued" | "running" | "waiting" | "failed" | "cancelled" | "closed";
+// waiting = turn finished, a reply continues the session; closed = the Linear issue was completed or cancelled;
+// preparing = a PC hand-off whose context (worktree, transcript, dossier) is still being set up.
+export type JobStatus = "queued" | "running" | "waiting" | "failed" | "cancelled" | "closed" | "preparing";
+
+// A chat handed off from the PC (hand-off v2). The raw transcript lives in handoffs/sessions/<sid>/<gen>/.
+export type Imported = {
+  sessionId: string;
+  generation: string;
+  mode: "native" | "summary"; // native = the PC session itself resumes; summary = a new session from the dossier
+  pcCwd: string;
+  pcTranscriptPath: string;
+  pcProjectDir: string;
+  snapshot?: { ref: string; sha: string; pcBranch?: string; boundary: string };
+  contextDir?: string; // the .handoff/ folder beside the code
+  dossier?: "building" | "ready" | "failed";
+  dossierError?: string;
+  needsPreamble: boolean;
+};
 
 export type Turn = {
   prompt: string;
@@ -35,6 +51,11 @@ export type Job = {
   group?: JobGroup;
   status: JobStatus;
   sessionId?: string;
+  fromSha?: string; // hand-off: start the branch at this commit (fetched from fetchRef)
+  fetchRef?: string;
+  imported?: Imported;
+  owner?: "vps" | "returning" | "pc"; // who may continue an imported chat
+  seenEvents?: string[]; // inbox event ids already applied (crash-safe dedupe)
   prUrl?: string;
   pending?: Turn; // next turn waiting for the runner
   turns: Turn[];
@@ -124,35 +145,42 @@ export type NewChat = {
   group?: JobGroup;
 };
 
-export type InboxItem =
+export type InboxItem = (
   | { kind: "create"; chat: NewChat } // a chat not tracked in Linear
   | { kind: "reply"; jobId: string; prompt: string }
   | { kind: "cancel"; jobId: string }
   | { kind: "archive"; jobId: string } // a finished chat: close it and free its worktree
-  | { kind: "sync" }; // a new issue was created from the dashboard — poll Linear now
+  | { kind: "sync" }
+) & { eventId?: string }; // sync = poll Linear / look for new hand-offs now
 
 const inboxDir = path.join(DATA_DIR, "inbox");
+const claimedDir = path.join(inboxDir, "claimed");
 
 export function pushInbox(item: InboxItem) {
   fs.mkdirSync(inboxDir, { recursive: true });
   const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
-  fs.writeFileSync(path.join(inboxDir, `${name}.tmp`), JSON.stringify(item));
+  fs.writeFileSync(path.join(inboxDir, `${name}.tmp`), JSON.stringify({ ...item, eventId: item.eventId ?? name.slice(0, -5) }));
   fs.renameSync(path.join(inboxDir, `${name}.tmp`), path.join(inboxDir, name));
 }
 
-export function drainInbox(): InboxItem[] {
-  fs.mkdirSync(inboxDir, { recursive: true });
-  const items: InboxItem[] = [];
-  for (const f of fs.readdirSync(inboxDir).filter((f) => f.endsWith(".json")).sort()) {
-    const file = path.join(inboxDir, f);
-    try {
-      items.push(JSON.parse(fs.readFileSync(file, "utf8")));
-    } catch {
-      // unreadable item — drop it rather than loop on it forever
-    }
-    fs.rmSync(file, { force: true });
+// Claim, then acknowledge: items move to inbox/claimed/ and are deleted only after the runner has
+// applied them, so a crash mid-way replays them on the next start (job.seenEvents stops doubles).
+export function claimInbox(): { item: InboxItem; ack: () => void }[] {
+  fs.mkdirSync(claimedDir, { recursive: true });
+  for (const f of fs.readdirSync(inboxDir).filter((f) => f.endsWith(".json"))) {
+    fs.renameSync(path.join(inboxDir, f), path.join(claimedDir, f));
   }
-  return items;
+  const out: { item: InboxItem; ack: () => void }[] = [];
+  for (const f of fs.readdirSync(claimedDir).filter((f) => f.endsWith(".json")).sort()) {
+    const file = path.join(claimedDir, f);
+    const ack = () => fs.rmSync(file, { force: true });
+    try {
+      out.push({ item: JSON.parse(fs.readFileSync(file, "utf8")), ack });
+    } catch {
+      ack(); // unreadable item — drop it rather than loop on it forever
+    }
+  }
+  return out;
 }
 
 // Runner liveness, shown on the dashboard.
