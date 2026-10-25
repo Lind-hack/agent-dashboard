@@ -18,6 +18,7 @@ const TONE: Record<InboxItem["tone"], string> = {
   claude: "text-claude",
   codex: "text-codex",
   hermes: "text-hermes",
+  opencode: "text-opencode",
   ok: "text-ok",
   bad: "text-bad",
   neutral: "text-muted",

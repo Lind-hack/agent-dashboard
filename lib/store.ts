@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import type { GroupKind } from "./agents";
 import { DATA_DIR, repoFromLabel, type AgentKey, type RepoKey } from "./config";
 
 // One JSON file per job plus an NDJSON log per job. Personal scale — no database needed.
@@ -17,6 +18,9 @@ export type Turn = {
   costUsd?: number;
 };
 
+// Ask-all fans one prompt out to several agents; a relay chains plan → build → review.
+export type JobGroup = { id: string; kind: GroupKind; step: number; steps: AgentKey[]; task: string };
+
 export type Job = {
   id: string; // Linear identifier (LIN-42), or C-xxxx for a chat that isn't tracked in Linear
   agent: AgentKey;
@@ -27,7 +31,8 @@ export type Job = {
   repo: RepoKey; // GitHub full name
   base?: string; // branch the work starts from / the PR targets
   branch: string;
-  fromBranch?: string; // hand-off: continue an existing branch instead of starting from base
+  fromBranch?: string; // hand-off / relay review: continue an existing branch instead of starting from base
+  group?: JobGroup;
   status: JobStatus;
   sessionId?: string;
   prUrl?: string;
@@ -116,6 +121,7 @@ export type NewChat = {
   prompt: string;
   fromBranch?: string;
   source: "dashboard" | "handoff";
+  group?: JobGroup;
 };
 
 export type InboxItem =

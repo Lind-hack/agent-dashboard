@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
-import { AGENT_LABELS, BOT_MARK, repoFromLabel, repoNotes, replyPrefix, type AgentKey } from "../lib/config";
+import { RELAY_STEPS, VPS_AGENTS } from "../lib/agents";
+import { AGENT_LABELS, BOT_MARK, repoFromLabel, repoNotes, replyPrefix, WORK_DIR, type AgentKey } from "../lib/config";
 import { repoBase } from "../lib/github";
 import { agentIssues, comment, issueComments, moveToStateType, type LinearIssue } from "../lib/linear";
 import { recordClaudeUsage } from "../lib/usage";
@@ -13,7 +14,6 @@ import { ensurePullRequest, ensureWorktree, pushBranch, removeWorktree } from ".
 
 const TICK_MS = 3_000;
 const SYNC_MS = 30_000;
-const VPS_AGENTS: AgentKey[] = ["claude", "codex"];
 
 const jobs = new Map<string, Job>(listJobs().map((j) => [j.id, j]));
 const active = new Map<AgentKey, { id: string; child?: ChildProcess }>();
@@ -134,9 +134,10 @@ async function createChat(chat: NewChat) {
     title: chat.title,
     description: chat.prompt,
     repo: chat.repo,
-    base: await repoBase(chat.repo),
+    base: chat.repo ? await repoBase(chat.repo) : undefined,
     branch: chat.fromBranch ?? branchFor(chat.id),
     fromBranch: chat.fromBranch,
+    group: chat.group,
     status: "queued",
     pending: { prompt: chat.prompt, source: chat.source },
     turns: [],
@@ -185,7 +186,35 @@ async function handleInbox() {
   }
 }
 
+// Extra instructions for each relay step (plan → build → review on one branch).
+function relayNote(job: Job): string {
+  const g = job.group;
+  if (g?.kind !== "relay") return "";
+  const n = g.steps.length;
+  const next = g.steps[g.step + 1] ? AGENT_LABELS[g.steps[g.step + 1]] : "";
+  if (g.step === 0) {
+    return [
+      "",
+      `## Relay step 1 of ${n}: ${RELAY_STEPS[0]}`,
+      "Plan only: do not edit files or commit. Read the code, then write a numbered implementation plan: files to touch, the change in each, risks, and how to verify.",
+      next ? `${next} builds from your plan next.` : "",
+    ].join("\n");
+  }
+  if (g.step === 1) {
+    return ["", `## Relay step 2 of ${n}: ${RELAY_STEPS[1]}`, "Implement the task following the plan above.", next ? `${next} reviews your branch next.` : ""].join("\n");
+  }
+  return [
+    "",
+    `## Relay step 3 of ${n}: ${RELAY_STEPS[2]}`,
+    `Review the changes on this branch against the task: run \`git diff origin/${job.base}...HEAD\`.`,
+    "Fix real problems (bugs, missed requirements, broken checks) and commit the fixes; don't rewrite working code for taste.",
+    "End with a short review: what you checked, what you fixed, what's still open.",
+  ].join("\n");
+}
+
 function brief(job: Job): string {
+  // Hermes has its own memory, skills and workspace; it just gets the message.
+  if (job.agent === "hermes") return job.description;
   const where = job.fromBranch
     ? `a git worktree on branch \`${job.branch}\`, which continues work handed off from Lind's PC`
     : `a git worktree on branch \`${job.branch}\`, created from \`origin/${job.base}\``;
@@ -203,7 +232,35 @@ ${job.description || "(no description)"}
 - If this is a question rather than a change, just answer it — no commit needed.
 - For changes: make them, run the relevant checks (typecheck, lint, tests) where the project has them, and commit with messages starting "${job.id}: ". Do not push, merge or deploy — the runner pushes the branch and opens the PR.
 - Lind replies between turns, not during one. If something is ambiguous, pick the safest reasonable option and say so.
-- End with a short summary: what you changed, what you verified, anything left open.`;
+- End with a short summary: what you changed, what you verified, anything left open.${relayNote(job)}`;
+}
+
+// When a relay step finishes, start the next one: the build step gets the plan, the review step
+// continues the build's branch.
+async function continueRelay(job: Job, result: string, pushed: boolean) {
+  const g = job.group;
+  if (g?.kind !== "relay" || g.step + 1 >= g.steps.length) return;
+  const next = g.step + 1;
+  if (next === 2 && !pushed) {
+    appendLog(job.id, { kind: "error", text: "Relay stopped: the build step pushed no changes, so there is nothing to review." });
+    return;
+  }
+  const id = `${g.id}-${next + 1}`;
+  const prompt =
+    next === 1
+      ? `${g.task}\n\n## Plan from ${AGENT_LABELS[job.agent]}\n${result}`
+      : `${g.task}\n\n(Built by ${AGENT_LABELS[job.agent]} on branch ${job.branch}${job.prUrl ? `, PR ${job.prUrl}` : ""}.)`;
+  await createChat({
+    id,
+    agent: g.steps[next],
+    repo: job.repo,
+    title: `${RELAY_STEPS[next]}: ${g.task.split("\n")[0].slice(0, 70)}`,
+    prompt,
+    fromBranch: next === 2 ? job.branch : undefined,
+    source: "dashboard",
+    group: { ...g, step: next },
+  });
+  appendLog(job.id, { kind: "tool", text: `Relay → ${RELAY_STEPS[next]} with ${AGENT_LABELS[g.steps[next]]} (${id})` });
 }
 
 async function runTurn(job: Job) {
@@ -223,7 +280,10 @@ async function runTurn(job: Job) {
   active.set(agent, { id: job.id });
   appendLog(job.id, {
     kind: "turn",
-    text: job.turns.length === 1 ? `Started (${AGENT_LABELS[agent]} · ${job.repo})` : `You: ${turn.prompt}`,
+    text:
+      job.turns.length === 1
+        ? `Started (${[AGENT_LABELS[agent], job.repo, job.group?.kind === "relay" ? `relay ${RELAY_STEPS[job.group.step] ?? ""}` : ""].filter(Boolean).join(" · ")})`
+        : `You: ${turn.prompt}`,
   });
 
   try {
@@ -231,8 +291,10 @@ async function runTurn(job: Job) {
       await comment(job.issueId, `${BOT_MARK} ${AGENT_LABELS[agent]} picked this up on the VPS (branch \`${job.branch}\`).`).catch(() => {});
       await moveToStateType(job.issueId, "started").catch((e) => log("state", job.id, e.message));
     }
-    const base = job.base ?? (job.base = await repoBase(job.repo));
-    const wt = await ensureWorktree({ repo: job.repo, base, jobId: job.id, branch: job.branch, fromBranch: job.fromBranch });
+    // Hermes works in its own container; every other agent gets a worktree of the repo.
+    const usesRepo = agent !== "hermes" && !!job.repo;
+    const base = usesRepo ? (job.base ?? (job.base = await repoBase(job.repo))) : "";
+    const wt = usesRepo ? await ensureWorktree({ repo: job.repo, base, jobId: job.id, branch: job.branch, fromBranch: job.fromBranch }) : WORK_DIR;
     const res = await runAgent({
       agent,
       cwd: wt,
@@ -250,7 +312,7 @@ async function runTurn(job: Job) {
     // A stop during the run already set the status — keep it.
     if ((job.status as Job["status"]) === "cancelled") return;
 
-    const pushed = await pushBranch(wt, base, job.branch, job.id);
+    const pushed = usesRepo ? await pushBranch(wt, base, job.branch, job.id) : false;
     if (pushed) {
       job.prUrl =
         (await ensurePullRequest({
@@ -264,6 +326,7 @@ async function runTurn(job: Job) {
     }
     job.status = res.ok ? "waiting" : "failed";
     if (!res.ok) job.error = res.result.slice(0, 500);
+    if (res.ok && job.turns.length === 1) await continueRelay(job, res.result, pushed).catch((e) => log("relay", job.id, e.message));
 
     if (job.issueId) {
       const lines = [

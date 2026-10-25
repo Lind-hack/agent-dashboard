@@ -18,7 +18,7 @@ export type InboxItem = {
   href: string;
   external?: boolean;
   at: string;
-  tone: "claude" | "codex" | "hermes" | "ok" | "bad" | "neutral";
+  tone: "claude" | "codex" | "hermes" | "opencode" | "ok" | "bad" | "neutral";
 };
 
 const seenFile = () => path.join(DATA_DIR, "seen.json");
@@ -98,7 +98,7 @@ export async function inboxItems(): Promise<InboxItem[]> {
         detail: `${job.agent} finished a turn${job.prUrl ? " · PR open" : ""} — reply or archive`,
         href: `/jobs/${job.id}`,
         at: last.endedAt,
-        tone: job.agent === "codex" ? "codex" : "claude",
+        tone: job.agent,
       });
     }
   }

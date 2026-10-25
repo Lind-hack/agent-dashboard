@@ -1,10 +1,17 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { claudeBin, claudeModel, codexBin, codexModel, jobTimeoutMs, type AgentKey } from "../lib/config";
 
-// One CLI run per turn. Claude Code: `claude -p … --resume <session>` with stream-json
-// (https://code.claude.com/docs/en/headless). Codex: `codex exec --json … resume <thread>`
-// (https://learn.chatgpt.com/docs/non-interactive-mode). Both stream JSONL, normalised here into
-// the log events the dashboard renders: init / text / tool / result / error.
+const opencodeBin = () => process.env.OPENCODE_BIN ?? "opencode";
+// Free on OpenCode while it lasts; only answers inside the OpenCode client, which is what runs here.
+const opencodeModel = () => process.env.OPENCODE_MODEL ?? "opencode/deepseek-v4.1-flash-free";
+
+// One CLI run per turn, normalised into the log events the dashboard renders (init / text / tool /
+// result / error):
+// - Claude Code: `claude -p … --resume <session>`, stream-json (code.claude.com/docs/en/headless)
+// - Codex: `codex exec --json … resume <thread>` (learn.chatgpt.com/docs/non-interactive-mode)
+// - OpenCode: `opencode run --format json --session <id>` (opencode.ai/docs/cli)
+// - Hermes: `sudo -n /usr/local/bin/ask-hermes [session]`, prompt on stdin, plain text back
+//   (deploy/hermes-bridge.sh installs that one helper; it runs Hermes as the hermes user).
 
 export type TurnResult = { ok: boolean; sessionId?: string; result: string; costUsd?: number };
 
@@ -91,7 +98,84 @@ function codexParser(resume?: string): Parser {
   };
 }
 
+function opencodeParser(resume?: string): Parser {
+  let sessionId = resume;
+  let final: TurnResult | null = null;
+  let lastText = "";
+  let announced = false;
+  return {
+    sessionId: () => sessionId,
+    finish: () => final,
+    onLine: (e, emit) => {
+      if (e.sessionID) sessionId = e.sessionID;
+      if (!announced && sessionId) {
+        announced = true;
+        emit({ kind: "init", sessionId });
+      }
+      const part = e.part ?? {};
+      if (e.type === "text" && part.text?.trim()) {
+        lastText = part.text;
+        emit({ kind: "text", text: part.text });
+      }
+      if ((e.type === "tool_use" || part.type === "tool") && part.state?.status === "completed") {
+        const i = part.state?.input ?? {};
+        const v = i.command ?? i.filePath ?? i.path ?? i.pattern ?? i.url ?? "";
+        emit({ kind: "tool", text: `${part.tool ?? "tool"}${v ? ` ${clip(v)}` : ""}` });
+      }
+      if (e.type === "step_finish" && part.reason === "stop") {
+        final = { ok: true, sessionId, result: lastText, costUsd: typeof part.cost === "number" ? part.cost : undefined };
+        emit({ kind: "result", ok: true, text: lastText });
+      }
+      if (e.type === "error") {
+        const msg = e.error?.data?.message ?? e.error?.message ?? e.message ?? "OpenCode failed";
+        final = { ok: false, sessionId, result: msg };
+        emit({ kind: "error", text: msg });
+      }
+    },
+  };
+}
+
+// Hermes answers in one block: the reply, then a "session_id: …" line.
+function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChild: (c: ChildProcess) => void }): Promise<TurnResult> {
+  return new Promise((resolve) => {
+    const child = spawn("sudo", ["-n", "/usr/local/bin/ask-hermes", ...(opts.resume ? [opts.resume] : [])], { stdio: ["pipe", "pipe", "pipe"] });
+    opts.onChild(child);
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => child.kill("SIGTERM"), jobTimeoutMs());
+    child.stdout!.on("data", (c: Buffer) => (out += c.toString()));
+    child.stderr!.on("data", (c: Buffer) => (err = (err + c.toString()).slice(-4000)));
+    child.stdin!.end(opts.prompt);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const m = out.match(/\n?\s*session_id:\s*(\S+)\s*$/);
+      const sessionId = m?.[1] ?? opts.resume;
+      const text = (m ? out.slice(0, m.index) : out).trim();
+      if (sessionId && !opts.resume) opts.onEvent({ kind: "init", sessionId });
+      if (code === 0 && text) {
+        opts.onEvent({ kind: "result", ok: true, text });
+        return resolve({ ok: true, sessionId, result: text });
+      }
+      const why = /password is required|a terminal is required|not allowed/i.test(err)
+        ? "The Hermes bridge isn't installed yet — run deploy/hermes-bridge.sh on the VPS once."
+        : `Hermes stopped (exit ${code}). ${err.trim().slice(-500)}`;
+      opts.onEvent({ kind: "error", text: why });
+      resolve({ ok: false, sessionId, result: why });
+    });
+    child.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ ok: false, result: `Could not start Hermes: ${e.message}` });
+    });
+  });
+}
+
 function command(agent: AgentKey, prompt: string, resume?: string): { bin: string; args: string[]; parser: Parser } {
+  if (agent === "opencode") {
+    const args = ["run", "--format", "json", "--auto", "-m", opencodeModel()];
+    if (resume) args.push("--session", resume);
+    args.push(prompt);
+    return { bin: opencodeBin(), args, parser: opencodeParser(resume) };
+  }
   if (agent === "codex") {
     // The agent user has no sudo and the worktree is disposable, so Codex gets full access like Claude.
     // `codex exec resume` takes its own copy of the flags, so they go after the subcommand.
@@ -114,6 +198,7 @@ export function runAgent(opts: {
   onEvent: Emit;
   onChild: (child: ChildProcess) => void;
 }): Promise<TurnResult> {
+  if (opts.agent === "hermes") return runHermes(opts);
   const { bin, args, parser } = command(opts.agent, opts.prompt, opts.resume);
   const env = { ...process.env };
   for (const k of HIDDEN_ENV) delete env[k];

@@ -4,16 +4,12 @@ import { Check, GitBranch, LoaderCircle, Mic, SendHorizontal, Square } from "luc
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
-import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
+import { AGENT_LABELS, AGENT_META, type TaskAgent } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
 type Repo = { name: string; base: string; private: boolean };
 
-const AGENTS: { key: TaskAgent; hint: string; color: string }[] = [
-  { key: "claude", hint: "Claude Code on your VPS", color: "var(--color-claude)" },
-  { key: "codex", hint: "Codex CLI on your VPS", color: "var(--color-codex)" },
-  { key: "codex-cloud", hint: "Codex in OpenAI's cloud, via Linear", color: "var(--color-hermes)" },
-];
+const AGENTS = (["claude", "codex", "opencode", "hermes", "codex-cloud"] as TaskAgent[]).map((key) => ({ key, ...AGENT_META[key] }));
 
 // Remembered per device so the phone opens on the last choice.
 function useRemembered<T extends string>(key: string, fallback: T): [T, (v: T) => void] {
@@ -90,7 +86,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
 
   return (
     <div className="flex flex-col gap-5">
-      <div role="radiogroup" aria-label="Agent" className="grid grid-cols-3 gap-1.5 rounded-2xl border border-line bg-white/[0.02] p-1.5">
+      <div role="radiogroup" aria-label="Agent" className="-mx-1 flex gap-1.5 overflow-x-auto rounded-2xl border border-line bg-white/[0.02] p-1.5">
         {AGENTS.map((a) => {
           const on = agent === a.key;
           return (
@@ -100,7 +96,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
               aria-checked={on}
               onClick={() => setAgent(a.key)}
               className={cn(
-                "flex items-center justify-center gap-2 rounded-xl px-2 py-2.5 text-sm transition-colors duration-200",
+                "flex shrink-0 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors duration-200",
                 on ? "bg-white/[0.08] text-text" : "text-muted hover:text-text",
               )}
             >
@@ -111,7 +107,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className={cn("flex flex-wrap items-center gap-2", !AGENT_META[agent].repo && "hidden")}>
         <label className="relative flex min-w-0 flex-1 items-center">
           <GitBranch className="pointer-events-none absolute left-3 h-4 w-4 text-faint" aria-hidden />
           <span className="sr-only">Repository</span>
@@ -148,7 +144,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
       <div className="flex flex-col items-center gap-3 py-2">
         <button
           onClick={mic.toggle}
-          disabled={busy || !selectedRepo}
+          disabled={busy || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label={mic.recording ? "Stop and send" : "Tap to talk"}
           className="group relative grid h-36 w-36 place-items-center rounded-full disabled:opacity-40"
         >
@@ -183,7 +179,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
         />
         <button
           onClick={() => send()}
-          disabled={busy || mic.recording || !text.trim() || !selectedRepo}
+          disabled={busy || mic.recording || !text.trim() || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label="Send"
           className="grid h-10 w-10 place-items-center rounded-xl bg-text text-bg transition-opacity disabled:opacity-25"
         >
