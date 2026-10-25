@@ -13,20 +13,43 @@ function authArgs(): string[] {
   return ["-c", `http.https://github.com/.extraheader=Authorization: Basic ${basic}`];
 }
 
+// Error messages from execFile include the full command line — which carries the auth header — so
+// they are rebuilt from the subcommand and a scrubbed stderr before they can reach logs, the UI or Linear.
+const scrub = (s: string) => s.replace(/(extraheader=)?Authorization: Basic [A-Za-z0-9+/=]+/g, "[redacted]").replace(/(gh[pousr]_|github_pat_)[A-Za-z0-9_]+/g, "[redacted]");
+
 export async function git(cwd: string, args: string[], withAuth = false): Promise<string> {
-  const { stdout } = await exec("git", [...(withAuth ? authArgs() : []), ...args], {
-    cwd,
-    timeout: 5 * 60_000,
-    maxBuffer: 20 * 1024 * 1024,
-  });
-  return stdout.trim();
+  try {
+    const { stdout } = await exec("git", [...(withAuth ? authArgs() : []), ...args], {
+      cwd,
+      timeout: 5 * 60_000,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+    return stdout.trim();
+  } catch (err) {
+    const stderr = String((err as { stderr?: string })?.stderr ?? "").trim();
+    throw new Error(scrub(`git ${args[0]} failed${stderr ? `: ${stderr.slice(-600)}` : ""}`));
+  }
+}
+
+// One clone/fetch/worktree change per repo at a time: Ask-all starts several agents on the same repo
+// at once, and concurrent `git clone`/`fetch` into one directory collide.
+const repoLocks = new Map<string, Promise<unknown>>();
+function withRepoLock<T>(repo: string, fn: () => Promise<T>): Promise<T> {
+  const prev = repoLocks.get(repo) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  repoLocks.set(repo, next);
+  return next;
 }
 
 const repoDir = (repo: RepoKey) => path.join(WORK_DIR, "repos", repo.replace("/", "__"));
 export const worktreeDir = (jobId: string) => path.join(WORK_DIR, "wt", jobId);
 
 // New work branches off `base`; a hand-off continues `fromBranch` exactly where the PC left it.
-export async function ensureWorktree(opts: { repo: RepoKey; base: string; jobId: string; branch: string; fromBranch?: string }) {
+export function ensureWorktree(opts: { repo: RepoKey; base: string; jobId: string; branch: string; fromBranch?: string }) {
+  return withRepoLock(opts.repo, () => ensureWorktreeLocked(opts));
+}
+
+async function ensureWorktreeLocked(opts: { repo: RepoKey; base: string; jobId: string; branch: string; fromBranch?: string }) {
   const dir = repoDir(opts.repo);
   if (!fs.existsSync(path.join(dir, ".git"))) {
     fs.mkdirSync(path.dirname(dir), { recursive: true });
