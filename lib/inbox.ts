@@ -4,6 +4,7 @@ import { DATA_DIR } from "./config";
 import { listRepos } from "./github";
 import { githubToken } from "./config";
 import { agentIssues } from "./linear";
+import { readBrainStatus } from "./brain";
 import { failedUnits } from "./ops";
 import { listJobs } from "./store";
 
@@ -113,6 +114,20 @@ export async function inboxItems(): Promise<InboxItem[]> {
       detail: u.description ? `${u.description} · VPS job` : "VPS job in failed state",
       href: "/website",
       at: u.at ?? new Date(0).toISOString(),
+      tone: "bad",
+    });
+  }
+
+  // A brain source failing twice in a row (plan §D5).
+  for (const [name, s] of Object.entries(readBrainStatus().sources)) {
+    if ((s.failures ?? 0) < 2) continue;
+    items.push({
+      key: `brain:${name}:${s.lastOk ?? "never"}`,
+      kind: "timer",
+      title: `Brain: ${name} keeps failing`,
+      detail: (s.lastError ?? "").slice(0, 120),
+      href: "/memory",
+      at: s.lastRun ?? new Date(0).toISOString(),
       tone: "bad",
     });
   }

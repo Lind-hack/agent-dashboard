@@ -11,6 +11,8 @@ export const BEARER_ROUTES = [
   "/api/handoff/v2/complete",
   "/api/calendar/token",
   "/api/memory/notes",
+  "/api/brain/ingest",
+  "/api/brain/status",
 ] as const;
 
 export const isBearerRoute = (pathname: string) => (BEARER_ROUTES as readonly string[]).includes(pathname);

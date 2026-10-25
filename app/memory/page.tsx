@@ -1,4 +1,6 @@
+import { BrainStrip } from "@/components/brain-strip";
 import { MemoryView } from "@/components/memory-view";
+import { readBrainStatus } from "@/lib/brain";
 import { PageHeader } from "@/components/kit";
 import { memoryStats } from "@/lib/memory";
 
@@ -10,6 +12,7 @@ export default async function MemoryPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeader title="Memory" sub={`Ask anything you, your agents or your notes have written down — ${total.toLocaleString("en")} things to search.`} />
+      <BrainStrip status={readBrainStatus()} />
       <MemoryView stats={stats} />
     </div>
   );

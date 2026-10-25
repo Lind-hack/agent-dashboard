@@ -9,6 +9,7 @@ import { recordClaudeUsage } from "../lib/usage";
 import { pendingImports, releaseReservation } from "../lib/handoff";
 import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
 import { killTree, runAgent } from "./agents";
+import { brainTick } from "./brain";
 import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
@@ -513,6 +514,13 @@ async function tick() {
   await handleInbox();
   await importHandoffs().catch((e) => log("handoff import", e instanceof Error ? e.message : e));
   await exportReturns().catch((e) => log("handoff export", e instanceof Error ? e.message : e));
+  // The brain's weekly Luna pass uses Codex, so it takes Codex's slot like a chat turn would.
+  brainTick({
+    take: () => !active.has("codex") && !!active.set("codex", { id: "brain-weekly" }),
+    release: () => {
+      if (active.get("codex")?.id === "brain-weekly") active.delete("codex");
+    },
+  });
   if (forceSync || Date.now() - lastSync > SYNC_MS) {
     forceSync = false;
     lastSync = Date.now();

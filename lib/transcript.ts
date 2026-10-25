@@ -119,5 +119,7 @@ export function condense(items: Item[]): string {
 // The first real thing Lind asked — used as a title.
 export function titleOf(items: Item[]): string {
   const first = items.find((i) => i.role === "you" && !i.text.startsWith("/"))?.text ?? items.find((i) => i.role === "you")?.text ?? "";
-  return clip(first.replace(/\s+/g, " ").trim(), 90) || "(untitled chat)";
+  // Paste wrappers and app markup aren't words Lind typed.
+  const plain = first.replace(/<\/?[a-z_]+(?:\s[^>]*)?>/gi, " ").replace(/\[\$([\w-]+)\]\([^)]*\)/g, "$$$1");
+  return clip(plain.replace(/\s+/g, " ").trim(), 90) || "(untitled chat)";
 }
