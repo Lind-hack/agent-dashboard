@@ -503,6 +503,7 @@ async function step(codexSlot: { take: () => boolean; release: () => void }) {
     if (s?.lastError !== blocked || Date.now() - new Date(s?.lastRun ?? 0).getTime() > 6 * 3600_000) setStatus("vault", { error: blocked });
     return;
   }
+  if (readBrainStatus().sources.vault?.failures) setStatus("vault", { ok: true, note: "writable" });
   const state = readState();
   const now = new Date();
 
