@@ -176,6 +176,7 @@ function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChi
     });
     child.on("error", (e) => {
       clearTimeout(timer);
+      opts.onEvent({ kind: "error", text: `Could not start Hermes: ${e.message}` });
       resolve({ ok: false, result: `Could not start Hermes: ${e.message}` });
     });
   });
@@ -257,7 +258,9 @@ export function runAgent(opts: {
     });
     child.on("error", (err) => {
       clearTimeout(timer);
-      resolve({ ok: false, sessionId: parser.sessionId(), result: `Could not start ${opts.agent}: ${err.message}` });
+      const msg = `Could not start ${opts.agent}: ${err.message}`;
+      opts.onEvent({ kind: "error", text: msg }); // otherwise a failed start leaves nothing in the chat
+      resolve({ ok: false, sessionId: parser.sessionId(), result: msg });
     });
   });
 }

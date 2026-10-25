@@ -285,7 +285,8 @@ if (repo) {
   for (const c of allChats(30)) {
     if (c.id === chat.id || !inRepo(c, repo) || c.size > 300 * 1024 * 1024) continue;
     const its = parseTranscript(fs.readFileSync(c.file, "utf8"), c.agent);
-    if (its.filter((i) => i.role === "you").length < 2) continue;
+    // A real conversation: Lind wrote at least twice and the agent answered (skips failed one-shot runs).
+    if (its.filter((i) => i.role === "you").length < 2 || !its.some((i) => i.role === "agent")) continue;
     related.push({ id: c.id, agent: c.agent, title: titleOf(its), updated: new Date(c.mtime).toISOString(), cwd: c.cwd, text: capText(red(condense(its)), 400_000) });
     if (related.length >= 8) break;
   }

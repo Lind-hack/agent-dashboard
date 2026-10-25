@@ -398,16 +398,29 @@ async function runTurn(job: Job) {
     // A stop during the run already set the status — keep it.
     if ((job.status as Job["status"]) === "cancelled") return;
 
-    const pushed = usesRepo ? await pushBranch(wt, base, job.branch, job.id) : false;
+    // Saving the work is separate from the turn's outcome: a push or PR failure is logged, never
+    // allowed to replace what the agent said.
+    let pushed = false;
+    if (usesRepo) {
+      try {
+        pushed = await pushBranch(wt, base, job.branch, job.id);
+      } catch (e) {
+        appendLog(job.id, { kind: "error", text: `Couldn't push ${job.branch}: ${e instanceof Error ? e.message : e}` });
+      }
+    }
     if (pushed) {
-      job.prUrl =
-        (await ensurePullRequest({
-          repo: job.repo,
-          base,
-          branch: job.branch,
-          title: `${job.id}: ${job.title}`,
-          body: `${job.issueUrl ? `Linear: ${job.issueUrl}\n\n` : ""}${res.result.slice(0, 6000)}\n\n_Opened by agent-dashboard (${AGENT_LABELS[agent]})._`,
-        })) ?? job.prUrl;
+      try {
+        job.prUrl =
+          (await ensurePullRequest({
+            repo: job.repo,
+            base,
+            branch: job.branch,
+            title: `${job.id}: ${job.title}`,
+            body: `${job.issueUrl ? `Linear: ${job.issueUrl}\n\n` : ""}${res.result.slice(0, 6000)}\n\n_Opened by agent-dashboard (${AGENT_LABELS[agent]})._`,
+          })) ?? job.prUrl;
+      } catch (e) {
+        appendLog(job.id, { kind: "error", text: `Pushed ${job.branch}, but couldn't open a PR: ${e instanceof Error ? e.message : e}` });
+      }
       appendLog(job.id, { kind: "tool", text: `Pushed ${job.branch}${job.prUrl ? ` · ${job.prUrl}` : ""}` });
     }
     job.status = res.ok ? "waiting" : "failed";
