@@ -1,60 +1,46 @@
 ---
 name: handoff
-description: Hand the current coding session off to the agent dashboard on the VPS, so Claude or Codex keeps working on the same branch while the PC is off. Use when Lind says "hand off", "handoff", "continue this on the VPS", "send this to the dashboard", or invokes /handoff. Not for deploying or merging.
+description: Hand the current Claude Code or Codex chat off to the agent dashboard on the VPS so Lind can continue it from his phone — the full conversation, his uncommitted code, memory notes, rules and a project-wide dossier go with it. Use when Lind says "hand off", "handoff", "continue this on the VPS/phone", "send this to the dashboard", or invokes /handoff. Not for deploying or merging.
 ---
 
-# Hand off to the VPS
+# Hand off to the VPS (v2)
 
-Pushes the work to a branch and starts a dashboard chat that continues it. The VPS agent gets your
-summary plus the code — not this conversation — so the summary has to carry everything it needs.
+The VPS continues **this exact chat** (native hand-off) or, when that isn't possible, a new session
+briefed from it (summary hand-off). Along with it go Lind's uncommitted code (as a snapshot — his
+checkout is not touched), all memory notes, CLAUDE.md files and rules, the skills this chat used,
+and related chats about the same project. The VPS writes a project dossier from all of it.
 
 ## Steps
 
-1. **Repo.** `git remote get-url origin` → `owner/name` (e.g. `Lind-hack/383lajme`). If there's no
-   GitHub remote, stop and say so.
-
-2. **Branch — never push the default branch.** `git branch --show-current`.
-   - If it's `main`/`master`/the default branch, or HEAD is detached: create a new branch from HEAD,
-     `git switch -c handoff/<YYYYMMDD-HHMM>-<short-slug>` (uncommitted changes come along).
-   - Otherwise keep the current branch.
-   383's `main` deploys to production on push — pushing it here would ship unreviewed work.
-
-3. **Commit what's uncommitted.** Run `git status --short` and show Lind the list. Commit it all on
-   the hand-off branch: `git add -A && git commit -m "WIP: hand-off to VPS"`. Skip this if clean.
-   If `git status` shows files that clearly aren't part of this work (another session's edits,
-   secrets, large binaries), ask Lind before committing them.
-
-4. **Push.** `git push -u origin <branch>`.
-
-5. **Write the brief** to a temp file (e.g. `$TMPDIR/handoff-summary.md` or the scratchpad), in this shape:
-
-   ```markdown
-   ## Goal
-   What Lind wants, in one or two sentences, in his words where possible.
-
-   ## Done so far
-   Concrete: files changed, what works, what was verified (commands + results).
-
-   ## Next steps
-   Numbered, specific enough to start immediately.
-
-   ## Decisions and constraints
-   Choices Lind made in this conversation, things he rejected, project rules that matter here.
-
-   ## How to verify
-   The checks to run before calling it done.
-   ```
-
-6. **Send it.**
+1. **Find this chat's id.** Run:
    ```bash
-   node ~/.agent-dashboard/handoff.mjs --repo <owner/name> --branch <branch> \
-     --title "<short title>" --summary-file <file> --agent <claude|codex>
+   node ~/.agent-dashboard/handoff.mjs --detect
    ```
-   `--agent`: the same AI as this session (Claude Code → `claude`, Codex → `codex`) unless Lind asked
-   for the other one. The script prints the chat URL.
+   It lists recent chats in this repo with their last messages. This chat is the one whose last
+   messages match what Lind just said (it's usually first, and `invokedHandoff` is true when the
+   latest message is the /handoff request). If it's ambiguous, show Lind the candidates and ask.
 
-7. **Tell Lind:** the URL, the branch name, and that the PC checkout is now on that branch — he
-   shouldn't keep editing it locally while the VPS works, or the branches will diverge.
+2. **Dry run**, and show Lind the summary lines (chat, code snapshot, context, mode):
+   ```bash
+   node ~/.agent-dashboard/handoff.mjs --session <id> --dry-run
+   ```
+   - If it stops on **possible secrets in the code**, show Lind the list. Only re-run with
+     `--allow-secrets` if he confirms they're false alarms; otherwise help him remove them first.
+   - `--no-code` hands off the conversation only (no snapshot).
 
-If the script says the token can't access the repo, the repo isn't on the dashboard's GitHub token:
-Lind adds it at github.com/settings/personal-access-tokens.
+3. **Send it:**
+   ```bash
+   node ~/.agent-dashboard/handoff.mjs --session <id>
+   ```
+   Add `--title "<short title>"` if the auto title (first message) is unhelpful.
+
+4. **Tell Lind:** the chat URL it prints, that the VPS continues on its own `pc/...` branch while his
+   checkout stays as it was, that the Context tab on the phone shows what was sent (the dossier takes
+   a few minutes), and that he shouldn't keep using this chat on the PC — `/takeback` brings it home.
+   Then stop working in this chat.
+
+## Notes
+- Native hand-off needs the chat's Claude version to match the VPS (2.1.310); otherwise it falls back
+  to a summary hand-off and says so. Codex chats are summary hand-offs until the Codex test passes.
+- Repos must be on the dashboard's write token (AGENT_REPOS). Other repos go conversation-only.
+- One hand-off per chat at a time: archive the VPS chat (or take it back) before handing off again.
