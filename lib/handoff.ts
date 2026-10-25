@@ -23,11 +23,11 @@ const PARTS = ["transcript", "context"] as const;
 type Part = (typeof PARTS)[number];
 
 export const LIMITS = {
-  chunkBytes: 40 * 1024 * 1024, // under Cloudflare's 100 MB body cap
-  maxChunks: 30,
+  chunkBytes: 8 * 1024 * 1024, // under the proxy's ~10 MB request-body buffer (and Cloudflare's 100 MB)
+  maxChunks: 60,
   stagedBytes: 1.2 * 1024 ** 3,
   unpackedBytes: { transcript: 1024 ** 3, context: 200 * 1024 * 1024 } as Record<Part, number>,
-  expiryMs: 24 * 3600_000,
+  idleMs: 30 * 60_000, // an upload with no new chunk for this long is abandoned
 };
 
 export type HandoffMeta = {
@@ -44,10 +44,13 @@ export type HandoffMeta = {
 const dirOf = (sid: string, gen: string) => path.join(sessionsDir(), sid, gen);
 const sha256 = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
 
+// Uploads the PC abandoned (script crashed, laptop closed) stop blocking new hand-offs after 30 idle
+// minutes, and free their chat's reservation.
 function cleanupExpired() {
   for (const u of safeList(uploadsDir())) {
-    const meta = readJSON<{ startedAt?: number }>(path.join(uploadsDir(), u, "meta.json"));
-    if (!meta?.startedAt || Date.now() - meta.startedAt > LIMITS.expiryMs) fs.rmSync(path.join(uploadsDir(), u), { recursive: true, force: true });
+    const dir = path.join(uploadsDir(), u);
+    const last = Math.max(0, ...safeList(dir).map((f) => fs.statSync(path.join(dir, f)).mtimeMs));
+    if (Date.now() - last > LIMITS.idleMs) abortUpload(u);
   }
 }
 

@@ -6,7 +6,7 @@ import { pushInbox } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 // Hand-off v2 upload protocol, called by handoff/handoff.mjs on the PC (Bearer HANDOFF_TOKEN, see
-// lib/bearer-routes.ts): start → chunk (transcript + context parts, ≤ 40 MB each) → finish.
+// lib/bearer-routes.ts): start → chunk (transcript + context parts, ≤ 8 MB each) → finish.
 export async function POST(request: Request, ctx: { params: Promise<{ action: string }> }) {
   const { action } = await ctx.params;
   const url = new URL(request.url);

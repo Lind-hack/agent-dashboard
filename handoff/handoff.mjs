@@ -25,7 +25,7 @@ const { parseTranscript, condense, titleOf } = await import(new URL(`file:///${p
 const HOME = os.homedir();
 const CLAUDE_PROJECTS = path.join(HOME, ".claude", "projects");
 const CODEX_SESSIONS = path.join(HOME, ".codex", "sessions");
-const CHUNK = 32 * 1024 * 1024;
+const CHUNK = 8 * 1024 * 1024; // the dashboard's proxy buffers request bodies up to ~10 MB
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
@@ -106,7 +106,9 @@ function chatInfo(file, agent) {
   const st = fs.statSync(file);
   const text = sample(file);
   const cwds = [...text.matchAll(/"cwd":"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
-  const version = text.match(/"version":"(\d+\.\d+\.\d+)"/)?.[1] ?? text.match(/"cli_version":"([^"]+)"/)?.[1];
+  // Claude stamps its own version next to gitBranch on every record — take the latest (a chat resumed
+  // on a newer CLI counts as that version); other "version" strings in tool output don't match.
+  const version = [...text.matchAll(/"version":"(\d+\.\d+\.\d+)","gitBranch"/g)].at(-1)?.[1] ?? [...text.matchAll(/"cli_version":"([^"]+)"/g)].at(-1)?.[1];
   const id = agent === "claude" ? path.basename(file, ".jsonl") : (file.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/)?.[1] ?? "");
   const subagent = agent === "codex" && /"source":\{[^}]*"subagent/.test(text.slice(0, 20000));
   return { file, agent, id, mtime: st.mtimeMs, size: st.size, cwd: cwds.at(-1) ?? "", cwds: [...new Set(cwds)], version, subagent };
