@@ -194,14 +194,56 @@ export function EarlierOnPc({ jobId, Tools }: { jobId: string; Tools: (p: { item
   );
 }
 
-export function HandoffStrip({ imported, status }: { imported: Imported; status: string }) {
+export function HandoffStrip({ imported, status, owner, onAction }: { imported: Imported; status: string; owner?: string; onAction: (a: "return" | "keep") => void }) {
   const preparing = status === "preparing";
+  if (owner === "pc") {
+    return (
+      <p className="mt-3 flex items-center gap-2 text-xs text-muted">
+        <Laptop className="h-3.5 w-3.5" /> Back on your PC — continue it there.
+      </p>
+    );
+  }
+  if (owner === "returning") {
+    const ex = imported.export;
+    return (
+      <div className="panel mt-3 flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+        {ex?.status === "ready" ? <Laptop className="h-4 w-4 text-claude" /> : ex?.status === "failed" ? <Laptop className="h-4 w-4 text-bad" /> : <LoaderCircle className="h-4 w-4 animate-spin text-claude" />}
+        <span className="min-w-0 flex-1">
+          {ex?.status === "ready" ? (
+            <>
+              Packed for the PC. On the PC, run <span className="font-mono">/takeback</span> in a new Claude chat.
+            </>
+          ) : ex?.status === "failed" ? (
+            <span className="text-bad">Couldn&apos;t pack it: {ex.error}</span>
+          ) : (
+            "Packing for the PC — waiting for the current turn, then pushing the branch…"
+          )}
+        </span>
+        <button onClick={() => onAction("keep")} className="min-h-9 rounded-full border border-line px-3 text-xs text-muted hover:text-text">
+          Keep on VPS
+        </button>
+      </div>
+    );
+  }
+  const canReturn = !preparing && status !== "closed";
   return (
-    <p className={cn("mt-3 flex items-center gap-2 text-xs", preparing ? "text-claude" : "text-muted")}>
-      {preparing ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Laptop className="h-3.5 w-3.5" />}
-      {preparing
-        ? "Handed off from your PC — preparing context. You can write your first message now; it's sent when this finishes."
-        : `From your PC · ${imported.mode === "native" ? "the live chat continues here" : "summary hand-off (a new session briefed from the PC chat)"}${imported.dossier === "ready" ? " · dossier ready" : imported.dossier === "failed" ? " · no dossier" : ""}`}
-    </p>
+    <div className={cn("mt-3 flex items-center gap-2 text-xs", preparing ? "text-claude" : "text-muted")}>
+      {preparing ? <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Laptop className="h-3.5 w-3.5 shrink-0" />}
+      <span className="min-w-0 flex-1">
+        {preparing
+          ? "Handed off from your PC — preparing context. You can write your first message now; it's sent when this finishes."
+          : `From your PC · ${imported.mode === "native" ? "the live chat continues here" : "summary hand-off (a new session briefed from the PC chat)"}${imported.dossier === "ready" ? " · dossier ready" : imported.dossier === "failed" ? " · no dossier" : ""}`}
+      </span>
+      {canReturn && (
+        <button
+          onClick={() => onAction("return")}
+          disabled={status === "running"}
+          title={status === "running" ? "Wait for this turn to finish" : undefined}
+          className="min-h-9 shrink-0 rounded-full border border-line px-3 text-xs text-muted hover:text-text disabled:opacity-40"
+        >
+          Bring back to PC
+        </button>
+      )}
+    </div>
   );
 }

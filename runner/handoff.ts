@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -376,6 +377,75 @@ export async function prepareHandoff(
     write("failed", { error: why });
     update({ dossier: "failed", dossierError: why }, `Dossier failed (${why}) — the full chats and memory notes are still in .handoff/.`);
   }
+}
+
+// ---------- take-back (VPS → PC) ----------
+
+export type ExportManifest = {
+  version: 1;
+  sessionId: string;
+  generation: string;
+  agent: string;
+  mode: "native" | "summary";
+  createdAt: string;
+  transcript?: { sha256: string; bytes: number }; // native only: the chat as it is now on the VPS
+  code?: { repo: string; ref: string; sha: string; snapshotSha?: string };
+  // Three-way memory return: base = what the PC sent, sha = the VPS version now (absent when deleted).
+  memory: { name: string; op: "added" | "changed" | "deleted"; baseSha?: string; sha?: string; text?: string }[];
+  turnsOnVps: number;
+};
+
+const MEMORY_NAME = /^[\w.-]+\.md$/;
+const fileSha = (f: string) => crypto.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
+export const exportDir = (job: Job) => path.join(HANDOFF_DIR(), "sessions", job.imported!.sessionId, job.imported!.generation, "export");
+
+// Writes export/manifest.json (+ transcript.jsonl) once the chat is frozen and its branch pushed.
+// Returns the manifest digest the PC must echo back on completion.
+export function writeExport(job: Job, code: ExportManifest["code"]): string {
+  const imp = job.imported!;
+  const hdir = path.dirname(exportDir(job));
+  const out = exportDir(job);
+  fs.rmSync(out, { recursive: true, force: true });
+  fs.mkdirSync(out, { recursive: true });
+
+  let transcript: ExportManifest["transcript"];
+  if (imp.mode === "native" && job.agent === "claude" && imp.contextDir) {
+    const live = path.join(os.homedir(), ".claude", "projects", encodeProjectDir(path.dirname(imp.contextDir)), `${imp.sessionId}.jsonl`);
+    if (!fs.existsSync(live)) throw new Error("the chat's transcript is missing on the VPS");
+    fs.copyFileSync(live, path.join(out, "transcript.jsonl"));
+    transcript = { sha256: fileSha(path.join(out, "transcript.jsonl")), bytes: fs.statSync(path.join(out, "transcript.jsonl")).size };
+  }
+
+  const memory: ExportManifest["memory"] = [];
+  const base = path.join(hdir, "memory-base");
+  const vps = path.join(hdir, "memory");
+  const names = new Set([...(fs.existsSync(base) ? fs.readdirSync(base) : []), ...(fs.existsSync(vps) ? fs.readdirSync(vps) : [])]);
+  for (const name of [...names].filter((n) => MEMORY_NAME.test(n)).sort()) {
+    const b = path.join(base, name);
+    const v = path.join(vps, name);
+    const isFile = (f: string) => fs.lstatSync(f, { throwIfNoEntry: false })?.isFile() ?? false;
+    const baseSha = isFile(b) ? fileSha(b) : undefined;
+    const sha = isFile(v) ? fileSha(v) : undefined;
+    if (baseSha === sha) continue;
+    memory.push({ name, op: !baseSha ? "added" : !sha ? "deleted" : "changed", baseSha, sha, text: sha ? fs.readFileSync(v, "utf8") : undefined });
+  }
+
+  const manifest: ExportManifest = {
+    version: 1,
+    sessionId: imp.sessionId,
+    generation: imp.generation,
+    agent: job.agent,
+    mode: imp.mode,
+    createdAt: new Date().toISOString(),
+    transcript,
+    code,
+    memory,
+    turnsOnVps: job.turns.length,
+  };
+  const body = JSON.stringify(manifest, null, 2);
+  fs.writeFileSync(path.join(out, "manifest.json.tmp"), body);
+  fs.renameSync(path.join(out, "manifest.json.tmp"), path.join(out, "manifest.json"));
+  return crypto.createHash("sha256").update(body).digest("hex");
 }
 
 // Sent ahead of Lind's first message from the phone.

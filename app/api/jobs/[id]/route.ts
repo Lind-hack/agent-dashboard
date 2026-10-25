@@ -15,7 +15,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   if (!readJob(id)) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = (await request.json().catch(() => null)) as { action?: string; prompt?: string } | null;
-  if (body?.action === "cancel" || body?.action === "archive") {
+  if (body?.action === "cancel" || body?.action === "archive" || body?.action === "return" || body?.action === "keep") {
     pushInbox({ kind: body.action, jobId: id });
     return NextResponse.json({ ok: true });
   }

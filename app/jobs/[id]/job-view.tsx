@@ -152,7 +152,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             </button>
           )}
         </div>
-        {job.imported && <HandoffStrip imported={job.imported} status={job.status} />}
+        {job.imported && <HandoffStrip imported={job.imported} status={job.status} owner={job.owner} onAction={(a) => void post({ action: a })} />}
         {job.imported && (
           <div className="mt-4 flex gap-1 rounded-full border border-line p-1 text-sm" role="tablist" aria-label="Chat views">
             {(
@@ -213,8 +213,10 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
       </div>
 
       <ReplyBar
-        placeholder={job.status === "closed" ? (job.issueId ? "Issue is closed in Linear" : "Chat archived") : `Message ${agentName}…`}
-        disabled={job.status === "closed"}
+        placeholder={
+          job.owner === "pc" ? "Back on the PC" : job.owner === "returning" ? "Returning to the PC" : job.status === "closed" ? (job.issueId ? "Issue is closed in Linear" : "Chat archived") : `Message ${agentName}…`
+        }
+        disabled={job.status === "closed" || job.owner === "returning" || job.owner === "pc"}
         onSend={async (prompt) => {
           await post({ action: "reply", prompt });
           return job.status === "running" ? `Queued — ${agentName} gets it when this turn ends.` : `Sent — ${agentName} is picking it up.`;

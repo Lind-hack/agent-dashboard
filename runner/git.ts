@@ -96,6 +96,16 @@ export async function pushBranch(wt: string, base: string, branch: string, jobId
   return true;
 }
 
+// Take-back: commit leftovers and publish the branch even if it has nothing beyond base. Returns its tip.
+export async function publishBranch(wt: string, branch: string, jobId: string): Promise<string> {
+  if (await git(wt, ["status", "--porcelain"])) {
+    await git(wt, ["add", "-A"]);
+    await git(wt, ["commit", "-m", `${jobId}: uncommitted agent changes`]);
+  }
+  await git(wt, ["push", "origin", `HEAD:refs/heads/${branch}`], true);
+  return git(wt, ["rev-parse", "HEAD"]);
+}
+
 export async function ensurePullRequest(opts: { repo: RepoKey; base: string; branch: string; title: string; body: string }): Promise<string | null> {
   const headers = {
     Authorization: `Bearer ${githubToken()}`,

@@ -22,6 +22,8 @@ export type Imported = {
   dossier?: "building" | "ready" | "failed";
   dossierError?: string;
   needsPreamble: boolean;
+  // Take-back: the runner freezes the chat, pushes the branch and writes an export the PC downloads.
+  export?: { status: "pending" | "ready" | "failed"; at?: string; digest?: string; error?: string };
 };
 
 export type Turn = {
@@ -150,6 +152,9 @@ export type InboxItem = (
   | { kind: "reply"; jobId: string; prompt: string }
   | { kind: "cancel"; jobId: string }
   | { kind: "archive"; jobId: string } // a finished chat: close it and free its worktree
+  | { kind: "return"; jobId: string } // take-back: freeze a hand-off and export it for the PC
+  | { kind: "keep"; jobId: string } // undo a return that the PC hasn't completed
+  | { kind: "complete"; jobId: string; digest: string } // the PC installed the export
   | { kind: "sync" }
 ) & { eventId?: string }; // sync = poll Linear / look for new hand-offs now
 

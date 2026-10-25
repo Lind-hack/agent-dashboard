@@ -9,8 +9,8 @@ import { recordClaudeUsage } from "../lib/usage";
 import { pendingImports, releaseReservation } from "../lib/handoff";
 import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
 import { killTree, runAgent } from "./agents";
-import { ensurePullRequest, ensureWorktree, pushBranch, removeWorktree } from "./git";
-import { handoffPreamble, jobFromHandoff, prepareHandoff } from "./handoff";
+import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
+import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
 // The runner owns every job file. It polls Linear for `agent:claude` / `agent:codex` issues, takes
 // untracked chats from the dashboard inbox, runs one turn per agent at a time, pushes the branch,
@@ -196,7 +196,36 @@ async function handleInbox() {
       if (job.imported) releaseReservation(job.imported.sessionId, job.imported.generation);
       if (job.repo) await removeWorktree(job.repo, job.id).catch((e) => log("worktree cleanup", job.id, e.message));
     }
-    if (item.kind === "reply" && item.prompt.trim()) {
+    if (item.kind === "return" && job.imported && job.owner === "vps" && job.status !== "closed" && job.status !== "preparing") {
+      // Freeze: no new turns; the export is written once any running turn has ended (see exportReturns).
+      job.owner = "returning";
+      job.pending = undefined;
+      job.imported.export = { status: "pending" };
+      seen(job);
+      save(job);
+      appendLog(job.id, { kind: "turn", text: "Bringing this chat back to the PC — finishing up and packing it." });
+    }
+    if (item.kind === "keep" && job.owner === "returning") {
+      job.owner = "vps";
+      if (job.imported) job.imported.export = undefined;
+      seen(job);
+      save(job);
+      appendLog(job.id, { kind: "turn", text: "Kept on the VPS — you can keep chatting here." });
+    }
+    if (item.kind === "complete" && job.owner === "returning" && job.imported?.export?.digest === item.digest) {
+      job.owner = "pc";
+      job.status = "closed";
+      seen(job);
+      save(job);
+      releaseReservation(job.imported.sessionId, job.imported.generation);
+      appendLog(job.id, { kind: "turn", text: "Back on the PC — continue there with claude --resume." });
+      if (job.repo) await removeWorktree(job.repo, job.id).catch((e) => log("worktree cleanup", job.id, e.message));
+    }
+    if (item.kind === "reply" && item.prompt.trim() && job.owner && job.owner !== "vps") {
+      appendLog(job.id, { kind: "error", text: job.owner === "pc" ? "This chat is back on the PC — continue it there." : "This chat is being returned to the PC. Tap “Keep on VPS” to continue here instead." });
+      seen(job);
+      save(job);
+    } else if (item.kind === "reply" && item.prompt.trim()) {
       // A reply to a running turn waits until that turn ends; a hand-off still preparing gets it after.
       job.pending = {
         prompt: [job.pending?.prompt, item.prompt.trim()].filter(Boolean).join("\n\n"),
@@ -257,6 +286,29 @@ async function importHandoffs() {
     }
     // Written after the job exists, so a crash in between just re-finds the job above.
     fs.writeFileSync(path.join(dir, "imported.json"), JSON.stringify({ at: new Date().toISOString() }));
+  }
+}
+
+// Take-back: a frozen chat with no turn running gets its branch pushed and its export written.
+async function exportReturns() {
+  for (const job of jobs.values()) {
+    if (job.owner !== "returning" || job.imported?.export?.status !== "pending" || isActive(job)) continue;
+    try {
+      let code: ExportManifest["code"];
+      if (job.repo && job.imported.contextDir) {
+        const wt = path.dirname(job.imported.contextDir);
+        const sha = await publishBranch(wt, job.branch, job.id);
+        code = { repo: job.repo, ref: `refs/heads/${job.branch}`, sha, snapshotSha: job.imported.snapshot?.sha };
+      }
+      const digest = writeExport(job, code);
+      job.imported.export = { status: "ready", at: new Date().toISOString(), digest };
+      appendLog(job.id, { kind: "tool", text: `Packed for the PC${code ? ` · ${job.branch} @ ${code.sha.slice(0, 7)}` : ""} — run /takeback on the PC.` });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      job.imported.export = { status: "failed", error: msg };
+      appendLog(job.id, { kind: "error", text: `Couldn't pack the chat for the PC: ${msg}` });
+    }
+    save(job);
   }
 }
 
@@ -460,6 +512,7 @@ async function tick() {
   writeHeartbeat({ active: [...active.values()].map((a) => a.id) });
   await handleInbox();
   await importHandoffs().catch((e) => log("handoff import", e instanceof Error ? e.message : e));
+  await exportReturns().catch((e) => log("handoff export", e instanceof Error ? e.message : e));
   if (forceSync || Date.now() - lastSync > SYNC_MS) {
     forceSync = false;
     lastSync = Date.now();

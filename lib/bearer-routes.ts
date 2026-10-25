@@ -6,6 +6,9 @@ export const BEARER_ROUTES = [
   "/api/handoff/v2/chunk",
   "/api/handoff/v2/finish",
   "/api/handoff/v2/abort",
+  "/api/handoff/v2/return",
+  "/api/handoff/v2/export",
+  "/api/handoff/v2/complete",
   "/api/calendar/token",
   "/api/memory/notes",
 ] as const;
