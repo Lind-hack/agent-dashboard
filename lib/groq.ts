@@ -18,7 +18,8 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
   return (body?.text ?? "").trim();
 }
 
-const FALLBACK_MODELS = ["llama-3.3-70b-versatile", "openai/gpt-oss-20b"];
+// llama-3.3-70b was retired on Groq; qwen3.8 has its own daily quota.
+const FALLBACK_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
 
 // One JSON answer from the first model on the ladder that still has quota; null if all fail.
 export async function groqJSON<T>(system: string, user: string, temperature = 0.2): Promise<Partial<T> | null> {
