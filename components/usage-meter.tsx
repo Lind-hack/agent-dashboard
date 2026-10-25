@@ -22,10 +22,12 @@ export function UsageMeter({ agent, usage }: { agent: keyof typeof AGENT; usage:
   const Icon = a.icon;
   const week = usage.week?.usedPct ?? null;
   const five = usage.fiveHour?.usedPct ?? null;
-  const known = week !== null;
-  const pct = Math.max(0, Math.min(100, week ?? 0));
+  // The weekly window is the headline; until a CLI has reported it, the 5-hour window stands in.
+  const main = week !== null ? "week" : five !== null ? "fiveHour" : null;
+  const known = main !== null;
+  const pct = Math.max(0, Math.min(100, (main === "week" ? week : five) ?? 0));
   const hot = known && pct >= 80;
-  const reset = resetLabel(usage.week?.resetsAt);
+  const reset = resetLabel(main ? usage[main]?.resetsAt : null);
 
   const numeral = (cls: string) => (
     <p className={cn("tnum shrink-0 text-right leading-none font-semibold tracking-[-0.05em]", hot && "text-warn", cls)}>
@@ -47,7 +49,7 @@ export function UsageMeter({ agent, usage }: { agent: keyof typeof AGENT; usage:
         <div
           className="relative h-8 overflow-hidden rounded-full border border-line bg-black/40 shadow-[0_2px_10px_rgb(0_0_0/0.6)_inset] sm:h-11"
           role="meter"
-          aria-label={`${a.name} weekly usage`}
+          aria-label={`${a.name} ${main === "fiveHour" ? "5-hour" : "weekly"} usage`}
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={known ? pct : undefined}
@@ -65,8 +67,8 @@ export function UsageMeter({ agent, usage }: { agent: keyof typeof AGENT; usage:
           </span>
           {known ? (
             <>
-              weekly used
-              {five !== null && <span className="tnum"> · 5-hour {five}%</span>}
+              {main === "week" ? "weekly used" : "5-hour window used"}
+              {main === "week" && five !== null && <span className="tnum"> · 5-hour {five}%</span>}
               {reset && <span> · {reset}</span>}
             </>
           ) : (

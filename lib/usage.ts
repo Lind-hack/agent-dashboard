@@ -13,7 +13,15 @@ export type PlanUsage = { fiveHour?: Window; week?: Window; status?: string; at?
 
 const usageFile = () => path.join(DATA_DIR, "usage.json");
 
-type ClaudeInfo = { status?: string; resets_at?: number; rate_limit_type?: string; utilization?: number | null };
+// The CLI emits camelCase (rateLimitType, resetsAt); the SDK docs show snake_case. Accept both.
+type ClaudeInfo = {
+  status?: string;
+  utilization?: number | null;
+  rateLimitType?: string;
+  rate_limit_type?: string;
+  resetsAt?: number;
+  resets_at?: number;
+};
 
 // Called by the runner for every rate_limit_event.
 export function recordClaudeUsage(info: ClaudeInfo) {
@@ -22,11 +30,12 @@ export function recordClaudeUsage(info: ClaudeInfo) {
     all = JSON.parse(fs.readFileSync(usageFile(), "utf8")) ?? {};
   } catch {}
   const claude = ((all.claude as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  const key = info?.rate_limit_type === "five_hour" ? "fiveHour" : info?.rate_limit_type?.startsWith("seven_day") ? "week" : null;
+  const type = info?.rateLimitType ?? info?.rate_limit_type ?? "";
+  const key = type === "five_hour" ? "fiveHour" : type.startsWith("seven_day") ? "week" : null;
   if (key) {
     claude[key] = {
       usedPct: typeof info.utilization === "number" ? Math.round(info.utilization * 100) : null,
-      resetsAt: info.resets_at ?? null,
+      resetsAt: info.resetsAt ?? info.resets_at ?? null,
     };
   }
   claude.status = info?.status;
