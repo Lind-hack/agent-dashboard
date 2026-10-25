@@ -1,6 +1,9 @@
 "use client";
 
+import { Archive, ArrowUpRight, ChevronDown, GitBranch, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Dot } from "@/components/kit";
+import { Md } from "@/components/md";
 import { ReplyBar } from "@/components/reply-bar";
 import { AGENT_LABELS } from "@/lib/agents";
 import type { Job } from "@/lib/store";
@@ -8,14 +11,56 @@ import { ago, cn } from "@/lib/utils";
 
 type LogEvent = { t?: string; kind?: string; text?: string; ok?: boolean; costUsd?: number; sessionId?: string };
 
-const kindStyle: Record<string, string> = {
-  text: "text-text whitespace-pre-wrap",
-  tool: "font-mono text-xs text-muted",
-  turn: "mt-4 border-t border-line pt-3 text-xs font-semibold text-accent whitespace-pre-wrap",
-  result: "whitespace-pre-wrap rounded-lg bg-white/[0.03] p-3 text-text",
-  error: "whitespace-pre-wrap text-bad",
-  init: "font-mono text-xs text-muted",
-};
+// Group consecutive tool calls so the conversation reads like a chat, with the work folded away.
+type Block = { kind: "you" | "agent" | "result" | "error" | "start"; text: string } | { kind: "tools"; items: string[] };
+
+function toBlocks(log: LogEvent[]): Block[] {
+  const out: Block[] = [];
+  for (const e of log) {
+    if (e.kind === "init") continue;
+    if (e.kind === "tool") {
+      const last = out.at(-1);
+      if (last?.kind === "tools") last.items.push(e.text ?? "");
+      else out.push({ kind: "tools", items: [e.text ?? ""] });
+      continue;
+    }
+    if (e.kind === "turn") {
+      const t = e.text ?? "";
+      out.push(t.startsWith("You: ") ? { kind: "you", text: t.slice(5) } : { kind: "start", text: t });
+      continue;
+    }
+    if (e.kind === "result") {
+      // The result repeats the agent's last message; show it once, as the turn's answer.
+      const last = out.at(-1);
+      if (last && last.kind === "agent" && last.text.trim() === (e.text ?? "").trim()) out.pop();
+      out.push({ kind: e.ok === false ? "error" : "result", text: e.text ?? "" });
+      continue;
+    }
+    out.push({ kind: e.kind === "error" ? "error" : "agent", text: e.text ?? "" });
+  }
+  return out;
+}
+
+function Tools({ items }: { items: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="text-xs">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-muted hover:text-text" aria-expanded={open}>
+        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+        {items.length} step{items.length > 1 ? "s" : ""} · {items.at(-1)?.split(" ")[0]}
+      </button>
+      {open && (
+        <ul className="mt-2 flex flex-col gap-1 border-l border-line pl-3 font-mono text-[11.5px] text-muted">
+          {items.map((t, i) => (
+            <li key={i} className="break-all">
+              {t}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLog: LogEvent[] }) {
   const [job, setJob] = useState(initialJob);
@@ -23,6 +68,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    bottom.current?.scrollIntoView();
     let stop = false;
     async function poll() {
       const res = await fetch(`/api/jobs/${initialJob.id}`, { cache: "no-store" }).catch(() => null);
@@ -52,58 +98,86 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
   }
 
   const running = job.status === "running" || job.status === "queued";
-  const cost = (job.turns ?? []).reduce((s, t) => s + (t.costUsd ?? 0), 0);
   const agentName = AGENT_LABELS[job.agent ?? "claude"];
+  const blocks = toBlocks(log);
 
   return (
-    <div className="pb-40">
-      <div className="mb-1 flex flex-wrap items-center gap-3 font-mono text-xs text-muted">
-        <span className="rounded bg-white/5 px-1.5 py-0.5 text-text">{agentName}</span>
-        {job.issueUrl ? (
-          <a href={job.issueUrl} target="_blank" rel="noreferrer" className="hover:text-text">
-            {job.id} ↗
-          </a>
-        ) : (
-          <span>{job.id}</span>
-        )}
-        <span>{job.repo}</span>
-        <span>{job.branch}</span>
-      </div>
-      <h1 className="mb-3 text-xl font-semibold">{job.title}</h1>
-      <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
-        <span className={cn("rounded-full border border-line px-3 py-1", job.status === "failed" && "text-bad", running && "text-accent")}>
-          {job.status}
-        </span>
-        {job.prUrl && (
-          <a href={job.prUrl} target="_blank" rel="noreferrer" className="rounded-full border border-line px-3 py-1 hover:border-accent">
-            Pull request ↗
-          </a>
-        )}
-        <span className="text-muted">
-          {job.turns?.length ?? 0} turn{job.turns?.length === 1 ? "" : "s"} · updated {ago(job.updatedAt)}
-          {cost > 0 && ` · $${cost.toFixed(2)} equiv.`}
-        </span>
-        {running && (
-          <button onClick={() => post({ action: "cancel" })} className="ml-auto text-sm text-bad hover:underline">
-            Stop
-          </button>
-        )}
-        {/* Linear jobs close when the issue is closed; plain chats are archived here. */}
-        {!running && !job.issueId && job.status !== "closed" && (
-          <button onClick={() => post({ action: "archive" })} className="ml-auto text-sm text-muted hover:text-text">
-            Archive
-          </button>
-        )}
-      </div>
-      {job.error && <p className="mb-4 rounded-lg border border-bad/30 p-3 text-sm text-bad">{job.error}</p>}
+    <div className="mx-auto max-w-3xl pb-44">
+      <header className="pt-2 pb-5 lg:pt-6">
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+          <span className="flex items-center gap-1.5 text-text">
+            <Dot tone={job.agent} pulse={job.status === "running"} /> {agentName}
+          </span>
+          <span className="flex items-center gap-1">
+            <GitBranch className="h-3.5 w-3.5" /> {job.repo.split("/")[1] ?? job.repo}
+          </span>
+          {job.issueUrl ? (
+            <a href={job.issueUrl} target="_blank" rel="noreferrer" className="hover:text-text">
+              {job.id} ↗
+            </a>
+          ) : (
+            <span>{job.id}</span>
+          )}
+          <span>updated {ago(job.updatedAt)}</span>
+        </div>
+        <h1 className="text-[1.7rem] leading-tight font-semibold tracking-[-0.03em] text-balance">{job.title}</h1>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full px-3 py-1 text-xs",
+              job.status === "failed" ? "bg-bad/15 text-bad" : running ? "bg-claude/15 text-claude" : "bg-white/[0.06] text-muted",
+            )}
+          >
+            {job.status === "queued" ? "waiting for a free slot" : job.status === "running" ? `${agentName} is working` : job.status}
+          </span>
+          {job.prUrl && (
+            <a href={job.prUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded-full border border-line px-3 py-1 text-xs hover:border-line-hi">
+              Pull request <ArrowUpRight className="h-3.5 w-3.5" />
+            </a>
+          )}
+          {running && (
+            <button onClick={() => post({ action: "cancel" })} className="ml-auto flex items-center gap-1.5 rounded-full border border-bad/40 px-3 py-1 text-xs text-bad">
+              <Square className="h-3 w-3 fill-current" /> Stop
+            </button>
+          )}
+          {/* Linear jobs close when the issue is closed; plain chats are archived here. */}
+          {!running && !job.issueId && job.status !== "closed" && (
+            <button onClick={() => post({ action: "archive" })} className="ml-auto flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-muted hover:text-text">
+              <Archive className="h-3.5 w-3.5" /> Archive
+            </button>
+          )}
+        </div>
+      </header>
 
-      <div className="flex flex-col gap-2 text-sm">
-        {log.map((e, i) => (
-          <div key={i} className={kindStyle[e.kind ?? "text"] ?? "text-muted"}>
-            {e.kind === "init" ? `session ${e.sessionId ?? ""}` : e.text}
-          </div>
-        ))}
-        {running && <div className="animate-pulse text-xs text-muted">{job.status === "queued" ? "waiting for a free slot…" : `${agentName} is working…`}</div>}
+      <div className="flex flex-col gap-4 text-[15px] leading-relaxed">
+        {blocks.map((b, i) => {
+          if (b.kind === "tools") return <Tools key={i} items={b.items} />;
+          if (b.kind === "start") return <p key={i} className="text-xs text-faint">{b.text}</p>;
+          if (b.kind === "you")
+            return (
+              <div key={i} className="max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08] px-4 py-2.5 whitespace-pre-wrap">
+                {b.text}
+              </div>
+            );
+          if (b.kind === "error")
+            return (
+              <p key={i} className="rounded-2xl border border-bad/30 bg-bad/5 px-4 py-3 text-sm whitespace-pre-wrap text-bad">
+                {b.text}
+              </p>
+            );
+          if (b.kind === "result")
+            return (
+              <div key={i} className="panel px-4 py-3.5">
+                <Md text={b.text} />
+              </div>
+            );
+          return (
+            <div key={i} className="text-text/90">
+              <Md text={b.text} />
+            </div>
+          );
+        })}
+        {running && <p className="animate-pulse text-xs text-muted">{job.status === "queued" ? "Waiting for a free slot…" : `${agentName} is working…`}</p>}
         <div ref={bottom} />
       </div>
 

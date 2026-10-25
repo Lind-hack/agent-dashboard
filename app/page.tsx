@@ -1,130 +1,128 @@
+import { ArrowUpRight, Radio } from "lucide-react";
 import Link from "next/link";
+import { InboxList } from "@/components/inbox-list";
+import { Dot, Empty, Panel, SectionTitle } from "@/components/kit";
+import { UsageMeter } from "@/components/usage-meter";
 import { AGENT_LABELS } from "@/lib/agents";
 import { repoShort } from "@/lib/config";
-import { agentIssues, type LinearIssue } from "@/lib/linear";
-import { failedUnits, timers, type TimerRow } from "@/lib/ops";
-import { listJobs, readHeartbeat, type Job } from "@/lib/store";
-import { ago, cn } from "@/lib/utils";
+import { inboxItems, type InboxItem } from "@/lib/inbox";
+import { listJobs, readHeartbeat } from "@/lib/store";
+import { planUsage } from "@/lib/usage";
+import { ago } from "@/lib/utils";
+import { siteHealth } from "@/lib/website";
 
 export const dynamic = "force-dynamic";
 
-async function safe<T>(p: Promise<T>): Promise<{ data?: T; error?: string }> {
-  try {
-    return { data: await p };
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : String(e) };
-  }
+function greeting() {
+  const h = Number(new Date().toLocaleString("en-GB", { hour: "numeric", hour12: false, timeZone: "Europe/Belgrade" }));
+  return h < 5 ? "Still up, Lind." : h < 12 ? "Good morning, Lind." : h < 18 ? "Good afternoon, Lind." : "Good evening, Lind.";
 }
 
-const statusTone: Record<string, string> = {
-  running: "text-accent",
-  queued: "text-warn",
-  waiting: "text-ok",
-  failed: "text-bad",
-  cancelled: "text-muted",
-  closed: "text-muted",
-};
 
-function Section({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section className="mb-8">
-      <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">{title}</h2>
-        {right}
-      </div>
-      <div className="overflow-hidden rounded-xl border border-line bg-panel">{children}</div>
-    </section>
-  );
-}
-
-const Empty = ({ children }: { children: React.ReactNode }) => <p className="px-4 py-5 text-sm text-muted">{children}</p>;
-
-function JobRow({ job }: { job: Job }) {
-  const last = job.turns.at(-1);
-  return (
-    <Link href={`/jobs/${job.id}`} className="flex items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
-      <span className="w-14 shrink-0 text-xs text-accent">{AGENT_LABELS[job.agent ?? "claude"]}</span>
-      <span className="hidden w-24 shrink-0 font-mono text-xs text-muted sm:inline">{job.id}</span>
-      <span className="min-w-0 flex-1 truncate text-sm">{job.title}</span>
-      <span className="hidden text-xs text-muted sm:inline">{repoShort(job.repo ?? "")}</span>
-      {job.prUrl && <span className="text-xs text-muted">PR</span>}
-      <span className={cn("w-16 text-right text-xs", statusTone[job.status])}>{job.status}</span>
-      <span className="w-16 text-right text-xs text-muted">{ago(last?.endedAt ?? last?.startedAt ?? job.updatedAt)}</span>
-    </Link>
-  );
-}
-
-function CodexRow({ issue }: { issue: LinearIssue }) {
-  return (
-    <Link href={`/codex/${issue.identifier}`} className="flex items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
-      <span className="w-20 shrink-0 font-mono text-xs text-muted">{issue.identifier}</span>
-      <span className="min-w-0 flex-1 truncate text-sm">{issue.title}</span>
-      <span className="w-24 text-right text-xs">{issue.state?.name ?? "—"}</span>
-      <span className="w-16 text-right text-xs text-muted">{ago(issue.updatedAt)}</span>
-    </Link>
-  );
-}
-
-function TimerTable({ rows }: { rows: TimerRow[] }) {
-  return (
-    <div className="divide-y divide-line">
-      {rows.map((r) => {
-        const bad = r.result && r.result !== "success";
-        return (
-          <div key={r.timer} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-            <span className={cn("h-2 w-2 shrink-0 rounded-full", bad ? "bg-bad" : r.active === "active" ? "bg-accent" : "bg-ok")} />
-            <span className="min-w-0 flex-1 truncate font-mono text-xs">{r.timer.replace(/\.timer$/, "")}</span>
-            <span className="hidden w-28 text-right text-xs text-muted sm:inline">last {ago(r.last)}</span>
-            <span className="w-24 text-right text-xs">{r.next ? ago(r.next) : "—"}</span>
-            {bad && <span className="text-xs text-bad">{r.result}</span>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-export default async function Overview() {
+export default async function Dashboard() {
+  const usage = planUsage();
   const jobs = listJobs();
   const heartbeat = readHeartbeat();
-  const [codex, timerRows, failed] = await Promise.all([safe(agentIssues("codex-cloud", 15)), safe(timers()), safe(failedUnits())]);
-  const runnerAlive = heartbeat.at && Date.now() - new Date(heartbeat.at).getTime() < 60_000;
-  const open = jobs.filter((j) => j.status !== "closed" && j.status !== "cancelled");
-  const closed = jobs.filter((j) => j.status === "closed" || j.status === "cancelled").slice(0, 10);
+  const [inbox, site] = await Promise.all([inboxItems().catch(() => [] as InboxItem[]), siteHealth().catch(() => null)]);
+
+  const runnerAlive = !!heartbeat.at && Date.now() - new Date(heartbeat.at).getTime() < 60_000;
+  const working = jobs.filter((j) => j.status === "running" || j.status === "queued");
+  const recent = jobs.filter((j) => j.status !== "closed").slice(0, 5);
+  const failedUnits = site?.units.filter((u) => u.result && u.result !== "success") ?? [];
+
+  const state = [
+    inbox.length ? `${inbox.length} thing${inbox.length > 1 ? "s" : ""} need${inbox.length > 1 ? "" : "s"} you` : "Nothing needs you",
+    working.length ? `${working.length} agent${working.length > 1 ? "s" : ""} working` : runnerAlive ? "agents idle" : "runner down",
+    site?.latest ? `383 published ${ago(site.latest.at)}` : null,
+  ].filter(Boolean);
 
   return (
-    <>
-      <div className="mb-8 flex flex-wrap items-center gap-3 text-sm">
-        <span className={cn("rounded-full border px-3 py-1", runnerAlive ? "border-ok/40 text-ok" : "border-bad/40 text-bad")}>
-          runner {runnerAlive ? (heartbeat.active?.length ? `working on ${heartbeat.active.join(", ")}` : "idle") : `down (seen ${ago(heartbeat.at)})`}
-        </span>
-        {failed.data && failed.data.length > 0 && (
-          <span className="rounded-full border border-bad/40 px-3 py-1 text-bad">
-            {failed.data.length} failed unit{failed.data.length > 1 ? "s" : ""}: {failed.data.map((u) => u.unit).join(", ")}
-          </span>
-        )}
-        <Link href="/voice" className="ml-auto rounded-full bg-accent px-4 py-1.5 font-medium text-bg">
-          + New chat
-        </Link>
+    <div className="flex min-w-0 flex-col gap-8">
+      <section className="rise pt-2 lg:pt-6">
+        <h1 className="text-[2.4rem] leading-[1.02] font-semibold tracking-[-0.045em] text-balance lg:text-[3.6rem]">{greeting()}</h1>
+        <p className="mt-3 text-[15px] text-muted">{state.join(" · ")}.</p>
+      </section>
+
+      <Panel className="rise flex flex-col gap-6 p-5 sm:p-7" style={{ animationDelay: "60ms" }}>
+        <UsageMeter agent="claude" usage={usage.claude} />
+        <UsageMeter agent="codex" usage={usage.codex} />
+      </Panel>
+
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+        <section className="rise" style={{ animationDelay: "120ms" }}>
+          <SectionTitle right={<Link href="/inbox" className="hover:text-text">Inbox →</Link>}>Needs you</SectionTitle>
+          <Panel className="overflow-hidden">
+            <InboxList items={inbox} limit={5} empty="Nothing waiting. PRs, finished agents and failed timers show up here." />
+          </Panel>
+        </section>
+
+        <div className="flex min-w-0 flex-col gap-8">
+          <section className="rise" style={{ animationDelay: "180ms" }}>
+            <SectionTitle right={<span className="flex items-center gap-2"><Dot tone={runnerAlive ? "ok" : "bad"} pulse={working.length > 0} /> runner {runnerAlive ? "online" : "offline"}</span>}>
+              Working now
+            </SectionTitle>
+            <Panel className="overflow-hidden">
+              {working.length === 0 ? (
+                <Empty>No agent is running. Tap the orb to start one.</Empty>
+              ) : (
+                working.map((j) => (
+                  <Link key={j.id} href={`/jobs/${j.id}`} className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
+                    <Dot tone={j.agent} pulse={j.status === "running"} />
+                    <span className="min-w-0 flex-1 truncate text-[15px]">{j.title}</span>
+                    <span className="shrink-0 text-xs text-muted">{j.status === "queued" ? "queued" : AGENT_LABELS[j.agent]}</span>
+                  </Link>
+                ))
+              )}
+            </Panel>
+          </section>
+
+          <section className="rise" style={{ animationDelay: "240ms" }}>
+            <SectionTitle right={<Link href="/website" className="hover:text-text">Website →</Link>}>383 overnight</SectionTitle>
+            <Panel className="flex flex-col gap-3 p-4 text-sm">
+              {site ? (
+                <>
+                  <p className="flex items-center gap-2">
+                    <Dot tone={site.up ? "ok" : "bad"} /> {site.up ? `383ks.com up · ${site.ms} ms` : site.error}
+                  </p>
+                  {site.latest && (
+                    <a href={site.latest.url} target="_blank" rel="noreferrer" className="flex items-start gap-2 hover:text-text">
+                      <Radio className="mt-0.5 h-4 w-4 shrink-0 text-muted" strokeWidth={1.75} />
+                      <span className="min-w-0 text-muted">
+                        Last article {ago(site.latest.at)}: <span className="text-text">{site.latest.title}</span>
+                      </span>
+                    </a>
+                  )}
+                  <p className="flex items-center gap-2 text-muted">
+                    <Dot tone={failedUnits.length ? "bad" : "ok"} />
+                    {failedUnits.length ? `${failedUnits.map((u) => u.timer.replace(".timer", "")).join(", ")} failed` : `${site.units.length} scheduled jobs healthy`}
+                  </p>
+                </>
+              ) : (
+                <p className="text-muted">Couldn't check 383ks.com right now.</p>
+              )}
+            </Panel>
+          </section>
+        </div>
       </div>
 
-      <Section title="Claude & Codex · on the VPS">
-        {open.length ? (
-          open.map((j) => <JobRow key={j.id} job={j} />)
-        ) : (
-          <Empty>Nothing open. Start a chat, or add the agent:claude / agent:codex label to a Linear issue.</Empty>
-        )}
-      </Section>
-
-      <Section title="Codex cloud · via Linear">
-        {codex.error ? <Empty>{codex.error}</Empty> : codex.data?.length ? codex.data.map((i) => <CodexRow key={i.id} issue={i} />) : <Empty>No Codex cloud tasks.</Empty>}
-      </Section>
-
-      <Section title="Scheduled on the VPS" right={<span className="text-xs text-muted">next run →</span>}>
-        {timerRows.error ? <Empty>systemd: {timerRows.error}</Empty> : <TimerTable rows={timerRows.data ?? []} />}
-      </Section>
-
-      {closed.length > 0 && <Section title="Recently closed">{closed.map((j) => <JobRow key={j.id} job={j} />)}</Section>}
-    </>
+      <section className="rise" style={{ animationDelay: "300ms" }}>
+        <SectionTitle right={<Link href="/chat" className="hover:text-text">All chats →</Link>}>Recent chats</SectionTitle>
+        <Panel className="overflow-hidden">
+          {recent.length === 0 ? (
+            <Empty>No chats yet.</Empty>
+          ) : (
+            recent.map((j) => (
+              <Link key={j.id} href={`/jobs/${j.id}`} className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
+                <Dot tone={j.agent} />
+                <span className="min-w-0 flex-1 truncate text-[15px]">{j.title}</span>
+                <span className="hidden shrink-0 text-xs text-faint sm:inline">{repoShort(j.repo)}</span>
+                {j.prUrl && <ArrowUpRight className="h-4 w-4 shrink-0 text-muted" aria-label="Has a PR" />}
+                <span className="w-14 shrink-0 text-right text-xs text-faint">{ago(j.updatedAt)}</span>
+              </Link>
+            ))
+          )}
+        </Panel>
+      </section>
+    </div>
   );
 }

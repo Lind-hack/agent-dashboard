@@ -2,6 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { AGENT_LABELS, BOT_MARK, repoFromLabel, repoNotes, replyPrefix, type AgentKey } from "../lib/config";
 import { repoBase } from "../lib/github";
 import { agentIssues, comment, issueComments, moveToStateType, type LinearIssue } from "../lib/linear";
+import { recordClaudeUsage } from "../lib/usage";
 import { appendLog, drainInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
 import { runAgent } from "./agents";
 import { ensurePullRequest, ensureWorktree, pushBranch, removeWorktree } from "./git";
@@ -237,7 +238,7 @@ async function runTurn(job: Job) {
       cwd: wt,
       prompt: turn.prompt,
       resume: job.sessionId,
-      onEvent: (e) => appendLog(job.id, e),
+      onEvent: (e) => (e.kind === "usage" ? recordClaudeUsage(e.info as never) : appendLog(job.id, e)),
       onChild: (child) => {
         const a = active.get(agent);
         if (a) a.child = child;

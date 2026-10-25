@@ -1,10 +1,12 @@
 "use client";
 
+import { LoaderCircle, Mic, SendHorizontal, Square } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { audioFilename, useRecorder } from "./use-recorder";
 
-// Bottom-of-chat composer: type, or tap the mic and the transcript lands in the box to check before sending.
+// Chat composer pinned above the phone tab bar (beside the sidebar on desktop). The mic transcribes
+// into the box so Lind can check the words before sending.
 export function ReplyBar({
   placeholder,
   disabled,
@@ -26,7 +28,7 @@ export function ReplyBar({
     const res = await fetch("/api/transcribe", { method: "POST", body: form }).catch(() => null);
     const body = await res?.json().catch(() => null);
     setBusy(false);
-    if (!res?.ok) return setNotice(body?.error ?? "Couldn't transcribe");
+    if (!res?.ok) return setNotice(body?.error ?? "Couldn't transcribe — try again or type it.");
     setNotice("");
     setText((t) => [t, body?.text].filter(Boolean).join(" "));
   });
@@ -47,36 +49,42 @@ export function ReplyBar({
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 border-t border-line bg-bg/95 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-end gap-2 px-4 py-3">
-        <button
-          onClick={mic.toggle}
-          disabled={disabled || (busy && !mic.recording)}
-          aria-label={mic.recording ? "Stop recording" : "Record"}
-          className={cn(
-            "h-10 shrink-0 rounded-lg border px-3 text-sm disabled:opacity-40",
-            mic.recording ? "animate-pulse border-bad text-bad" : "border-line text-muted",
-          )}
-        >
-          {mic.recording ? `■ ${mic.seconds}s` : "🎙"}
-        </button>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={2}
-          placeholder={placeholder}
-          disabled={disabled}
-          className="min-w-0 flex-1 resize-none rounded-lg border border-line bg-panel px-3 py-2 text-sm outline-none focus:border-accent"
-        />
-        <button
-          onClick={send}
-          disabled={disabled || busy || mic.recording || !text.trim()}
-          className="h-10 rounded-lg bg-accent px-4 text-sm font-medium text-bg disabled:opacity-40"
-        >
-          Send
-        </button>
+    <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-3 pb-2 lg:bottom-0 lg:left-[248px] lg:px-8 lg:pb-5">
+      <div className="mx-auto max-w-3xl">
+        {(notice || mic.error) && <p className="mb-1.5 px-3 text-xs text-muted" aria-live="polite">{mic.error || notice}</p>}
+        <div className="panel flex items-end gap-1.5 rounded-[26px] bg-bg-raised/90 p-1.5">
+          <button
+            onClick={mic.toggle}
+            disabled={disabled || (busy && !mic.recording)}
+            aria-label={mic.recording ? "Stop recording" : "Dictate"}
+            className={cn(
+              "grid h-11 w-11 shrink-0 place-items-center rounded-full transition-colors disabled:opacity-40",
+              mic.recording ? "bg-bad/20 text-bad" : "text-muted hover:bg-white/5 hover:text-text",
+            )}
+          >
+            {mic.recording ? <Square className="h-4 w-4 fill-current" /> : <Mic className="h-5 w-5" strokeWidth={1.75} />}
+          </button>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+            }}
+            rows={1}
+            placeholder={mic.recording ? `Listening · ${mic.seconds}s` : placeholder}
+            disabled={disabled}
+            className="max-h-40 min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] outline-none [field-sizing:content] placeholder:text-faint"
+          />
+          <button
+            onClick={send}
+            disabled={disabled || busy || mic.recording || !text.trim()}
+            aria-label="Send"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-text text-bg transition-opacity disabled:opacity-20"
+          >
+            {busy && !mic.recording ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+          </button>
+        </div>
       </div>
-      {(notice || mic.error) && <p className="mx-auto max-w-5xl px-4 pb-2 text-xs text-muted">{mic.error || notice}</p>}
     </div>
   );
 }

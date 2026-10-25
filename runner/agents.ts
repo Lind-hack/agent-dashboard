@@ -28,6 +28,8 @@ function claudeParser(resume?: string): Parser {
     onLine: (e, emit) => {
       if (e.session_id) sessionId = e.session_id;
       if (e.type === "system" && e.subtype === "init") emit({ kind: "init", sessionId });
+      // Plan-usage updates; the runner stores these for the dashboard meters instead of logging them.
+      if (e.type === "rate_limit_event" && e.rate_limit_info) emit({ kind: "usage", info: e.rate_limit_info });
       if (e.type === "assistant") {
         for (const c of e.message?.content ?? []) {
           if (c?.type === "text" && c.text?.trim()) {

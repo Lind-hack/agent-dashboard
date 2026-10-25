@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { makeSession, SESSION_COOKIE } from "@/lib/auth";
 import { dashboardPassword } from "@/lib/config";
 
+export async function DELETE() {
+  const res = NextResponse.json({ ok: true });
+  res.cookies.delete(SESSION_COOKIE);
+  return res;
+}
+
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { password?: string } | null;
   // Slow down guessing a little; it's the only door in.

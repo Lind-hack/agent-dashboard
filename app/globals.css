@@ -1,25 +1,134 @@
 @import "tailwindcss";
 
+/* Agentic OS — pinned to Lind's reference: near-black canvas, soft glass panels, Claude coral,
+   Codex blue, one nebula orb as the signature. Dark only (used at night, on a phone). */
 @theme {
-  --color-bg: #0b0c0e;
-  --color-panel: #131519;
-  --color-line: #23262d;
-  --color-muted: #8a8f98;
-  --color-text: #e8e9ec;
-  --color-accent: #d97757;
-  --color-ok: #4fbf7f;
-  --color-warn: #e0b04a;
-  --color-bad: #e5645c;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-bg: #08080a;
+  --color-bg-raised: #0e0e11;
+  --color-panel: rgb(255 255 255 / 0.028);
+  --color-panel-hi: rgb(255 255 255 / 0.05);
+  --color-line: rgb(255 255 255 / 0.07);
+  --color-line-hi: rgb(255 255 255 / 0.12);
+  --color-text: #ededf0;
+  --color-muted: #9a9ca6;
+  --color-faint: #6b6e78;
+
+  --color-claude: #e2825f;
+  --color-claude-deep: #9c4a31;
+  --color-codex: #7c98ff;
+  --color-codex-deep: #3a4fae;
+  --color-opencode: #5fd3a6;
+  --color-hermes: #b392f0;
+  --color-accent: #e2825f;
+
+  --color-ok: #5fd39a;
+  --color-warn: #f2c14e;
+  --color-bad: #f06c6c;
+
+  --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-panel: 22px;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html {
   color-scheme: dark;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
-  background: var(--color-bg);
+  background:
+    radial-gradient(1200px 600px at 70% -10%, rgb(124 152 255 / 0.06), transparent 60%),
+    radial-gradient(900px 500px at 10% 0%, rgb(226 130 95 / 0.05), transparent 55%),
+    var(--color-bg);
+  background-attachment: fixed;
   color: var(--color-text);
+  font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(226 130 95 / 0.35);
+  color: #fff;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-codex);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.14) transparent;
+}
+
+input,
+textarea,
+select {
+  caret-color: var(--color-claude);
+}
+
+/* Tabular figures wherever numbers are compared. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Glass panel: a real backdrop blur over the nebula wash, offset shadow for depth. */
+.panel {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.015));
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-panel);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.04) inset,
+    0 18px 40px -24px rgb(0 0 0 / 0.8);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+/* Usage meter fill: layered light so the bar reads as a material, not a flat color. */
+.meter-fill {
+  background:
+    radial-gradient(circle at 20% 30%, rgb(255 255 255 / 0.35) 0 1px, transparent 1.5px) 0 0 / 9px 7px,
+    radial-gradient(circle at 70% 60%, rgb(255 255 255 / 0.22) 0 1px, transparent 1.5px) 0 0 / 13px 11px,
+    linear-gradient(90deg, var(--meter-deep), var(--meter) 70%, color-mix(in oklab, var(--meter), white 30%));
+  box-shadow:
+    0 0 24px -4px color-mix(in oklab, var(--meter), transparent 40%),
+    0 1px 0 rgb(255 255 255 / 0.35) inset;
+  animation: meter-drift 14s linear infinite;
+}
+
+@keyframes meter-drift {
+  to {
+    background-position: 90px 0, -130px 0, 0 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(4px);
+  }
+}
+
+.rise {
+  animation: rise 0.6s var(--ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter-fill,
+  .rise {
+    animation: none;
+  }
+}
+
+/* Room for the phone tab bar and the home indicator. */
+.pb-tabbar {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom));
+}
+@media (min-width: 1024px) {
+  .pb-tabbar {
+    padding-bottom: 48px;
+  }
 }

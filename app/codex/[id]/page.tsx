@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useEffect, useRef, useState } from "react";
+import { Dot } from "@/components/kit";
 import { ReplyBar } from "@/components/reply-bar";
 import { ago, cn } from "@/lib/utils";
 
@@ -15,7 +16,7 @@ function Text({ text }: { text: string }) {
       {parts.map((p, i) => {
         const m = p.match(/^\[([^\]]+)\]\(<?(https?:\/\/[^)>\s]+)>?\)$/);
         return m ? (
-          <a key={i} href={m[2]} target="_blank" rel="noreferrer" className="text-accent underline">
+          <a key={i} href={m[2]} target="_blank" rel="noreferrer" className="text-codex underline underline-offset-2">
             {m[1]}
           </a>
         ) : (
@@ -58,31 +59,35 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
   const lastRole = messages.at(-1)?.role;
 
   return (
-    <div className="pb-40">
-      <div className="mb-1 flex items-center gap-3 font-mono text-xs text-muted">
-        <span className="rounded bg-white/5 px-1.5 py-0.5 text-text">Codex cloud</span>
-        {issue && (
-          <a href={issue.url} target="_blank" rel="noreferrer" className="hover:text-text">
-            {issue.identifier} ↗
-          </a>
-        )}
-        {issue?.state && <span>{issue.state.name}</span>}
-      </div>
-      <h1 className="mb-6 text-xl font-semibold">{issue?.title ?? id}</h1>
-      {error && <p className="mb-4 text-sm text-bad">{error}</p>}
+    <div className="mx-auto max-w-3xl pb-44">
+      <header className="pt-2 pb-5 lg:pt-6">
+        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+          <span className="flex items-center gap-1.5 text-text">
+            <Dot tone="hermes" pulse={lastRole === "you"} /> Codex cloud
+          </span>
+          {issue && (
+            <a href={issue.url} target="_blank" rel="noreferrer" className="hover:text-text">
+              {issue.identifier} ↗
+            </a>
+          )}
+          {issue?.state && <span>{issue.state.name}</span>}
+        </div>
+        <h1 className="text-[1.7rem] leading-tight font-semibold tracking-[-0.03em] text-balance">{issue?.title ?? id}</h1>
+      </header>
+      {error && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/5 px-4 py-3 text-sm text-bad">{error}</p>}
 
-      <div className="flex flex-col gap-3 text-sm">
+      <div className="flex flex-col gap-4 text-[15px] leading-relaxed">
         {messages.map((m, i) =>
           m.role === "status" ? (
-            <p key={i} className="font-mono text-xs text-muted">
+            <p key={i} className="text-xs text-faint">
               <Text text={m.text} />
             </p>
           ) : (
             <div
               key={i}
               className={cn(
-                "max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5",
-                m.role === "you" ? "self-end bg-accent/15" : "self-start border border-line bg-panel",
+                "max-w-[85%] whitespace-pre-wrap px-4 py-2.5",
+                m.role === "you" ? "self-end rounded-[20px] rounded-br-md bg-white/[0.08]" : "panel self-start rounded-[20px] rounded-bl-md",
               )}
             >
               <Text text={m.text} />

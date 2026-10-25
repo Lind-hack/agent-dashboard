@@ -49,10 +49,27 @@ export async function timers(): Promise<TimerRow[]> {
   return rows.sort((a, b) => (a.next ?? "z").localeCompare(b.next ?? "z"));
 }
 
-export async function failedUnits(): Promise<{ unit: string; description: string }[]> {
+export type FailedUnit = { unit: string; description: string; at?: string };
+
+export async function failedUnits(): Promise<FailedUnit[]> {
   const raw = JSON.parse(await systemctl(["list-units", "--failed", "--output=json"])) as {
     unit?: string;
     description?: string;
   }[];
-  return (raw ?? []).filter((u) => u?.unit).map((u) => ({ unit: u.unit!, description: u.description ?? "" }));
+  const units = (raw ?? []).filter((u) => u?.unit);
+  if (!units.length) return [];
+  // When each one failed (unix timestamps, systemd ≥ 252), so the inbox can date and dedupe them.
+  const shown = await systemctl(["show", "--timestamp=unix", "-p", "Id,StateChangeTimestamp", ...units.map((u) => u.unit!)]).catch(() => "");
+  const when = new Map<string, string>();
+  for (const block of shown.split("\n\n")) {
+    const id = block.match(/^Id=(.+)$/m)?.[1];
+    const ts = Number(block.match(/^StateChangeTimestamp=@(\d+)/m)?.[1]);
+    if (id && ts) when.set(id, new Date(ts * 1000).toISOString());
+  }
+  return units.map((u) => ({
+    unit: u.unit!,
+    // Transient units (systemd-run) use the whole command line as description — not worth showing.
+    description: u.description && !u.description.startsWith("/") ? u.description : "",
+    at: when.get(u.unit!),
+  }));
 }
