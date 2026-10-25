@@ -1,4 +1,4 @@
-import { ArrowRight, ArrowUpRight, Radio } from "lucide-react";
+import { ArrowRight, ArrowUpRight, CalendarDays, Flag, Radio } from "lucide-react";
 import Link from "next/link";
 import { InboxList } from "@/components/inbox-list";
 import { Dot, Empty, Panel, SectionTitle } from "@/components/kit";
@@ -6,6 +6,7 @@ import { UsageMeter } from "@/components/usage-meter";
 import { AGENT_LABELS } from "@/lib/agents";
 import { repoShort } from "@/lib/config";
 import { inboxItems, type InboxItem } from "@/lib/inbox";
+import { today, type Today } from "@/lib/planner";
 import { listJobs, readHeartbeat } from "@/lib/store";
 import { planUsage } from "@/lib/usage";
 import { ago } from "@/lib/utils";
@@ -23,7 +24,11 @@ export default async function Dashboard() {
   const usage = planUsage();
   const jobs = listJobs();
   const heartbeat = readHeartbeat();
-  const [inbox, site] = await Promise.all([inboxItems().catch(() => [] as InboxItem[]), siteHealth().catch(() => null)]);
+  const [inbox, site, day] = await Promise.all([
+    inboxItems().catch(() => [] as InboxItem[]),
+    siteHealth().catch(() => null),
+    today().catch(() => null as Today | null),
+  ]);
 
   const runnerAlive = !!heartbeat.at && Date.now() - new Date(heartbeat.at).getTime() < 60_000;
   const working = jobs.filter((j) => j.status === "running" || j.status === "queued");
@@ -42,6 +47,8 @@ export default async function Dashboard() {
         <h1 className="text-[2.4rem] leading-[1.02] font-semibold tracking-[-0.045em] text-balance lg:text-[3.6rem]">{greeting()}</h1>
         <p className="mt-3 text-[15px] text-muted">{state.join(" · ")}.</p>
       </section>
+
+      {day && <TodayCard day={day} />}
 
       <Panel className="rise flex flex-col gap-6 p-5 sm:p-7" style={{ animationDelay: "60ms" }}>
         <UsageMeter agent="claude" usage={usage.claude} />
@@ -124,5 +131,53 @@ export default async function Dashboard() {
         </Panel>
       </section>
     </div>
+  );
+}
+
+// The day at a glance: what's next on the calendar and the top open tasks, one tap from the planner.
+function TodayCard({ day }: { day: Today }) {
+  const now = Date.now();
+  const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: day.tz, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  const upcoming = day.events.filter((e) => !e.allDay && new Date(e.end).getTime() > now).slice(0, 3);
+  const tasks = [...(day.tasks?.overdue ?? []), ...(day.tasks?.today ?? [])].slice(0, 3);
+  const flag: Record<number, string> = { 5: "text-bad", 3: "text-warn", 1: "text-codex" };
+  return (
+    <section className="rise" style={{ animationDelay: "40ms" }}>
+      <SectionTitle right={<Link href="/calendar" className="flex items-center gap-1 hover:text-text">Plan my day <ArrowRight className="h-3.5 w-3.5" /></Link>}>Today</SectionTitle>
+      <Panel className="grid grid-cols-[minmax(0,1fr)] gap-5 p-5 sm:grid-cols-2">
+        <div className="min-w-0">
+          <p className="mb-2 flex items-center gap-2 text-xs text-muted">
+            <CalendarDays className="h-4 w-4" strokeWidth={1.75} /> Up next
+          </p>
+          {upcoming.length ? (
+            upcoming.map((e) => (
+              <p key={e.id} className="flex gap-3 py-1 text-[15px]">
+                <span className="tnum w-11 shrink-0 text-muted">{time(e.start)}</span>
+                <span className="min-w-0 truncate">{e.title}</span>
+              </p>
+            ))
+          ) : (
+            <p className="text-sm text-muted">{day.events.length ? "Nothing left on the calendar." : "Calendar's clear."}</p>
+          )}
+        </div>
+        <div className="min-w-0">
+          <p className="mb-2 flex items-center gap-2 text-xs text-muted">
+            <Flag className="h-4 w-4" strokeWidth={1.75} /> Tasks
+          </p>
+          {day.tasks === null ? (
+            <p className="text-sm text-muted">Connect TickTick on the Today page.</p>
+          ) : tasks.length ? (
+            tasks.map((t) => (
+              <p key={t.id} className="flex items-center gap-2 py-1 text-[15px]">
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.priority ? flag[t.priority].replace("text-", "bg-") : "bg-faint"}`} />
+                <span className="min-w-0 truncate">{t.title}</span>
+              </p>
+            ))
+          ) : (
+            <p className="text-sm text-muted">Nothing due today.</p>
+          )}
+        </div>
+      </Panel>
+    </section>
   );
 }

@@ -1,81 +1,103 @@
 import { ArrowUpRight, MapPin } from "lucide-react";
-import { CalendarAdd } from "@/components/calendar-add";
+import { headers } from "next/headers";
 import { Empty, PageHeader, Panel, SectionTitle } from "@/components/kit";
-import { agenda, calendarConnected, type CalEvent } from "@/lib/calendar";
+import { CaptureBar, PlanDay, TaskList, TickTickConnect } from "@/components/today";
+import { calendarConnected, type CalEvent } from "@/lib/calendar";
+import { today } from "@/lib/planner";
+import { ticktickConnected } from "@/lib/ticktick";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function CalendarPage() {
-  if (!calendarConnected()) {
-    return (
-      <div className="mx-auto max-w-3xl">
-        <PageHeader title="Today" sub="Your Google Calendar isn't connected yet." />
-        <Panel className="p-5 text-sm leading-relaxed text-muted">
-          <p className="text-text">One-time setup, on your PC:</p>
-          <pre className="mt-3 overflow-x-auto rounded-xl bg-black/40 px-4 py-3 font-mono text-[13px] text-text">node Desktop/claude/agent-dashboard/handoff/google-auth.mjs</pre>
-          <p className="mt-3">Sign in with Google and allow Calendar. The page fills in as soon as it finishes.</p>
-        </Panel>
-      </div>
-    );
-  }
+// Today: the day in one place — calendar, TickTick tasks, plan-my-day, and one box to capture anything.
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_error?: string }> }) {
+  const { ticktick_error } = await searchParams;
+  const t = await today();
+  const host = (await headers()).get("x-forwarded-host");
+  const callback = `${host ? `https://${host}` : "https://agents.383ks.com"}/api/ticktick/callback`;
+  const google = calendarConnected();
+  const ticktick = ticktickConnected();
 
-  let data: Awaited<ReturnType<typeof agenda>> | null = null;
-  let error = "";
-  try {
-    data = await agenda(2);
-  } catch (err) {
-    error = err instanceof Error ? err.message : String(err);
-  }
-  const tz = data?.tz ?? "Europe/Belgrade";
-  const fmtDay = (d: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...opts }).format(new Date(`${d}T12:00:00Z`));
-  const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-  const dayOf = (e: CalEvent) => (e.allDay ? e.start : new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(e.start)));
-
-  const today = data?.today ?? "";
-  const todays = data?.events.filter((e) => dayOf(e) === today) ?? [];
-  const later = data?.events.filter((e) => dayOf(e) > today) ?? [];
+  const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: t.tz, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+  const dayTitle = (d: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...opts }).format(new Date(`${d}T12:00:00Z`));
   const now = Date.now();
-  const timed = todays.filter((e) => !e.allDay);
+  const timed = t.events.filter((e) => !e.allDay);
   const next = timed.find((e) => new Date(e.end).getTime() > now);
-  const left = timed.filter((e) => new Date(e.start).getTime() > now).length;
+  const open = (t.tasks?.overdue.length ?? 0) + (t.tasks?.today.length ?? 0);
+  const planned = t.events.filter((e) => e.planned && new Date(e.end).getTime() > now).length;
+
+  const sub = [
+    next ? `${new Date(next.start).getTime() <= now ? "Now" : `Next at ${time(next.start)}`}: ${next.title}` : google ? (timed.length ? "Calendar's done for today" : "Nothing on the calendar") : null,
+    t.tasks ? (open ? `${open} task${open === 1 ? "" : "s"} open` : "no tasks due") : null,
+  ].filter(Boolean);
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader
-        title={today ? fmtDay(today, { weekday: "long", day: "numeric", month: "long" }) : "Today"}
-        sub={
-          error
-            ? error
-            : !todays.length
-              ? "Nothing on the calendar today."
-              : next
-                ? `${left ? `${left} more today` : "Last one today"} · next: ${next.title} at ${time(next.start)}`
-                : "Done for today."
-        }
-      />
+      <PageHeader title={dayTitle(t.today, { weekday: "long", day: "numeric", month: "long" })} sub={sub.length ? `${sub.join(" · ")}.` : "Your day, in one place."} />
 
-      <section>
-        <SectionTitle right={tz}>Today</SectionTitle>
-        <Panel className="overflow-hidden">
-          {todays.length === 0 ? (
-            <Empty>A clear day. Add something below — “gym at 7”, “call the printer tomorrow 10:30”.</Empty>
-          ) : (
-            <Day events={todays} time={time} now={now} />
-          )}
-        </Panel>
-      </section>
+      {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
-      {later.length > 0 && (
+      <PlanDay canWrite={google} planned={planned} />
+
+      {t.priorities.length > 0 && (
         <section className="mt-8">
-          <SectionTitle>{fmtDay(dayOf(later[0]), { weekday: "long", day: "numeric", month: "short" })}</SectionTitle>
-          <Panel className="overflow-hidden">
-            <Day events={later} time={time} />
+          <SectionTitle right="from Daily Agenda">Priorities</SectionTitle>
+          <Panel className="p-4">
+            <ol className="flex flex-col gap-2.5 text-sm">
+              {t.priorities.slice(0, 3).map((p, i) => (
+                <li key={i} className="flex gap-3">
+                  <span className="tnum w-4 shrink-0 text-faint">{i + 1}</span>
+                  <span className="line-clamp-2 text-muted">{p}</span>
+                </li>
+              ))}
+            </ol>
           </Panel>
         </section>
       )}
 
-      <CalendarAdd />
+      <section className="mt-8">
+        <SectionTitle right={google ? t.tz : undefined}>Schedule</SectionTitle>
+        {google ? (
+          <Panel className="overflow-hidden">
+            {t.events.length === 0 ? <Empty>A clear day. Plan it above, or add something below.</Empty> : <Day events={t.events} time={time} now={now} />}
+          </Panel>
+        ) : (
+          <Panel className="p-5 text-sm leading-relaxed text-muted">
+            <p className="text-text">Connect Google Calendar — once, on your PC:</p>
+            <pre className="mt-3 overflow-x-auto rounded-xl bg-black/40 px-4 py-3 font-mono text-[13px] text-text">node Desktop/claude/agent-dashboard/handoff/google-auth.mjs</pre>
+          </Panel>
+        )}
+      </section>
+
+      <section className="mt-8">
+        <SectionTitle right={ticktick ? "TickTick" : undefined}>Tasks</SectionTitle>
+        {t.tasks ? (
+          <TaskList
+            groups={[
+              { label: "Overdue", tone: "bad", tasks: t.tasks.overdue },
+              { label: "Today", tasks: t.tasks.today },
+              { label: "Inbox", tasks: t.tasks.inbox },
+            ]}
+          />
+        ) : ticktick ? (
+          <Panel>
+            <Empty>Couldn't load TickTick right now.</Empty>
+          </Panel>
+        ) : (
+          <TickTickConnect callback={callback} error={ticktick_error} />
+        )}
+      </section>
+
+      {t.tomorrow.length > 0 && (
+        <section className="mt-8">
+          <SectionTitle>Tomorrow</SectionTitle>
+          <Panel className="overflow-hidden">
+            <Day events={t.tomorrow} time={time} />
+          </Panel>
+        </section>
+      )}
+
+      <CaptureBar />
     </div>
   );
 }
@@ -108,7 +130,11 @@ function Day({ events, time, now }: { events: CalEvent[]; time: (iso: string) =>
                   </>
                 )}
               </span>
-              <span className="w-[3px] shrink-0 rounded-full" style={{ background: e.color ?? "var(--color-hermes)" }} aria-hidden />
+              <span
+                className={cn("w-[3px] shrink-0 rounded-full", e.planned && "bg-codex")}
+                style={e.planned ? undefined : { background: e.color ?? "var(--color-hermes)" }}
+                aria-hidden
+              />
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px] leading-snug">{e.title}</span>
                 <span className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-muted">
@@ -119,7 +145,7 @@ function Day({ events, time, now }: { events: CalEvent[]; time: (iso: string) =>
                       <span className="truncate">{e.location}</span>
                     </span>
                   )}
-                  <span className="text-faint">{e.calendar}</span>
+                  <span className="text-faint">{e.planned ? "planned block" : e.calendar}</span>
                 </span>
               </span>
               <ArrowUpRight className="h-4 w-4 shrink-0 self-center text-faint opacity-0 transition-opacity group-hover:opacity-100" aria-hidden />

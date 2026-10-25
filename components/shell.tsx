@@ -30,7 +30,7 @@ export const WORKSPACE: NavItem[] = [
   { href: "/", label: "Dashboard", icon: House },
   { href: "/inbox", label: "Inbox", icon: Inbox, badge: true },
   { href: "/chat", label: "Chat", icon: MessageSquare },
-  { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/calendar", label: "Today", icon: CalendarDays },
   { href: "/memory", label: "Memory", icon: Sparkles },
 ];
 export const TOOLS: NavItem[] = [
@@ -182,7 +182,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="text-muted">{crumb || "vps"}</span>
           </p>
           <div className="ml-auto flex items-center gap-1">
-            <Link href="/chat" className="hidden items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted hover:bg-white/5 hover:text-text sm:flex">
+            <Link href="/chat" className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted hover:bg-white/5 hover:text-text">
               <MessageSquare className="h-4 w-4" strokeWidth={1.75} /> Chat
             </Link>
             <button onClick={() => setTalk(true)} className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted hover:bg-white/5 hover:text-text">
@@ -210,7 +210,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           {[
-            { href: "/chat", label: "Chats", icon: MessageSquare },
+            { href: "/calendar", label: "Today", icon: CalendarDays },
             { href: "/more", label: "More", icon: LayoutGrid },
           ].map((i) => (
             <TabLink key={i.href} item={i} path={path} count={count} />
@@ -240,7 +240,7 @@ function TabLink({ item, path, count }: { item: NavItem; path: string; count: nu
 // "More" page content on the phone: everything that isn't in the tab bar.
 export function MoreLinks() {
   const items = [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter(
-    (i) => LIVE.has(i.href) && !["/", "/inbox", "/chat"].includes(i.href),
+    (i) => LIVE.has(i.href) && !["/", "/inbox", "/calendar"].includes(i.href),
   );
   return (
     <div className="panel overflow-hidden">

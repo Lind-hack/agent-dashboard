@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
-import { groqJSON } from "./groq";
 
 // Google Calendar for the day's agenda and add-by-voice (developers.google.com/workspace/calendar/api/v3).
 // The refresh token comes from handoff/google-auth.mjs on Lind's PC, which posts it to
@@ -19,6 +18,7 @@ export type CalEvent = {
   link?: string;
   calendar: string;
   color?: string;
+  planned?: boolean; // a time block written by "Plan my day"
 };
 
 export type EventDraft = { title: string; date: string; start?: string; end?: string; allDay: boolean; location?: string };
@@ -61,12 +61,13 @@ async function accessToken(): Promise<string> {
   return token.value;
 }
 
-async function gcal<T>(url: string, init?: RequestInit): Promise<T> {
+export async function gcal<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${url}`, {
     ...init,
     headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
     cache: "no-store",
   });
+  if (res.status === 204) return null as T; // DELETE answers with no body
   const body = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
   if (!res.ok || !body) throw new Error(`Google Calendar: ${body?.error?.message ?? res.status}`);
   return body;
@@ -87,7 +88,7 @@ function offset(tz: string, at: Date): string {
 
 export const dayString = (tz: string, at = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at); // YYYY-MM-DD
 
-function addDays(day: string, n: number) {
+export function addDays(day: string, n: number) {
   const d = new Date(`${day}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
@@ -95,6 +96,7 @@ function addDays(day: string, n: number) {
 
 type GEvent = {
   id: string;
+  extendedProperties?: { private?: Record<string, string> };
   status?: string;
   summary?: string;
   location?: string;
@@ -131,6 +133,7 @@ export async function agenda(days = 2): Promise<{ tz: string; today: string; eve
             link: e.htmlLink,
             calendar: c.primary ? "Personal" : (c.summaryOverride ?? c.summary ?? ""),
             color: c.backgroundColor,
+            planned: !!e.extendedProperties?.private?.[PLAN_KEY],
           }),
         );
     }),
@@ -139,31 +142,36 @@ export async function agenda(days = 2): Promise<{ tz: string; today: string; eve
   return { tz, today, events };
 }
 
-// A dictated note → an event draft Lind confirms before anything is written.
-export async function draftEvent(text: string): Promise<EventDraft> {
+// Plan blocks are ordinary events on the primary calendar, tagged so a re-plan can replace them.
+export const PLAN_KEY = "agentDashPlan";
+export type PlanBlock = { start: string; end: string; title: string; kind: "task" | "focus" | "break" | "routine"; taskId?: string; projectId?: string };
+const PLAN_COLOR: Record<PlanBlock["kind"], string> = { task: "9", focus: "3", break: "2", routine: "8" }; // blueberry, grape, sage, graphite
+
+// Removes this day's earlier plan (only the blocks still in the future) and writes the new one.
+export async function replacePlan(day: string, blocks: PlanBlock[]) {
   const tz = await timeZone();
-  const now = new Date();
-  const local = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(now);
-  const parsed = await groqJSON<EventDraft>(
-    `You turn a dictated note into one Google Calendar event. Now it is ${local} (${tz}).
-Return JSON: {"title": string, "date": "YYYY-MM-DD", "start": "HH:MM"|null, "end": "HH:MM"|null, "allDay": boolean, "location": string|null}.
-- Resolve relative dates ("tomorrow", "nesër", "të premten", "next Monday") against now.
-- No time given → allDay true, start/end null. A start but no end → end = start + 1 hour.
-- title: short, in the note's language, without the date/time words.`,
-    text,
-    0,
-  );
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(parsed?.date ?? "") ? parsed!.date! : dayString(tz);
-  const hhmm = (v?: string | null) => (v && /^\d{1,2}:\d{2}$/.test(v) ? v.padStart(5, "0") : undefined);
-  const start = hhmm(parsed?.start);
-  return {
-    title: (parsed?.title || text).trim().slice(0, 120),
-    date,
-    start,
-    end: start ? (hhmm(parsed?.end) ?? `${String((Number(start.slice(0, 2)) + 1) % 24).padStart(2, "0")}${start.slice(2)}`) : undefined,
-    allDay: !start,
-    location: parsed?.location || undefined,
-  };
+  const from = `${day}T00:00:00${offset(tz, new Date(`${day}T12:00:00Z`))}`;
+  const to = `${addDays(day, 1)}T00:00:00${offset(tz, new Date(`${day}T12:00:00Z`))}`;
+  const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", privateExtendedProperty: `${PLAN_KEY}=${day}`, maxResults: "100" });
+  const old = await gcal<{ items?: GEvent[] }>(`/calendars/primary/events?${q}`);
+  const now = Date.now();
+  for (const e of old.items ?? []) {
+    if (new Date(e.start?.dateTime ?? 0).getTime() > now) await gcal(`/calendars/primary/events/${encodeURIComponent(e.id)}`, { method: "DELETE" });
+  }
+  for (const b of blocks) {
+    await gcal("/calendars/primary/events", {
+      method: "POST",
+      body: JSON.stringify({
+        summary: b.title,
+        colorId: PLAN_COLOR[b.kind] ?? "9",
+        description: b.taskId ? "From your TickTick list · planned on agents.383ks.com" : "Planned on agents.383ks.com",
+        start: { dateTime: `${day}T${b.start}:00`, timeZone: tz },
+        end: { dateTime: `${b.end > b.start ? day : addDays(day, 1)}T${b.end}:00`, timeZone: tz },
+        reminders: { useDefault: false, overrides: b.kind === "break" ? [] : [{ method: "popup", minutes: 5 }] },
+        extendedProperties: { private: { [PLAN_KEY]: day, ...(b.taskId ? { taskId: b.taskId, projectId: b.projectId ?? "" } : {}) } },
+      }),
+    });
+  }
 }
 
 export async function createEvent(d: EventDraft): Promise<CalEvent> {
