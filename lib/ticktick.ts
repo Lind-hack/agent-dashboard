@@ -127,27 +127,27 @@ function toTask(r: RawTask, names: Map<string, string>, tz: string): Task {
 
 const ttDate = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "+0000");
 
-// Open tasks Lind should see today: anything dated in the last 13 days or today (overdue + today),
-// plus Inbox tasks with no date (the capture pile).
+// The real Inbox id ("inbox<userId>"), learnt from the tasks; "inbox" alone returns nothing on
+// /project/inbox/data for Lind's account.
+let inboxId: string | null = null;
+
+// Open tasks Lind should see today: overdue + due today, plus Inbox tasks with no date (the capture
+// pile). /task/filter with status open returns every open task (max 200) — /task/undone came back
+// empty even for tasks due today, so the split by date happens here.
 export async function openTasks(tz: string, today: string): Promise<{ overdue: Task[]; today: Task[]; inbox: Task[] }> {
   await projects();
   const names = projCache!.names;
-  const end = new Date(`${today}T23:59:59Z`);
-  end.setUTCHours(end.getUTCHours() + 14); // generous: covers any offset of Lind's zone
-  const start = new Date(end.getTime() - 14 * 86_400_000 + 60_000);
-  const [dated, inboxData] = await Promise.all([
-    tt<RawTask[]>("/task/undone", { method: "POST", body: JSON.stringify({ startDate: ttDate(start), endDate: ttDate(end) }) }).catch(() => [] as RawTask[]),
-    tt<{ tasks?: RawTask[] }>("/project/inbox/data").catch(() => ({ tasks: [] as RawTask[] })),
-  ]);
+  const raw = (await tt<RawTask[]>("/task/filter", { method: "POST", body: JSON.stringify({ status: [0] }) })) ?? [];
+  inboxId = raw.find((r) => r.projectId?.startsWith("inbox"))?.projectId ?? inboxId;
+  const all = raw.filter((r) => r.status !== 2).map((r) => toTask(r, names, tz));
   const dayOf = (t: Task) => (t.allDay ? t.due! : new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(t.due!)));
-  const tasks = (dated ?? []).filter((r) => r.status !== 2).map((r) => toTask(r, names, tz)).filter((t) => t.due);
+  const dated = all.filter((t) => t.due);
   const byPriority = (a: Task, b: Task) => b.priority - a.priority || (a.due ?? "").localeCompare(b.due ?? "");
   return {
-    overdue: tasks.filter((t) => dayOf(t) < today).sort(byPriority),
-    today: tasks.filter((t) => dayOf(t) === today).sort(byPriority),
-    inbox: (inboxData?.tasks ?? [])
-      .filter((r) => r.status !== 2 && !r.dueDate && !r.startDate)
-      .map((r) => toTask(r, names, tz))
+    overdue: dated.filter((t) => dayOf(t) < today).sort(byPriority),
+    today: dated.filter((t) => dayOf(t) === today).sort(byPriority),
+    inbox: all
+      .filter((t) => !t.due && t.projectId?.startsWith("inbox"))
       .sort(byPriority)
       .slice(0, 15),
   };
@@ -158,7 +158,7 @@ export async function completeTask(projectId: string, id: string) {
 }
 
 export async function createTask(d: TaskDraft, tz: string): Promise<{ id: string }> {
-  const body: Record<string, unknown> = { title: d.title, priority: d.priority, projectId: d.projectId ?? "inbox", timeZone: tz };
+  const body: Record<string, unknown> = { title: d.title, priority: d.priority, projectId: d.projectId ?? inboxId ?? "inbox", timeZone: tz };
   if (d.date) {
     if (d.time) {
       // Local wall time → UTC instant via the zone's offset on that day.
