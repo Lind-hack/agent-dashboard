@@ -39,7 +39,7 @@ sudo systemctl enable --now "$UNIT"
 # The brain (runner/brain.ts) writes wiki pages and appends to log.md / index.md. Default ACLs keep
 # that working for files Syncthing replaces later, and let the vault owner (Syncthing) edit the
 # files agent creates.
-OWNER=$(stat -c %U "$VAULT")
+OWNER=$(sudo stat -c %U "$VAULT")
 sudo mkdir -p "$VAULT/wiki/sources/chats" "$VAULT/wiki/sources/commits" "$VAULT/wiki/sources/graphs"
 sudo chown -R --reference="$VAULT/wiki" "$VAULT/wiki/sources"
 sudo setfacl -R -m u:agent:rwX -m d:u:agent:rwX -m d:u:"$OWNER":rwX "$VAULT/wiki"
