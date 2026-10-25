@@ -117,6 +117,16 @@ export async function agentIssues(agent: TaskAgent, first = 30): Promise<LinearI
   return data.issues?.nodes ?? [];
 }
 
+// Every recent issue, agent or not — the Memory page searches these.
+// Plain fields only: labels on 150 issues push the query over Linear's complexity limit.
+export async function recentIssues(first = 150) {
+  const data = await gql<{ issues: { nodes: Pick<LinearIssue, "identifier" | "title" | "description" | "url" | "updatedAt" | "state">[] } }>(
+    `query($first: Int!) { issues(first: $first, orderBy: updatedAt) { nodes { identifier title description url updatedAt state { name type } } } }`,
+    { first },
+  );
+  return data.issues?.nodes ?? [];
+}
+
 export async function getIssue(id: string): Promise<LinearIssue | null> {
   const data = await gql<{ issue: LinearIssue | null }>(`query($id: String!) { issue(id: $id) { ${ISSUE_FIELDS} } }`, { id });
   return data.issue ?? null;

@@ -20,6 +20,33 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
 
 const FALLBACK_MODELS = ["llama-3.3-70b-versatile", "openai/gpt-oss-20b"];
 
+// One JSON answer from the first model on the ladder that still has quota; null if all fail.
+export async function groqJSON<T>(system: string, user: string, temperature = 0.2): Promise<Partial<T> | null> {
+  for (const model of [...new Set([groqModel(), ...FALLBACK_MODELS])]) {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${groqKey()}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        temperature,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
+    if (!res?.ok) continue;
+    try {
+      return (JSON.parse(body?.choices?.[0]?.message?.content ?? "{}") ?? {}) as Partial<T>;
+    } catch {
+      // malformed JSON — try the next model
+    }
+  }
+  return null;
+}
+
 export type TaskDraft = { title: string; description: string; agent: TaskAgent; repo: RepoKey };
 
 // `repos` = what the picker offers; the model may only choose among those.

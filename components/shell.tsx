@@ -38,7 +38,7 @@ export const TOOLS: NavItem[] = [
   { href: "/agents", label: "Agents", icon: Bot },
 ];
 // Sections still being built in this release stay out of the nav until they exist.
-const LIVE = new Set(["/", "/inbox", "/chat", "/website", "/agents", "/settings", "/more"]);
+const LIVE = new Set(["/", "/inbox", "/chat", "/calendar", "/memory", "/website", "/agents", "/settings", "/more"]);
 
 const isActive = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 

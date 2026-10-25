@@ -148,8 +148,9 @@ function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChi
     child.stdin!.end(opts.prompt);
     child.on("close", (code) => {
       clearTimeout(timer);
+      // `-Q` prints the session id on stderr; older builds appended it to stdout.
       const m = out.match(/\n?\s*session_id:\s*(\S+)\s*$/);
-      const sessionId = m?.[1] ?? opts.resume;
+      const sessionId = m?.[1] ?? err.match(/session_id:\s*(\S+)/)?.[1] ?? opts.resume;
       const text = (m ? out.slice(0, m.index) : out).trim();
       if (sessionId && !opts.resume) opts.onEvent({ kind: "init", sessionId });
       if (code === 0 && text) {

@@ -1,0 +1,191 @@
+import fs from "node:fs";
+import path from "node:path";
+import { DATA_DIR } from "./config";
+import { groqJSON } from "./groq";
+
+// Google Calendar for the day's agenda and add-by-voice (developers.google.com/workspace/calendar/api/v3).
+// The refresh token comes from handoff/google-auth.mjs on Lind's PC, which posts it to
+// /api/calendar/token; it lives in data/google.json (mode 600) and never reaches the browser.
+
+export type GoogleCreds = { client_id: string; client_secret: string; refresh_token: string; scopes?: string[] };
+
+export type CalEvent = {
+  id: string;
+  title: string;
+  start: string; // ISO date-time, or YYYY-MM-DD for all-day
+  end: string;
+  allDay: boolean;
+  location?: string;
+  link?: string;
+  calendar: string;
+  color?: string;
+};
+
+export type EventDraft = { title: string; date: string; start?: string; end?: string; allDay: boolean; location?: string };
+
+const credsFile = () => path.join(DATA_DIR, "google.json");
+const API = "https://www.googleapis.com/calendar/v3";
+
+export function saveCreds(c: GoogleCreds) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(`${credsFile()}.tmp`, JSON.stringify(c), { mode: 0o600 });
+  fs.renameSync(`${credsFile()}.tmp`, credsFile());
+  token = null;
+}
+
+function readCreds(): GoogleCreds | null {
+  try {
+    const c = JSON.parse(fs.readFileSync(credsFile(), "utf8"));
+    return c?.refresh_token && c?.client_id ? c : null;
+  } catch {
+    return null;
+  }
+}
+
+export const calendarConnected = () => readCreds() !== null;
+
+let token: { value: string; until: number } | null = null;
+
+async function accessToken(): Promise<string> {
+  if (token && Date.now() < token.until) return token.value;
+  const c = readCreds();
+  if (!c) throw new Error("Google Calendar isn't connected yet.");
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: c.client_id, client_secret: c.client_secret, refresh_token: c.refresh_token, grant_type: "refresh_token" }),
+  });
+  const body = (await res.json().catch(() => null)) as { access_token?: string; expires_in?: number; error_description?: string } | null;
+  if (!res.ok || !body?.access_token) throw new Error(`Google sign-in expired — run google-auth again (${body?.error_description ?? res.status}).`);
+  token = { value: body.access_token, until: Date.now() + ((body.expires_in ?? 3600) - 120) * 1000 };
+  return token.value;
+}
+
+async function gcal<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API}${url}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
+    cache: "no-store",
+  });
+  const body = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
+  if (!res.ok || !body) throw new Error(`Google Calendar: ${body?.error?.message ?? res.status}`);
+  return body;
+}
+
+let tzCache: string | null = null;
+export async function timeZone(): Promise<string> {
+  tzCache ??= (await gcal<{ timeZone?: string }>("/calendars/primary").catch(() => null))?.timeZone ?? "Europe/Belgrade";
+  return tzCache;
+}
+
+// Offset like "+01:00" for a zone at a moment, so day bounds are midnight in Lind's zone, not the VPS's.
+function offset(tz: string, at: Date): string {
+  const name = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" }).formatToParts(at).find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const m = name.match(/GMT([+-]\d{2}):?(\d{2})?/);
+  return m ? `${m[1]}:${m[2] ?? "00"}` : "+00:00";
+}
+
+export const dayString = (tz: string, at = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at); // YYYY-MM-DD
+
+function addDays(day: string, n: number) {
+  const d = new Date(`${day}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+type GEvent = {
+  id: string;
+  status?: string;
+  summary?: string;
+  location?: string;
+  htmlLink?: string;
+  start?: { date?: string; dateTime?: string };
+  end?: { date?: string; dateTime?: string };
+};
+
+// Events from every calendar Lind has switched on in Google Calendar, for `days` days from today.
+export async function agenda(days = 2): Promise<{ tz: string; today: string; events: CalEvent[] }> {
+  const tz = await timeZone();
+  const today = dayString(tz);
+  const from = `${today}T00:00:00${offset(tz, new Date(`${today}T12:00:00Z`))}`;
+  const last = addDays(today, days);
+  const to = `${last}T00:00:00${offset(tz, new Date(`${last}T12:00:00Z`))}`;
+  const list = await gcal<{ items?: { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; selected?: boolean; primary?: boolean }[] }>(
+    "/users/me/calendarList?minAccessRole=reader",
+  );
+  const cals = (list.items ?? []).filter((c) => c.selected || c.primary);
+  const all = await Promise.all(
+    cals.map(async (c) => {
+      const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", orderBy: "startTime", maxResults: "50", timeZone: tz });
+      const r = await gcal<{ items?: GEvent[] }>(`/calendars/${encodeURIComponent(c.id)}/events?${q}`).catch(() => ({ items: [] as GEvent[] }));
+      return (r.items ?? [])
+        .filter((e) => e.status !== "cancelled")
+        .map(
+          (e): CalEvent => ({
+            id: e.id,
+            title: e.summary ?? "(busy)",
+            start: e.start?.dateTime ?? e.start?.date ?? "",
+            end: e.end?.dateTime ?? e.end?.date ?? "",
+            allDay: !e.start?.dateTime,
+            location: e.location,
+            link: e.htmlLink,
+            calendar: c.primary ? "Personal" : (c.summaryOverride ?? c.summary ?? ""),
+            color: c.backgroundColor,
+          }),
+        );
+    }),
+  );
+  const events = all.flat().sort((a, b) => (a.allDay === b.allDay ? new Date(a.start).getTime() - new Date(b.start).getTime() : a.allDay ? -1 : 1));
+  return { tz, today, events };
+}
+
+// A dictated note → an event draft Lind confirms before anything is written.
+export async function draftEvent(text: string): Promise<EventDraft> {
+  const tz = await timeZone();
+  const now = new Date();
+  const local = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(now);
+  const parsed = await groqJSON<EventDraft>(
+    `You turn a dictated note into one Google Calendar event. Now it is ${local} (${tz}).
+Return JSON: {"title": string, "date": "YYYY-MM-DD", "start": "HH:MM"|null, "end": "HH:MM"|null, "allDay": boolean, "location": string|null}.
+- Resolve relative dates ("tomorrow", "nesër", "të premten", "next Monday") against now.
+- No time given → allDay true, start/end null. A start but no end → end = start + 1 hour.
+- title: short, in the note's language, without the date/time words.`,
+    text,
+    0,
+  );
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(parsed?.date ?? "") ? parsed!.date! : dayString(tz);
+  const hhmm = (v?: string | null) => (v && /^\d{1,2}:\d{2}$/.test(v) ? v.padStart(5, "0") : undefined);
+  const start = hhmm(parsed?.start);
+  return {
+    title: (parsed?.title || text).trim().slice(0, 120),
+    date,
+    start,
+    end: start ? (hhmm(parsed?.end) ?? `${String((Number(start.slice(0, 2)) + 1) % 24).padStart(2, "0")}${start.slice(2)}`) : undefined,
+    allDay: !start,
+    location: parsed?.location || undefined,
+  };
+}
+
+export async function createEvent(d: EventDraft): Promise<CalEvent> {
+  const tz = await timeZone();
+  const body = d.allDay || !d.start
+    ? { summary: d.title, location: d.location, start: { date: d.date }, end: { date: addDays(d.date, 1) } }
+    : {
+        summary: d.title,
+        location: d.location,
+        start: { dateTime: `${d.date}T${d.start}:00`, timeZone: tz },
+        // An end before the start means it runs past midnight.
+        end: { dateTime: `${d.end && d.end > d.start ? d.date : addDays(d.date, 1)}T${d.end ?? d.start}:00`, timeZone: tz },
+      };
+  const e = await gcal<GEvent>("/calendars/primary/events", { method: "POST", body: JSON.stringify(body) });
+  return {
+    id: e.id,
+    title: e.summary ?? d.title,
+    start: e.start?.dateTime ?? e.start?.date ?? "",
+    end: e.end?.dateTime ?? e.end?.date ?? "",
+    allDay: !e.start?.dateTime,
+    location: e.location,
+    link: e.htmlLink,
+    calendar: "Personal",
+  };
+}
