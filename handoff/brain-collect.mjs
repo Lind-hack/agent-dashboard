@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Brain collector (plan §D1), runs on the PC from Task Scheduler (at logon + every 2 h, hidden).
+// Brain collector (plan §D1), runs on the PC from Task Scheduler (every 2 h, hidden).
 // Finds every Claude Code and Codex chat on this PC (terminal and desktop app) plus graphify reports,
 // condenses and redacts them HERE, and uploads the text to the dashboard, which writes the vault pages.
 // Raw transcripts never leave the PC this way; only condensed, redacted text does.
@@ -7,7 +7,7 @@
 //   node brain-collect.mjs              upload chats quiet for 20+ min that changed since last time
 //   node brain-collect.mjs --dry-run    list what would be sent
 //   node brain-collect.mjs --status     the brain's status on the VPS
-//   node brain-collect.mjs --install    register the two scheduled tasks
+//   node brain-collect.mjs --install    register the scheduled task (every 2 h)
 //
 // Reads HANDOFF_TOKEN and AGENT_DASHBOARD_URL from ~/.agent-dashboard/handoff.env. Node 24+.
 
@@ -62,13 +62,14 @@ const out = (msg) => {
 if (flag("install")) {
   // conhost --headless keeps the console window from flashing up every 2 hours.
   const cmd = `conhost.exe --headless "${process.execPath}" "${path.join(STATE_DIR, "brain-collect.mjs")}"`;
-  for (const [name, trigger] of [
-    ["AgentDashboard Brain (logon)", ["/SC", "ONLOGON"]],
-    ["AgentDashboard Brain (2h)", ["/SC", "HOURLY", "/MO", "2"]],
-  ]) {
-    execFileSync("schtasks", ["/Create", "/F", "/TN", name, "/TR", cmd, ...trigger, "/RL", "LIMITED"], { stdio: "inherit" });
+  // Every 2 hours, starting now (an at-logon trigger would need an admin prompt; 2 h covers it).
+  try {
+    execFileSync("schtasks", ["/Create", "/F", "/TN", "AgentDashboard Brain", "/TR", cmd, "/SC", "HOURLY", "/MO", "2"], { stdio: ["ignore", "inherit", "pipe"] });
+  } catch (err) {
+    console.error(`✗ schtasks: ${String(err.stderr ?? err.message).trim()}`);
+    process.exit(1);
   }
-  console.log("✓ Scheduled: at logon and every 2 hours. Log: ~/.agent-dashboard/brain-collect.log");
+  console.log("✓ Scheduled every 2 hours (task \"AgentDashboard Brain\"). Log: ~/.agent-dashboard/brain-collect.log");
   process.exit(0);
 }
 
