@@ -19,7 +19,7 @@ export const AGENT_META: Record<TaskAgent, { color: string; hint: string; repo: 
   "codex-cloud": { color: "var(--color-hermes)", hint: "Codex in OpenAI's cloud, via Linear", repo: true },
   opencode: { color: "var(--color-opencode)", hint: "OpenCode · free DeepSeek V4.1 Flash", repo: true },
   // Hermes works inside its own container (383 pipelines, skills), not in a repo checkout.
-  hermes: { color: "#c9b6ff", hint: "Your Hermes agent on the VPS", repo: false },
+  hermes: { color: "#c9b6ff", hint: "Hermes on the VPS · free Nemotron 3 Ultra", repo: false },
 };
 
 // Dot tone used by kit <Dot>.
