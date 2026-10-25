@@ -161,14 +161,11 @@ export function writePlanNote(day: string, blocks: PlanBlock[], summary: string,
     "",
     `# Plan — ${day}`,
     "",
-    summary && `> ${summary}`,
-    note && `\n**What I said:** ${note}`,
-    "",
+    ...(summary ? [`> ${summary}`, ""] : []),
+    ...(note ? [`**What I said:** ${note}`, ""] : []),
     ...blocks.map((b) => `- [ ] ${b.start}–${b.end} ${b.title}${b.kind === "break" ? " _(break)_" : ""}`),
     "",
-  ]
-    .filter((l) => l !== false && l !== undefined)
-    .join("\n");
+  ].join("\n");
   try {
     fs.writeFileSync(path.join(dir, `${day}.md`), md);
     return true;
