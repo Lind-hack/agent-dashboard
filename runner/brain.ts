@@ -526,8 +526,14 @@ async function step(codexSlot: { take: () => boolean; release: () => void }) {
     return;
   }
 
-  // Weekly on Sunday from 18:00 UTC: Luna edits a staging copy; owned changes are applied.
-  if (now.getUTCDay() === 0 && now.getUTCHours() >= 18 && state.lastWeekly !== today() && codexSlot.take()) {
+  // Weekly from Sunday 18:00 UTC, once the week's chats are all pages (queue empty) — or Monday 18:00
+  // at the latest. Luna edits a staging copy; owned changes are applied.
+  const day = now.getUTCDay();
+  const weeklyDue =
+    ((day === 0 && now.getUTCHours() >= 18) || day === 1) &&
+    (!state.lastWeekly || Date.now() - new Date(state.lastWeekly).getTime() > 3 * 86400_000) &&
+    (queued().length === 0 || (day === 1 && now.getUTCHours() >= 18));
+  if (weeklyDue && codexSlot.take()) {
     state.lastWeekly = today();
     writeState(state);
     try {
