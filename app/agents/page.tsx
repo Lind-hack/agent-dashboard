@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { AgentLogo } from "@/components/agent-logo";
 import { AgentsConsole } from "@/components/agents-console";
-import { Dot, PageHeader, Panel, SectionTitle } from "@/components/kit";
+import { PageHeader, Panel, SectionTitle } from "@/components/kit";
 import { agentStatuses } from "@/lib/agent-status";
-import { AGENT_LABELS, AGENT_META, AGENT_TONE } from "@/lib/agents";
+import { AGENT_LABELS, AGENT_META, type AgentKey } from "@/lib/agents";
 import { listRepos } from "@/lib/github";
 import { listJobs } from "@/lib/store";
 import { ago } from "@/lib/utils";
@@ -32,7 +33,7 @@ export default async function AgentsPage() {
         <Panel className="overflow-hidden">
           {statuses.map((s) => (
             <div key={s.agent} className="flex min-h-16 items-center gap-3 border-b border-line px-4 py-3 last:border-0">
-              <Dot tone={AGENT_TONE[s.agent]} pulse={s.busy} />
+              <AgentLogo agent={s.agent} size="md" state={!s.ready ? "off" : s.busy ? "working" : "ready"} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[15px]">{AGENT_LABELS[s.agent]}</span>
                 <span className="block truncate text-xs text-muted">{s.ready ? AGENT_META[s.agent].hint : s.note}</span>
@@ -43,7 +44,7 @@ export default async function AgentsPage() {
             </div>
           ))}
           <div className="flex min-h-16 items-center gap-3 px-4 py-3">
-            <Dot tone="hermes" />
+            <AgentLogo agent="codex-cloud" size="md" />
             <span className="min-w-0 flex-1">
               <span className="block text-[15px]">Codex cloud</span>
               <span className="block truncate text-xs text-muted">{AGENT_META["codex-cloud"].hint} — start it from the Talk sheet</span>
@@ -60,9 +61,9 @@ export default async function AgentsPage() {
               <Link key={g.id} href={`/agents/g/${g.id}`} className="flex min-h-16 items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
                 <span className="w-14 shrink-0 text-xs text-muted">{g.kind === "relay" ? "Relay" : "Ask all"}</span>
                 <span className="min-w-0 flex-1 truncate text-[15px]">{g.task.split("\n")[0]}</span>
-                <span className="flex shrink-0 gap-1">
+                <span className="flex shrink-0 -space-x-1.5">
                   {[...new Set(g.agents)].map((a) => (
-                    <Dot key={a} tone={AGENT_TONE[a as keyof typeof AGENT_TONE] ?? "neutral"} />
+                    <AgentLogo key={a} agent={a as AgentKey} size="xs" />
                   ))}
                 </span>
                 <span className="w-14 shrink-0 text-right text-xs text-faint">{ago(g.at)}</span>

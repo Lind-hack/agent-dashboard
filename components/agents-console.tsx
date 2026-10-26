@@ -3,6 +3,7 @@
 import { GitBranch, LoaderCircle, Mic, SendHorizontal, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AgentLogo } from "@/components/agent-logo";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
 import { AGENT_LABELS, AGENT_META, RELAY_STEPS, type AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,6 @@ const SPOTS: Record<AgentKey, { x: number; y: number }> = {
 };
 
 function Node({ s, on, onTap, label }: { s: Status; on: boolean; onTap: () => void; label?: string }) {
-  const color = AGENT_META[s.agent].color;
   return (
     <button
       onClick={onTap}
@@ -40,19 +40,9 @@ function Node({ s, on, onTap, label }: { s: Status; on: boolean; onTap: () => vo
       className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2"
       style={{ left: `${SPOTS[s.agent].x}%`, top: `${SPOTS[s.agent].y}%` }}
     >
-      <span
-        className={cn(
-          "relative grid h-14 w-14 place-items-center rounded-full transition-all duration-500 ease-[var(--ease-out-expo)] sm:h-[72px] sm:w-[72px]",
-          on ? "scale-100 opacity-100" : "scale-90 opacity-45",
-          !s.ready && "grayscale",
-        )}
-        style={{
-          background: `radial-gradient(circle at 35% 30%, color-mix(in oklab, ${color}, white 60%), ${color} 40%, color-mix(in oklab, ${color}, black 70%) 85%)`,
-          boxShadow: on ? `0 0 0 1px rgb(255 255 255 / 0.15) inset, 0 0 40px -6px ${color}` : "0 0 0 1px rgb(255 255 255 / 0.08) inset",
-        }}
-      >
-        {s.busy && <span className="absolute inset-0 animate-ping rounded-full opacity-25" style={{ background: color }} />}
-        {label && <span className="relative rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-semibold text-white">{label}</span>}
+      <span className={cn("relative transition-all duration-500 ease-[var(--ease-out-expo)]", on ? "scale-100 opacity-100" : "scale-90 opacity-45")}>
+        <AgentLogo agent={s.agent} size="xl" state={!s.ready ? "off" : s.busy ? "working" : on ? "ready" : "idle"} />
+        {label && <span className="absolute -top-1.5 -right-1.5 rounded-md bg-text px-1.5 py-0.5 font-mono text-[10px] font-semibold text-bg">{label}</span>}
       </span>
       <span className={cn("text-xs font-medium sm:text-sm", on ? "text-text" : "text-muted")}>{AGENT_LABELS[s.agent]}</span>
     </button>

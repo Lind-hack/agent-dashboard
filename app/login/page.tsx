@@ -2,7 +2,7 @@
 
 import { ArrowRight, LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { Orb } from "@/components/orb";
+import { Core } from "@/components/core";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
@@ -26,7 +26,7 @@ export default function LoginPage() {
 
   return (
     <main className="relative grid min-h-dvh place-items-center overflow-hidden px-6">
-      <Orb className="absolute inset-0 h-full w-full opacity-70" energy={0.3} />
+      <Core className="absolute inset-0 h-full w-full opacity-80" energy={0.35} />
       <form onSubmit={submit} className="panel rise relative w-full max-w-sm bg-bg/70 p-7">
         <h1 className="text-[2rem] leading-none font-semibold tracking-[-0.04em]">Agentic OS</h1>
         <p className="mt-2 text-sm text-muted">Welcome back, Lind.</p>

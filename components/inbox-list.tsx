@@ -3,6 +3,7 @@
 import { Check, CircleAlert, GitPullRequest, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
+import { AgentLogo } from "@/components/agent-logo";
 import type { InboxItem } from "@/lib/inbox";
 import { ago, cn } from "@/lib/utils";
 
@@ -23,6 +24,8 @@ const TONE: Record<InboxItem["tone"], string> = {
   bad: "text-bad",
   neutral: "text-muted",
 };
+
+const AGENT_TONES = new Set(["claude", "codex", "hermes", "opencode"]);
 
 function markSeen(keys: string[]) {
   const body = JSON.stringify({ seen: keys });
@@ -54,7 +57,13 @@ export function InboxList({ items, limit, empty }: { items: InboxItem[]; limit?:
               onClick={() => dismiss([i.key])}
               className="flex min-h-16 min-w-0 flex-1 items-center gap-3 py-3 pl-4 hover:bg-white/[0.02]"
             >
-              <Icon className={cn("h-5 w-5 shrink-0", TONE[i.tone])} strokeWidth={1.75} />
+              {AGENT_TONES.has(i.tone) && i.kind !== "pr" ? (
+                <AgentLogo agent={i.tone as "claude"} size="sm" state={i.kind === "agent-failed" ? "off" : "ready"} />
+              ) : (
+                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-white/[0.04] shadow-[0_0_0_1px_rgb(255_255_255/0.07)_inset]">
+                  <Icon className={cn("h-4 w-4", TONE[i.tone])} strokeWidth={1.75} />
+                </span>
+              )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px]">{i.title}</span>
                 <span className="block truncate text-xs text-muted">{i.detail}</span>

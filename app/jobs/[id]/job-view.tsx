@@ -2,7 +2,7 @@
 
 import { Archive, ArrowUpRight, ChevronDown, GitBranch, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Dot } from "@/components/kit";
+import { AgentLogo } from "@/components/agent-logo";
 import { Md } from "@/components/md";
 import { ReplyBar } from "@/components/reply-bar";
 import { AGENT_LABELS } from "@/lib/agents";
@@ -111,7 +111,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
       <header className="pt-2 pb-5 lg:pt-6">
         <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           <span className="flex items-center gap-1.5 text-text">
-            <Dot tone={job.agent} pulse={job.status === "running"} /> {agentName}
+            <AgentLogo agent={job.agent ?? "claude"} size="xs" state={job.status === "running" ? "working" : "ready"} /> {agentName}
           </span>
           <span className="flex items-center gap-1">
             <GitBranch className="h-3.5 w-3.5" /> {job.repo.split("/")[1] ?? job.repo}

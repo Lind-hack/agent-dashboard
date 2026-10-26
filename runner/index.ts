@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { RELAY_STEPS, VPS_AGENTS } from "../lib/agents";
-import { AGENT_LABELS, BOT_MARK, repoFromLabel, repoNotes, replyPrefix, WORK_DIR, type AgentKey } from "../lib/config";
+import { AGENT_LABELS, BOT_MARK, repoFromLabel, repoNotes, replyPrefix, DATA_DIR, WORK_DIR, type AgentKey } from "../lib/config";
 import { repoBase } from "../lib/github";
 import { agentIssues, comment, issueComments, moveToStateType, type LinearIssue } from "../lib/linear";
 import { recordClaudeUsage } from "../lib/usage";
@@ -16,6 +16,37 @@ import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type Expo
 // The runner owns every job file. It polls Linear for `agent:claude` / `agent:codex` issues, takes
 // untracked chats from the dashboard inbox, runs one turn per agent at a time, pushes the branch,
 // opens a PR and (for Linear jobs) reports back on the issue.
+
+// Exactly one runner may own the job files and schedules: a second one (a deploy overlap, a manual
+// start) exits. A lock left by a dead process is taken over.
+const LOCK = path.join(DATA_DIR, "runner.lock");
+fs.mkdirSync(DATA_DIR, { recursive: true });
+try {
+  fs.writeFileSync(LOCK, String(process.pid), { flag: "wx" });
+} catch {
+  const pid = Number(fs.readFileSync(LOCK, "utf8"));
+  let alive = false;
+  try {
+    if (pid && pid !== process.pid) process.kill(pid, 0);
+    alive = !!pid && pid !== process.pid;
+  } catch {
+    /* gone */
+  }
+  if (alive) {
+    console.error(`Another runner (pid ${pid}) is running — exiting.`);
+    process.exit(1);
+  }
+  fs.writeFileSync(LOCK, String(process.pid));
+}
+const releaseLock = () => {
+  try {
+    if (Number(fs.readFileSync(LOCK, "utf8")) === process.pid) fs.rmSync(LOCK);
+  } catch {
+    /* already gone */
+  }
+};
+process.on("exit", releaseLock);
+for (const sig of ["SIGTERM", "SIGINT"] as const) process.on(sig, () => process.exit(0));
 
 const TICK_MS = 3_000;
 const SYNC_MS = 30_000;

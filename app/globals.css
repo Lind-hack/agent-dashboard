@@ -21,6 +21,10 @@
   --color-hermes: #b392f0;
   --color-accent: #e2825f;
 
+  /* HUD instrument light: the OS's own voice for lines, the core and live readouts. Never an agent. */
+  --color-hud: #a9e4f5;
+  --color-hud-dim: rgb(169 228 245 / 0.14);
+
   --color-ok: #5fd39a;
   --color-warn: #f2c14e;
   --color-bad: #f06c6c;
@@ -28,7 +32,7 @@
   --font-sans: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 
-  --radius-panel: 22px;
+  --radius-panel: 18px;
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -38,9 +42,11 @@ html {
 }
 
 body {
+  /* Instrument grid under a cold wash: the room the core sits in. */
   background:
-    radial-gradient(1200px 600px at 70% -10%, rgb(124 152 255 / 0.06), transparent 60%),
-    radial-gradient(900px 500px at 10% 0%, rgb(226 130 95 / 0.05), transparent 55%),
+    radial-gradient(1100px 620px at 50% -12%, rgb(169 228 245 / 0.07), transparent 62%),
+    radial-gradient(900px 500px at 92% 8%, rgb(124 152 255 / 0.05), transparent 55%),
+    radial-gradient(800px 480px at 4% 4%, rgb(226 130 95 / 0.04), transparent 55%),
     var(--color-bg);
   background-attachment: fixed;
   color: var(--color-text);
@@ -68,6 +74,88 @@ input,
 textarea,
 select {
   caret-color: var(--color-claude);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(169 228 245 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(169 228 245 / 0.035) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, black, transparent 75%);
+}
+
+/* Section and readout labels: mono, small caps, wide tracking. Labels only, never body copy. */
+.hud-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+
+/* Corner brackets: marks a card as a live instrument (core, plan, verdicts). Use sparingly. */
+.brackets {
+  position: relative;
+}
+.brackets::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  pointer-events: none;
+  border-radius: inherit;
+  --b: rgb(169 228 245 / 0.5);
+  background:
+    linear-gradient(var(--b), var(--b)) top left / 14px 1px no-repeat,
+    linear-gradient(var(--b), var(--b)) top left / 1px 14px no-repeat,
+    linear-gradient(var(--b), var(--b)) top right / 14px 1px no-repeat,
+    linear-gradient(var(--b), var(--b)) top right / 1px 14px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom left / 14px 1px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom left / 1px 14px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom right / 14px 1px no-repeat,
+    linear-gradient(var(--b), var(--b)) bottom right / 1px 14px no-repeat;
+}
+
+/* Agent tile: dark glass lit from inside by the agent's colour (--tint). */
+.agent-tile {
+  background:
+    radial-gradient(120% 90% at 30% 15%, color-mix(in oklab, var(--tint), transparent 70%), transparent 70%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.015)),
+    #0d0d11;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--tint), transparent 62%) inset,
+    0 1px 0 rgb(255 255 255 / 0.12) inset,
+    0 10px 24px -14px color-mix(in oklab, var(--tint), transparent 25%);
+}
+.agent-tile[data-state="idle"] {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.09) inset,
+    0 1px 0 rgb(255 255 255 / 0.08) inset;
+}
+.agent-sweep {
+  position: absolute;
+  inset: -1px;
+  padding: 1px;
+  background: conic-gradient(from var(--sweep, 0deg), transparent 0 62%, var(--tint) 82%, white 88%, transparent 92%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: sweep 2.4s linear infinite;
+}
+@property --sweep {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes sweep {
+  to {
+    --sweep: 360deg;
+  }
 }
 
 /* Tabular figures wherever numbers are compared. */
@@ -118,7 +206,8 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .meter-fill,
-  .rise {
+  .rise,
+  .agent-sweep {
     animation: none;
   }
 }

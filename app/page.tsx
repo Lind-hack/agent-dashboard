@@ -1,15 +1,19 @@
-import { ArrowRight, ArrowUpRight, CalendarDays, Flag, Radio } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Brain, CalendarDays, Inbox, Radio, Users } from "lucide-react";
 import Link from "next/link";
+import { AgentLogo } from "@/components/agent-logo";
+import { CoreStage, type Dock } from "@/components/core-stage";
+import { HudClock } from "@/components/hud-clock";
 import { InboxList } from "@/components/inbox-list";
-import { Dot, Empty, Panel, SectionTitle } from "@/components/kit";
-import { UsageMeter } from "@/components/usage-meter";
-import { AGENT_LABELS } from "@/lib/agents";
+import { Dot, Empty, Panel } from "@/components/kit";
+import { UsageGauge } from "@/components/usage-gauge";
+import { agentStatuses, type AgentStatus } from "@/lib/agent-status";
+import { readBrainStatus } from "@/lib/brain";
 import { repoShort } from "@/lib/config";
 import { inboxItems, type InboxItem } from "@/lib/inbox";
 import { today, type Today } from "@/lib/planner";
 import { listJobs, readHeartbeat } from "@/lib/store";
 import { planUsage } from "@/lib/usage";
-import { ago } from "@/lib/utils";
+import { ago, cn } from "@/lib/utils";
 import { siteHealth } from "@/lib/website";
 
 export const dynamic = "force-dynamic";
@@ -19,77 +23,170 @@ function greeting() {
   return h < 5 ? "Still up, Lind." : h < 12 ? "Good morning, Lind." : h < 18 ? "Good afternoon, Lind." : "Good evening, Lind.";
 }
 
+function Section({ label, right, children, className }: { label: string; right?: React.ReactNode; children: React.ReactNode; className?: string }) {
+  return (
+    <section className={cn("min-w-0", className)}>
+      <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
+        <h2 className="hud-label !text-[11px] !text-muted">{label}</h2>
+        {right && <div className="text-xs text-muted">{right}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
 
-export default async function Dashboard() {
+const More = ({ href, children }: { href: string; children: React.ReactNode }) => (
+  <Link href={href} className="flex items-center gap-1 rounded-md px-1 hover:text-text">
+    {children} <ArrowRight className="h-3.5 w-3.5" />
+  </Link>
+);
+
+export default async function Home() {
   const usage = planUsage();
   const jobs = listJobs();
   const heartbeat = readHeartbeat();
-  const [inbox, site, day] = await Promise.all([
+  const brain = readBrainStatus();
+  const [inbox, site, day, statuses] = await Promise.all([
     inboxItems().catch(() => [] as InboxItem[]),
     siteHealth().catch(() => null),
     today().catch(() => null as Today | null),
+    agentStatuses().catch(() => [] as AgentStatus[]),
   ]);
 
   const runnerAlive = !!heartbeat.at && Date.now() - new Date(heartbeat.at).getTime() < 60_000;
-  const working = jobs.filter((j) => j.status === "running" || j.status === "queued");
-  const recent = jobs.filter((j) => j.status !== "closed").slice(0, 5);
+  const running = jobs.filter((j) => j.status === "running");
+  const recent = jobs.filter((j) => j.status !== "closed").slice(0, 6);
   const failedUnits = site?.units.filter((u) => u.result && u.result !== "success") ?? [];
+  const brainFailing = Object.values(brain.sources).filter((s) => (s.failures ?? 0) > 0).length;
+
+  const docks: Dock[] = statuses.map((s) => ({
+    agent: s.agent,
+    ready: s.ready,
+    working: running.find((j) => j.agent === s.agent)?.title,
+    queued: jobs.filter((j) => j.agent === s.agent && j.status === "queued").length,
+    note: s.note,
+  }));
+  const readout = [
+    runnerAlive ? "runner online" : "runner offline",
+    brain.updatedAt ? `brain ${brainFailing ? `${brainFailing} failing` : "synced"}` : "brain idle",
+    process.env.MEMORY_VAULT_DIR ? "vault connected" : "vault off",
+    site?.up ? `383 up ${site.ms}ms` : "383 down",
+  ];
 
   const state = [
     inbox.length ? `${inbox.length} thing${inbox.length > 1 ? "s" : ""} need${inbox.length > 1 ? "" : "s"} you` : "Nothing needs you",
-    working.length ? `${working.length} agent${working.length > 1 ? "s" : ""} working` : runnerAlive ? "agents idle" : "runner down",
+    running.length ? `${running.length} agent${running.length > 1 ? "s" : ""} working` : "agents idle",
     site?.latest ? `383 published ${ago(site.latest.at)}` : null,
   ].filter(Boolean);
 
   return (
-    <div className="flex min-w-0 flex-col gap-8">
-      <section className="rise pt-2 lg:pt-6">
-        <h1 className="text-[2.4rem] leading-[1.02] font-semibold tracking-[-0.045em] text-balance lg:text-[3.6rem]">{greeting()}</h1>
-        <p className="mt-3 text-[15px] text-muted">{state.join(" · ")}.</p>
-      </section>
+    <div className="flex min-w-0 flex-col gap-7 lg:gap-8">
+      <header className="rise flex items-end justify-between gap-4 pt-2 lg:pt-5">
+        <div className="min-w-0">
+          <h1 className="text-[2.1rem] leading-[1.02] font-semibold tracking-[-0.045em] text-balance sm:text-[2.6rem] lg:text-[3.2rem]">{greeting()}</h1>
+          <p className="mt-2.5 text-[15px] text-muted">{state.join(" · ")}.</p>
+        </div>
+        <HudClock className="hidden shrink-0 text-[3.2rem] sm:block" />
+      </header>
 
-      {day && <TodayCard day={day} />}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)_minmax(0,0.95fr)] lg:gap-5">
+        {/* Centre on the phone comes first: the core and the agents. */}
+        <div className="rise lg:order-2" style={{ animationDelay: "40ms" }}>
+          <CoreStage docks={docks} readout={readout} />
+        </div>
 
-      <Panel className="rise flex flex-col gap-6 p-5 sm:p-7" style={{ animationDelay: "60ms" }}>
-        <UsageMeter agent="claude" usage={usage.claude} />
-        <UsageMeter agent="codex" usage={usage.codex} />
-      </Panel>
-
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <section className="rise" style={{ animationDelay: "120ms" }}>
-          <SectionTitle right={<Link href="/inbox" className="flex items-center gap-1 hover:text-text">Inbox <ArrowRight className="h-3.5 w-3.5" /></Link>}>Needs you</SectionTitle>
-          <Panel className="overflow-hidden">
-            <InboxList items={inbox} limit={5} empty="Nothing waiting. PRs, finished agents and failed timers show up here." />
-          </Panel>
-        </section>
-
-        <div className="flex min-w-0 flex-col gap-8">
-          <section className="rise" style={{ animationDelay: "180ms" }}>
-            <SectionTitle right={<span className="flex items-center gap-2"><Dot tone={runnerAlive ? "ok" : "bad"} pulse={working.length > 0} /> runner {runnerAlive ? "online" : "offline"}</span>}>
-              Working now
-            </SectionTitle>
-            <Panel className="overflow-hidden">
-              {working.length === 0 ? (
-                <Empty>No agent is running. Tap the orb to start one.</Empty>
+        {/* Left: the day */}
+        <div className="flex min-w-0 flex-col gap-6 lg:order-1">
+          <Section label="Directives" right={<More href="/calendar">Today</More>}>
+            <Panel className="p-4">
+              {day?.priorities.length ? (
+                <ol className="flex flex-col gap-3">
+                  {day.priorities.slice(0, 3).map((p, i) => (
+                    <li key={i} className="flex gap-3 text-[14px] leading-snug">
+                      <span className="tnum mt-px font-mono text-[11px] text-hud/80">{String(i + 1).padStart(2, "0")}</span>
+                      <span className="min-w-0">{p}</span>
+                    </li>
+                  ))}
+                </ol>
               ) : (
-                working.map((j) => (
-                  <Link key={j.id} href={`/jobs/${j.id}`} className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
-                    <Dot tone={j.agent} pulse={j.status === "running"} />
-                    <span className="min-w-0 flex-1 truncate text-[15px]">{j.title}</span>
-                    <span className="shrink-0 text-xs text-muted">{j.status === "queued" ? "queued" : AGENT_LABELS[j.agent]}</span>
+                <p className="text-sm text-muted">No priorities yet. They come from the nightly agenda note in your vault.</p>
+              )}
+            </Panel>
+          </Section>
+          {day && <UpNext day={day} />}
+        </div>
+
+        {/* Right: plan usage + commands */}
+        <div className="flex min-w-0 flex-col gap-6 lg:order-3">
+          <Section label="Plan usage">
+            <Panel className="flex flex-col gap-6 p-4">
+              <UsageGauge agent="claude" usage={usage.claude} />
+              <UsageGauge agent="codex" usage={usage.codex} />
+            </Panel>
+          </Section>
+          <Section label="Commands">
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { href: "/calendar", label: "Plan today", icon: CalendarDays },
+                { href: "/inbox", label: "Inbox brief", icon: Inbox },
+                { href: "/agents", label: "Ask all", icon: Users },
+                { href: "/memory", label: "Ask memory", icon: Brain },
+              ].map((c) => {
+                const Icon = c.icon;
+                return (
+                  <Link
+                    key={c.href + c.label}
+                    href={c.href}
+                    className="group panel flex min-h-[64px] flex-col justify-between gap-2 !rounded-[14px] p-3 transition-colors hover:border-line-hi hover:bg-white/[0.04]"
+                  >
+                    <Icon className="h-[18px] w-[18px] text-hud" strokeWidth={1.75} />
+                    <span className="flex items-center justify-between text-[13px] font-medium">
+                      {c.label} <ArrowRight className="h-3.5 w-3.5 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-text" />
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </Section>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:gap-5">
+        <Section label="Needs you" right={<More href="/inbox">Inbox</More>}>
+          <Panel className="overflow-hidden">
+            <InboxList items={inbox} limit={5} empty="Nothing waiting. PRs, finished agents and failed jobs land here." />
+          </Panel>
+        </Section>
+
+        <div className="flex min-w-0 flex-col gap-6">
+          <Section label="Recent chats" right={<More href="/chat">All</More>}>
+            <Panel className="overflow-hidden">
+              {recent.length === 0 ? (
+                <Empty>No chats yet. Tap the core to start one.</Empty>
+              ) : (
+                recent.map((j) => (
+                  <Link key={j.id} href={`/jobs/${j.id}`} className="flex min-h-14 items-center gap-3 border-b border-line px-3 py-2.5 last:border-0 hover:bg-white/[0.02]">
+                    <AgentLogo agent={j.agent} size="sm" state={j.status === "running" ? "working" : j.status === "failed" ? "off" : "ready"} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px]">{j.title}</span>
+                      <span className="block truncate font-mono text-[11px] text-faint">
+                        {repoShort(j.repo) || "no repo"} · {j.status === "waiting" ? "your turn" : j.status}
+                      </span>
+                    </span>
+                    {j.prUrl && <ArrowUpRight className="h-4 w-4 shrink-0 text-muted" aria-label="Has a PR" />}
+                    <span className="tnum w-12 shrink-0 text-right font-mono text-[11px] text-faint">{ago(j.updatedAt).replace(" ago", "")}</span>
                   </Link>
                 ))
               )}
             </Panel>
-          </section>
+          </Section>
 
-          <section className="rise" style={{ animationDelay: "240ms" }}>
-            <SectionTitle right={<Link href="/website" className="flex items-center gap-1 hover:text-text">Website <ArrowRight className="h-3.5 w-3.5" /></Link>}>383 overnight</SectionTitle>
-            <Panel className="flex flex-col gap-3 p-4 text-sm">
+          <Section label="383 overnight" right={<More href="/website">Website</More>}>
+            <Panel className="flex flex-col gap-2.5 p-4 text-sm">
               {site ? (
                 <>
                   <p className="flex items-center gap-2">
-                    <Dot tone={site.up ? "ok" : "bad"} /> {site.up ? `383ks.com up · ${site.ms} ms` : site.error}
+                    <Dot tone={site.up ? "ok" : "bad"} /> {site.up ? <>383ks.com up <span className="tnum font-mono text-xs text-faint">{site.ms} ms</span></> : site.error}
                   </p>
                   {site.latest && (
                     <a href={site.latest.url} target="_blank" rel="noreferrer" className="flex items-start gap-2 hover:text-text">
@@ -105,79 +202,58 @@ export default async function Dashboard() {
                   </p>
                 </>
               ) : (
-                <p className="text-muted">Couldn't check 383ks.com right now.</p>
+                <p className="text-muted">Couldn&apos;t check 383ks.com right now.</p>
               )}
             </Panel>
-          </section>
+          </Section>
         </div>
       </div>
-
-      <section className="rise" style={{ animationDelay: "300ms" }}>
-        <SectionTitle right={<Link href="/chat" className="flex items-center gap-1 hover:text-text">All chats <ArrowRight className="h-3.5 w-3.5" /></Link>}>Recent chats</SectionTitle>
-        <Panel className="overflow-hidden">
-          {recent.length === 0 ? (
-            <Empty>No chats yet.</Empty>
-          ) : (
-            recent.map((j) => (
-              <Link key={j.id} href={`/jobs/${j.id}`} className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
-                <Dot tone={j.agent} />
-                <span className="min-w-0 flex-1 truncate text-[15px]">{j.title}</span>
-                <span className="hidden shrink-0 text-xs text-faint sm:inline">{repoShort(j.repo)}</span>
-                {j.prUrl && <ArrowUpRight className="h-4 w-4 shrink-0 text-muted" aria-label="Has a PR" />}
-                <span className="w-14 shrink-0 text-right text-xs text-faint">{ago(j.updatedAt)}</span>
-              </Link>
-            ))
-          )}
-        </Panel>
-      </section>
     </div>
   );
 }
 
-// The day at a glance: what's next on the calendar and the top open tasks, one tap from the planner.
-function TodayCard({ day }: { day: Today }) {
+// What's next on the calendar and the top open tasks.
+function UpNext({ day }: { day: Today }) {
   const now = Date.now();
   const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: day.tz, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-  const upcoming = day.events.filter((e) => !e.allDay && new Date(e.end).getTime() > now).slice(0, 3);
-  const tasks = [...(day.tasks?.overdue ?? []), ...(day.tasks?.today ?? [])].slice(0, 3);
-  const flag: Record<number, string> = { 5: "text-bad", 3: "text-warn", 1: "text-codex" };
+  const upcoming = day.events.filter((e) => !e.allDay && new Date(e.end).getTime() > now).slice(0, 4);
+  const tasks = [...(day.tasks?.overdue ?? []), ...(day.tasks?.today ?? [])].slice(0, 4);
+  const flag: Record<number, string> = { 5: "bg-bad", 3: "bg-warn", 1: "bg-codex" };
   return (
-    <section className="rise" style={{ animationDelay: "40ms" }}>
-      <SectionTitle right={<Link href="/calendar" className="flex items-center gap-1 hover:text-text">Plan my day <ArrowRight className="h-3.5 w-3.5" /></Link>}>Today</SectionTitle>
-      <Panel className="grid grid-cols-[minmax(0,1fr)] gap-5 p-5 sm:grid-cols-2">
-        <div className="min-w-0">
-          <p className="mb-2 flex items-center gap-2 text-xs text-muted">
-            <CalendarDays className="h-4 w-4" strokeWidth={1.75} /> Up next
-          </p>
+    <>
+      <Section label="Up next">
+        <Panel className="overflow-hidden">
           {upcoming.length ? (
-            upcoming.map((e) => (
-              <p key={e.id} className="flex gap-3 py-1 text-[15px]">
-                <span className="tnum w-11 shrink-0 text-muted">{time(e.start)}</span>
-                <span className="min-w-0 truncate">{e.title}</span>
-              </p>
-            ))
+            upcoming.map((e, i) => {
+              const live = new Date(e.start).getTime() <= now;
+              return (
+                <div key={e.id} className="flex min-h-12 items-center gap-3 border-b border-line px-4 py-2 last:border-0">
+                  <span className={cn("tnum w-11 shrink-0 font-mono text-[12px]", live ? "text-hud" : "text-muted")}>{live ? "now" : time(e.start)}</span>
+                  <span className={cn("min-w-0 truncate text-[14px]", i === 0 && "font-medium")}>{e.title}</span>
+                </div>
+              );
+            })
           ) : (
-            <p className="text-sm text-muted">{day.events.length ? "Nothing left on the calendar." : "Calendar's clear."}</p>
+            <p className="px-4 py-4 text-sm text-muted">{day.events.length ? "Nothing left on the calendar today." : "Calendar's clear today."}</p>
           )}
-        </div>
-        <div className="min-w-0">
-          <p className="mb-2 flex items-center gap-2 text-xs text-muted">
-            <Flag className="h-4 w-4" strokeWidth={1.75} /> Tasks
-          </p>
+        </Panel>
+      </Section>
+      <Section label="Tasks">
+        <Panel className="overflow-hidden">
           {day.tasks === null ? (
-            <p className="text-sm text-muted">Connect TickTick on the Today page.</p>
+            <p className="px-4 py-4 text-sm text-muted">Connect TickTick on the Today page.</p>
           ) : tasks.length ? (
             tasks.map((t) => (
-              <p key={t.id} className="flex items-center gap-2 py-1 text-[15px]">
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${t.priority ? flag[t.priority].replace("text-", "bg-") : "bg-faint"}`} />
-                <span className="min-w-0 truncate">{t.title}</span>
-              </p>
+              <div key={t.id} className="flex min-h-12 items-center gap-3 border-b border-line px-4 py-2 last:border-0">
+                <span className={cn("h-3 w-[3px] shrink-0 rounded-full", t.priority ? flag[t.priority] : "bg-white/15")} />
+                <span className="min-w-0 truncate text-[14px]">{t.title}</span>
+              </div>
             ))
           ) : (
-            <p className="text-sm text-muted">Nothing due today.</p>
+            <p className="px-4 py-4 text-sm text-muted">Nothing due today.</p>
           )}
-        </div>
-      </Panel>
-    </section>
+        </Panel>
+      </Section>
+    </>
   );
 }

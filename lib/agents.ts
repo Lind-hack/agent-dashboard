@@ -22,6 +22,15 @@ export const AGENT_META: Record<TaskAgent, { color: string; hint: string; repo: 
   hermes: { color: "#c9b6ff", hint: "Hermes on the VPS · free Nemotron 3 Ultra", repo: false },
 };
 
+// Exact colours for canvas drawing (the Core), mirroring the CSS tokens.
+export const AGENT_HEX: Record<TaskAgent, string> = {
+  claude: "#e2825f",
+  codex: "#7c98ff",
+  "codex-cloud": "#b392f0",
+  opencode: "#5fd3a6",
+  hermes: "#b392f0",
+};
+
 // Dot tone used by kit <Dot>.
 export const AGENT_TONE: Record<TaskAgent, string> = {
   claude: "claude",
