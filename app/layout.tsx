@@ -16,11 +16,11 @@ export const viewport: Viewport = { themeColor: "#08080a", width: "device-width"
 
 // Direction contract (impeccable). Kept in the emitted HTML so the finish review can audit it.
 const CONTRACT = `<!--
-THESIS: A phone-first operating system for one person's agents, not a chat app with a sidebar; refuses the stock admin dashboard of equal cards and tables.
-OWN-WORLD: Near-black #08080a under a faint coral/blue nebula wash; soft glass panels (22px radius, inner top light, offset shadow); Claude coral #e2825f, Codex blue #7c98ff, Hermes violet; Geist with tight display tracking; live canvas nebula orb as the one signature.
-STORY: Lind opens it on his phone, sees in one glance how much Claude/Codex he has left and what needs him, taps the orb, talks, and an agent starts working.
-FIRST VIEWPORT: Greeting headline with today's one-line state; two full-width usage meters with large % numerals; "Needs you" list; orb Talk button centered in the thumb bar.
-FORM: brief-pinned (Lind's Agentic OS screenshots), position 1; seed key: pinned-brief.
+THESIS: A phone-first operating system for one person's agents, read like an instrument panel around a living core; refuses the stock admin dashboard of equal cards and the chat wrapper with coloured-circle avatars.
+OWN-WORLD: Near-black #08080a over a fading 48px instrument grid and a cold HUD wash; glass panels (18px, inner top light); HUD cyan #a9e4f5 for the system; agents always as their real marks on dark glass tiles lit in their colour (coral Claude, blue Codex, mint OpenCode, violet Hermes); Geist + Geist Mono labels; segmented gauges; the particle Core as the one signature.
+STORY: Lind opens it on his phone, sees which agents are working around the core, what needs him, his directives and plan usage, then taps the Core to talk and an agent starts.
+FIRST VIEWPORT: Greeting + status line with the inbox link, mission clock top right; the Core stage with four docked agents in the centre; directives and up-next left; plan-usage gauges and commands right. Phone: greeting, core stage with a 2x2 dock grid, then directives, usage, commands.
+FORM: brief-pinned (Lind's Agentic OS / Jarvis / router references), evolved from Night Console v1; seed key: pinned-brief-v2.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 -->`;
 

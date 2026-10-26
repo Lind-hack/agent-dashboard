@@ -199,3 +199,11 @@ Five material gaps remain:
 VERDICT: REVISE
 ### Claude's response
 Accepted all 5 as R40–R44 (exact tool identities, crash-safe write ordering, transitive source-off/tombstone filtering, budgets before execution, a safe evidence pack). MAX_ROUNDS=3 reached without a formal APPROVED. No open disagreement remains: every round-3 finding is folded in, and Codex accepted the documented residual risks (isolation, local backups, weekly-synthesis trace).
+
+## Stage 1 — post-build inspection (fresh read-only Codex session)
+Findings:
+1. [P1] runner/index.ts — lock acquisition could admit two runners (a half-written lock read as stale; two stale recoveries both overwriting).
+2. [P2] components/core.tsx — under reduced motion the canvas never redrew on energy/tint changes, so it could show a stale status.
+3. [P2] app/page.tsx — "Tap the core to start one" pointed at a non-interactive canvas.
+Dispositions: all accepted. Lock now published with link() (atomic, never half-written), stale locks moved aside with rename() and verified (put back if another runner won), and EPERM counts as alive (found while testing). Core redraws on status change when paused. Copy now points at Talk/Voice.
+Verification: tsc clean; next build clean; lock tests in a throwaway DATA_DIR on the VPS: live holder → second runner exits; stale lock → taken over and released on exit; two concurrent starts → exactly one runs. Visual: desktop 1440 and phone 390 screenshots of Home + Agents, one fix round (directive clamp, dock backdrops, wrapping readout, denser core, inbox link). Rounds used: 1.

@@ -18,6 +18,8 @@ colors:
   signal-ok: "#5fd39a"
   signal-warn: "#f2c14e"
   signal-bad: "#f06c6c"
+  hud: "#a9e4f5"
+  hud-dim: "rgb(169 228 245 / 0.14)"
 typography:
   display:
     fontFamily: "Geist, ui-sans-serif, system-ui, sans-serif"
@@ -55,7 +57,8 @@ typography:
 rounded:
   control: "12px"
   composer: "26px"
-  panel: "22px"
+  panel: "18px"
+  agent-tile: "30% of tile size"
   pill: "9999px"
 spacing:
   row-min: "56px"
@@ -84,23 +87,42 @@ components:
     textColor: "{colors.ink}"
     height: "{spacing.row-min}"
     padding: "12px 16px"
+  hud-label:
+    fontFamily: "Geist Mono"
+    fontSize: "10.5px"
+    letterSpacing: "0.18em"
+    textColor: "{colors.ink-faint}"
+  agent-tile:
+    rounded: "{rounded.agent-tile}"
+    backgroundColor: "#0d0d11"
 ---
 
 # Design System: Agentic OS
 
 ## Overview
 
-**Creative North Star: "The Night Console"**
+**Creative North Star: "The Night Console, v2 — an instrument panel around a living core."**
 
-A control room you hold in one hand at 1 a.m. The canvas is near-black under a faint coral-and-blue nebula wash. Everything sits on soft glass panels lit from a hairline above. The only spectacle is the live nebula orb. It is the logo, the Talk button and a status light, and it glows more while agents work. Everything else is quiet, so the two agent colours read instantly: coral means Claude, blue means Codex.
+A control room you hold in one hand at 1 a.m., now read like an instrument panel (Lind's references:
+the Agentic OS memory cortex, the Jarvis HUD, the router pick card). The canvas is near-black over a
+faint instrument grid that fades out below the top of the page and a cold HUD wash. The one spectacle
+is the **Core**: a slowly turning sphere of points with constellation lines, drawn live. It is the
+logo, the Talk button and the system's status light; it brightens, speeds up and takes on the colours
+of whichever agents are working. Around it, the agents dock as their **real marks** (Claude's
+starburst, OpenAI's knot for Codex, OpenCode's frame, Nous Research for Hermes) on dark glass tiles
+lit from inside by the agent's colour. Readouts are set as instruments: mono uppercase labels,
+segmented scales, big tabular numerals, corner brackets on the live cards.
 
-Density stays phone-first. Rows are at least 56px tall, one column on the phone and two on desktop, and nothing is smaller than a thumb. Numbers are the heroes: plan usage is set as large tabular numerals next to a textured meter, the way the reference Lind pinned does it. The look is pinned to his "Agentic OS" screenshots, and dark is the only theme.
+Density stays phone-first. Rows are at least 56px tall, one column on the phone, three instrument
+columns around the core on desktop. Numbers are the heroes; agents are always shown by their marks,
+never by a plain coloured circle. Dark is the only theme.
 
 **Key Characteristics:**
-- Near-black canvas, glass panels, hairline borders.
-- Agent identity carried by colour (coral Claude, blue Codex, violet Hermes / Codex cloud, mint OpenCode).
-- One live signature, the canvas nebula orb. Everything else is still.
-- Big tabular numerals for usage, Geist everywhere, mono only for data.
+- Near-black canvas, fading 48px instrument grid, glass panels, hairline borders, 18px radius.
+- Agent identity = real mark + agent colour (coral Claude, blue Codex, mint OpenCode, violet Hermes).
+- HUD cyan (#a9e4f5) is the OS's own instrument light: labels, lines, the idle core, the active nav tick.
+- One live signature, the Core. Everything else is still except the working-agent sweep.
+- Geist for words and numerals, Geist Mono only for labels, ids, times and data.
 
 ## Colors
 
@@ -115,6 +137,9 @@ A restrained neutral system: most of the screen is canvas and ink, and the colou
 ### Tertiary
 - **Hermes Violet** (hermes-violet): Codex cloud and Hermes, plus the inbox badge.
 - **OpenCode Mint** (opencode-mint): reserved for the OpenCode agent.
+
+### HUD
+- **HUD Cyan** (hud): the system's voice, not an agent. Mono labels' accents, wires between the core and idle docks, the idle core, the active-nav tick, corner brackets, live "now" times.
 
 ### Neutral
 - **Canvas** (canvas): the page ground everywhere. **Canvas Raised** (canvas-raised) sits behind sheets and the composer.
@@ -149,7 +174,7 @@ A restrained neutral system: most of the screen is canvas and ink, and the colou
 
 ## Layout
 
-On the phone there's a sticky top bar (breadcrumb + Voice), a single column with a 16px gutter, and a fixed 5-slot tab bar with the orb raised in the centre. On desktop (≥1024px) a fixed 248px glass sidebar replaces the tab bar. Content is capped at 1120px. The dashboard body splits 1.3 : 1, with every grid track `minmax(0, …)` so long strings truncate instead of widening the page. Chat views cap at 768px, with the composer pinned above the tab bar on the phone and to the bottom on desktop. Sections are 32px apart and rows are at least 56px.
+On the phone there's a sticky top bar (breadcrumb + Voice), a single column with a 16px gutter, and a fixed 5-slot tab bar with the Core squircle raised in the centre. On desktop (≥1024px) a fixed 248px glass sidebar replaces the tab bar. Content is capped at 1180px. The home splits into three instrument columns (0.9 : 1.5 : 0.95, core in the middle) and then 1.25 : 1, with every grid track `minmax(0, …)` so long strings truncate instead of widening the page. Chat views cap at 768px, with the composer pinned above the tab bar on the phone and to the bottom on desktop. Sections are 32px apart and rows are at least 56px.
 
 ## Elevation & Depth
 
@@ -179,14 +204,23 @@ Softly rounded panels (22px), pill controls, 12–14px icon tiles and controls, 
 - **Style:** transparent field inside a hairline container. The border strengthens on focus, and the caret is coral.
 
 ### Navigation
-- **Sidebar:** grouped links. The active link gets a white/7% fill and an inner top light, and the inbox badge is violet. The orb card sits between the groups.
-- **Tab bar:** Home, Inbox, the orb (Talk), Chats, More. Active icons get a heavier stroke and ink colour.
+- **Sidebar:** Core brand mark, then grouped links under HUD labels. The active link gets a white/6% fill, an inner ring and a glowing HUD tick at the edge; the inbox badge is a violet mono count. The Core card (tap to talk, shows working agents' tiles) sits between the groups.
+- **Tab bar:** Home, Inbox, the Core squircle (Talk), Today, More. The active tab gets a heavier stroke, ink colour and a glowing HUD tick above it.
 
-### Usage Meter (signature)
-An icon tile, then a recessed pill track, then a fill made of the agent gradient with two drifting dot-grain layers and a soft glow, then the big tabular numeral. Unknown usage shows an empty track and an honest "shows after the next run".
+### Agent Tile (signature)
+The agent's real mark on a #0d0d11 glass tile (radius 30% of size; xs 20 · sm 28 · md 36 · lg 48 · xl 64px), lit by a radial wash of the agent colour and a 1px agent-tinted inner ring. States: ready (lit), idle (neutral ring), working (a light sweep runs around the edge, 2.4s), off (45% opacity, greyscale). Used everywhere an agent appears: chats, inbox, docks, usage, the agents console.
 
-### Nebula Orb (signature)
-A canvas nebula of seven drifting colour clouds plus twinkling stars, with a lit sphere in the middle. It runs at about 30fps, pauses offscreen and in background tabs, and shows a still frame under reduced motion.
+### Core (signature)
+Canvas sphere of ~590 points (Fibonacci, jittered) with lines between near neighbours, slow rotation, depth-faded, twinkling, HUD cyan when idle; working agents' colours mix in and energy raises speed and brightness. ~30fps, paused offscreen and in background tabs, one still frame (redrawn on status change) under reduced motion. Small densities for the brand mark, sidebar card and the phone Talk button (an 18px-radius squircle, never a circle).
+
+### Core Stage (home)
+The Core in a bracketed panel with the four agents docked at its corners (mark, name, what it's on), wired to the core by a dashed HUD line (solid in the agent colour while working), and a readout line beneath (runner, brain, vault, 383). On the phone the docks drop into a 2×2 grid under the core.
+
+### Usage Gauge
+Agent tile + mono label ("CLAUDE · WEEKLY") + reset line, a big tabular numeral, and a 40-segment scale lit in the agent colour with a soft glow (warn at ≥80%), ticks 0–100 in mono. Unknown usage leaves the scale dark with "Shows after the next run".
+
+### HUD Label
+Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout labels only (DIRECTIVES, PLAN USAGE, CORE · IDLE), never body copy and never a kicker above a heading.
 
 ## Do's and Don'ts
 
@@ -195,9 +229,13 @@ A canvas nebula of seven drifting colour clouds plus twinkling stars, with a lit
 - **Do** keep rows at least 56px tall and every action within thumb reach on a 390px screen.
 - **Do** show an honest empty state when data is missing. Never a demo number.
 - **Do** use real icons (lucide, 1.75 stroke) for every arrow and affordance.
+- **Do** show an agent by its mark in an Agent Tile, everywhere.
+- **Do** keep HUD cyan for the system itself and agent colours for agents.
 
 ### Don't:
 - **Don't** add business or finance demo cards. Lind ruled them out.
 - **Don't** nest panels or use coloured side-stripes on rows.
 - **Don't** use text glyphs (→, ↗) as icons.
 - **Don't** add a light theme.
+- **Don't** use plain coloured circles or gradient blobs as agent avatars or buttons.
+- **Don't** put corner brackets on every card: they mark live instruments (the core, the Talk sheet, verdicts, the plan).
