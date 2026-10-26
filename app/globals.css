@@ -40,6 +40,67 @@ html {
   color-scheme: dark;
   -webkit-tap-highlight-color: transparent;
 }
+/* No rubber-band on desktop; phones keep pull-to-refresh. */
+@media (pointer: fine) {
+  html {
+    overscroll-behavior: none;
+  }
+}
+/* No double-tap zoom delay on controls. */
+a,
+button,
+input,
+select,
+textarea,
+label,
+[role="option"] {
+  touch-action: manipulation;
+}
+/* Native selects follow the theme on Windows dark mode too. */
+select,
+option {
+  background-color: var(--color-bg-raised);
+  color: var(--color-text);
+}
+
+/* Keyboard users can skip the nav. */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  transform: translateY(-160%);
+  border-radius: 10px;
+  background: var(--color-text);
+  color: var(--color-bg);
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: transform 160ms var(--ease-out-expo);
+}
+.skip-link:focus-visible {
+  transform: none;
+}
+
+/* Overlays (palette, Talk sheet): quick and exact — scale from 0.98, never from zero; the scrim only fades. */
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+}
+@keyframes scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+.palette-in {
+  animation: palette-in 170ms var(--ease-out-expo) both;
+  transform-origin: top center;
+}
+.palette-scrim {
+  animation: scrim-in 140ms ease-out both;
+}
 
 body {
   /* Instrument grid under a cold wash: the room the core sits in. */
@@ -63,6 +124,10 @@ body {
   outline: 2px solid var(--color-codex);
   outline-offset: 2px;
   border-radius: 8px;
+}
+/* The palette's search field shows focus on its whole row instead (see command-palette.tsx). */
+[role="combobox"]:focus-visible {
+  outline: none;
 }
 
 * {
@@ -207,8 +272,13 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .meter-fill,
   .rise,
-  .agent-sweep {
+  .agent-sweep,
+  .palette-in,
+  .palette-scrim {
     animation: none;
+  }
+  .skip-link {
+    transition: none;
   }
 }
 

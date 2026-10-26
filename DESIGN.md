@@ -225,6 +225,21 @@ Mode switch is a 3-segment control (ink fill on the active segment). Agents are 
 ### Debate view
 A segmented agreement meter (HUD cyan, signal green at ≥80) with the per-round trail in mono. Each round is a row of answer cards (phone: horizontal snap-scroll at 86vw; desktop: one column per agent) — tile, name, model, a big confidence numeral, the one-sentence position, "agrees with" chips (xs tiles), roasts with a flame icon, and a collapsible full answer. The judge's notes sit under each round (blocking disagreements outlined in red). The Verdict card is the router-pick card from Lind's reference: bracketed, outcome chip, one support card per agent with the picked one ringed in its colour, the recommendation, next step, dissent, then "Run it with <agent>" buttons (picked first, ink).
 
+### Command Palette
+⌘K / Ctrl+K anywhere, or the Search button (top bar) / tile (More). A bracketed glass panel dropping from the top (opens in 170ms from 0.98 scale, scrim fades in 140ms, no motion under reduced-motion). The search row shows focus as a HUD-cyan underline instead of a ring. Results group under HUD labels — Do (typed text becomes "Roast: …" and "Ask memory: …"), Go to, Chats (agent tiles), Roasts (stacked tiles) — with the active row lit and a return-key glyph. Full combobox semantics, ↑↓/Enter/Esc, IME-safe, focus restored on close.
+
+### Status Pill
+A 24px-tall mono uppercase chip with a 1px tinted border: live (HUD cyan, optional pulse) for running/queued/preparing, ok for "your turn"/connected, bad for failed/offline, warn for not set, neutral for done. Used for state everywhere instead of colored text or dots.
+
+### Segmented Filter
+Link-based (state lives in the URL), a 12px-radius track with 9px-radius segments; the active one is ink-filled, counts in mono. Chats, Inbox.
+
+### Page Readout
+Under every page title and its plain sentence, a HUD-label line of live counts (e.g. "11 OPEN · 1 RUNNING · 10 WAITING ON YOU"). Only real numbers; items with nothing to say are omitted.
+
+### Time Rail (Today)
+Schedule as a vertical rail: mono start/end times, a 10px square node per event in its calendar colour (HUD cyan and glowing while it's happening), and a NOW separator — the current time in HUD cyan, a glowing dot on the rail and a fading line.
+
 ### HUD Label
 Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout labels only (DIRECTIVES, PLAN USAGE, CORE · IDLE), never body copy and never a kicker above a heading.
 
@@ -244,4 +259,5 @@ Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout la
 - **Don't** use text glyphs (→, ↗) as icons.
 - **Don't** add a light theme.
 - **Don't** use plain coloured circles or gradient blobs as agent avatars or buttons.
-- **Don't** put corner brackets on every card: they mark live instruments (the core, the Talk sheet, verdicts, the plan).
+- **Don't** put corner brackets on every card: they mark live instruments (the core, the Talk sheet, the palette, verdicts, the plan).
+- **Don't** use decorative blur blobs; glass is for overlays and panels only.

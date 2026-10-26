@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { MemoryAnswer, MemoryStats, SourceKind } from "@/lib/memory";
 import { ago, cn } from "@/lib/utils";
@@ -27,6 +28,28 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
   useEffect(() => {
     if (asked) answer.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [asked]);
+
+  const latest = useRef("");
+  async function ask(q: string) {
+    latest.current = q;
+    setThinking(q);
+    try {
+      const res = await fetch("/api/memory/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q }) });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || typeof body?.answer !== "string") throw new Error(body?.error ?? `error ${res.status}`);
+      if (latest.current === q) setAsked({ q, answer: body.answer, sources: body.sources ?? [] }); // a newer question wins
+    } finally {
+      if (latest.current === q) setThinking("");
+    }
+  }
+
+  // /memory?q=… (from the command palette) asks straight away — also when already on this page.
+  const urlQ = useSearchParams().get("q")?.trim() ?? "";
+  useEffect(() => {
+    if (urlQ) void ask(urlQ).catch(() => {});
+    // Only a new question in the URL triggers this; the reply bar handles the rest.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlQ]);
 
   return (
     <>
@@ -115,20 +138,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
       </div>
 
       <div className="h-28" aria-hidden />
-      <ReplyBar
-        placeholder="Ask your memory — “what did we decide about the Bota index?”"
-        onSend={async (q) => {
-          setThinking(q);
-          try {
-            const res = await fetch("/api/memory/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q }) });
-            const body = await res.json().catch(() => null);
-            if (!res.ok || typeof body?.answer !== "string") throw new Error(body?.error ?? `error ${res.status}`);
-            setAsked({ q, answer: body.answer, sources: body.sources ?? [] });
-          } finally {
-            setThinking("");
-          }
-        }}
-      />
+      <ReplyBar placeholder="Ask your memory — “what did we decide about the Bota index?”" onSend={ask} />
     </>
   );
 }

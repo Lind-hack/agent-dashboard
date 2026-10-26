@@ -15,23 +15,23 @@ export default async function WebsitePage() {
         title="383ks.com"
         sub={s.up ? (bad.length ? `Up, but ${bad.length} scheduled job${bad.length > 1 ? "s" : ""} failed.` : "Up and publishing.") : "Not answering."}
         right={
-          <a href={s.url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 rounded-full border border-line px-4 py-2 text-sm text-muted hover:border-line-hi hover:text-text">
+          <a href={s.url} target="_blank" rel="noreferrer" className="flex h-10 items-center gap-1.5 rounded-[12px] border border-line px-4 text-sm text-muted hover:border-line-hi hover:text-text">
             Open site <ArrowUpRight className="h-4 w-4" />
           </a>
         }
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Panel className="p-5">
-          <p className="flex items-center gap-2 text-xs text-muted">
+        <Panel className="brackets p-5">
+          <p className="hud-label flex items-center gap-2">
             <Dot tone={s.up ? "ok" : "bad"} pulse={s.up} /> Status
           </p>
           <p className="tnum mt-3 text-3xl font-semibold tracking-[-0.04em]">{s.up ? `${s.ms} ms` : "Down"}</p>
           <p className="mt-1 text-xs text-faint">{s.up ? "deployment-info response, just now" : s.error}</p>
         </Panel>
         <Panel className="p-5">
-          <p className="flex items-center gap-2 text-xs text-muted">
-            <GitCommitHorizontal className="h-4 w-4" strokeWidth={1.75} /> Deployed
+          <p className="hud-label flex items-center gap-2">
+            <GitCommitHorizontal className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden /> Deployed
           </p>
           {s.deploy ? (
             <>
@@ -52,8 +52,8 @@ export default async function WebsitePage() {
           )}
         </Panel>
         <Panel className="p-5">
-          <p className="flex items-center gap-2 text-xs text-muted">
-            <Newspaper className="h-4 w-4" strokeWidth={1.75} /> Last article
+          <p className="hud-label flex items-center gap-2">
+            <Newspaper className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden /> Last article
           </p>
           {s.latest ? (
             <>
@@ -79,7 +79,7 @@ export default async function WebsitePage() {
               const failed = u.result && u.result !== "success";
               return (
                 <div key={u.timer} className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-3 last:border-0">
-                  <Dot tone={failed ? "bad" : u.active === "active" ? "claude" : "ok"} pulse={u.active === "active"} />
+                  <Dot tone={failed ? "bad" : u.active === "active" ? "hud" : "ok"} pulse={u.active === "active"} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-mono text-[13px]">{u.timer.replace(/\.timer$/, "")}</span>
                     <span className="block text-xs text-muted">

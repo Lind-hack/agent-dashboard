@@ -1,106 +1,112 @@
 import { GitPullRequest, Plus } from "lucide-react";
 import Link from "next/link";
-import { Dot, Empty, PageHeader, Panel } from "@/components/kit";
-import { AGENT_LABELS } from "@/lib/agents";
+import { AgentLogo } from "@/components/agent-logo";
+import { Empty, PageHeader, Panel, Segmented, StatusPill } from "@/components/kit";
+import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
 import { repoShort } from "@/lib/config";
 import { agentIssues } from "@/lib/linear";
 import { listJobs } from "@/lib/store";
-import { ago, cn } from "@/lib/utils";
+import { ago } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-const FILTERS = [
-  { key: "open", label: "Open" },
-  { key: "claude", label: "Claude" },
-  { key: "codex", label: "Codex" },
-  { key: "cloud", label: "Codex cloud" },
-  { key: "archived", label: "Archived" },
-] as const;
+type Row = { id: string; href: string; title: string; agent: TaskAgent; repo: string; status: string; at: string; pr?: string };
+type Filter = "open" | "turn" | "claude" | "codex" | "cloud" | "archived";
 
-type Row = { id: string; href: string; title: string; agent: string; tone: string; repo: string; status: string; at: string; pr?: string; live: boolean };
+const isOpen = (r: Row) => r.status !== "closed" && r.status !== "cancelled";
+
+// What each status means for Lind, as a pill.
+function pill(status: string) {
+  if (status === "running") return { tone: "live" as const, label: "Running", pulse: true };
+  if (status === "queued") return { tone: "live" as const, label: "Queued" };
+  if (status === "waiting") return { tone: "ok" as const, label: "Your turn" };
+  if (status === "failed") return { tone: "bad" as const, label: "Failed" };
+  if (status === "preparing") return { tone: "live" as const, label: "Preparing" };
+  if (status === "closed" || status === "cancelled") return { tone: "neutral" as const, label: status === "closed" ? "Done" : "Stopped" };
+  return { tone: "neutral" as const, label: status };
+}
 
 export default async function ChatsPage({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
-  const f = (await searchParams)?.f ?? "open";
+  const raw = (await searchParams)?.f ?? "open";
+  const f: Filter = (["open", "turn", "claude", "codex", "cloud", "archived"] as const).includes(raw as Filter) ? (raw as Filter) : "open";
   const jobs = listJobs();
-  const cloud = f === "cloud" || f === "open" ? await agentIssues("codex-cloud", 30).catch(() => []) : [];
+  const cloud = await agentIssues("codex-cloud", 30).catch(() => []);
 
   const rows: Row[] = [
-    ...jobs.map((j) => ({
-      id: j.id,
-      href: `/jobs/${j.id}`,
-      title: j.title,
-      agent: AGENT_LABELS[j.agent],
-      tone: j.agent,
-      repo: repoShort(j.repo),
-      status: j.status,
-      at: j.updatedAt,
-      pr: j.prUrl,
-      live: j.status === "running",
-    })),
+    ...jobs.map((j) => ({ id: j.id, href: `/jobs/${j.id}`, title: j.title, agent: j.agent as TaskAgent, repo: repoShort(j.repo), status: j.status, at: j.updatedAt, pr: j.prUrl })),
     ...cloud.map((i) => ({
       id: i.identifier,
       href: `/codex/${i.identifier}`,
       title: i.title,
-      agent: "Codex cloud",
-      tone: "hermes",
+      agent: "codex-cloud" as const,
       repo: i.labels?.nodes?.find((l) => l.name.startsWith("repo:"))?.name.slice(5) ?? "",
       status: i.state?.type === "completed" || i.state?.type === "canceled" ? "closed" : (i.state?.name ?? "open"),
       at: i.updatedAt,
-      live: false,
     })),
   ];
 
-  const isOpen = (r: Row) => r.status !== "closed" && r.status !== "cancelled";
-  const shown = rows
-    .filter((r) =>
-      f === "archived" ? !isOpen(r) : f === "claude" ? r.tone === "claude" && isOpen(r) : f === "codex" ? r.tone === "codex" && isOpen(r) : f === "cloud" ? r.tone === "hermes" && isOpen(r) : isOpen(r),
-    )
-    .sort((a, b) => b.at.localeCompare(a.at));
+  const by: Record<Filter, (r: Row) => boolean> = {
+    open: isOpen,
+    turn: (r) => r.status === "waiting" || r.status === "failed",
+    claude: (r) => r.agent === "claude" && isOpen(r),
+    codex: (r) => r.agent === "codex" && isOpen(r),
+    cloud: (r) => r.agent === "codex-cloud" && isOpen(r),
+    archived: (r) => !isOpen(r),
+  };
+  const shown = rows.filter(by[f]).sort((a, b) => b.at.localeCompare(a.at));
+  const count = (k: Filter) => rows.filter(by[k]).length;
+  const running = rows.filter((r) => r.status === "running").length;
 
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Chats"
         sub="Every conversation with your agents, newest first."
+        readout={[`${count("open")} open`, running > 0 && `${running} running`, count("turn") > 0 && `${count("turn")} waiting on you`]}
         right={
-          <Link href="/voice" className="flex items-center gap-2 rounded-full bg-text px-4 py-2 text-sm font-medium text-bg">
-            <Plus className="h-4 w-4" /> New chat
+          <Link href="/voice" className="flex h-10 items-center gap-2 rounded-[12px] bg-text px-4 text-sm font-medium text-bg hover:bg-white">
+            <Plus className="h-4 w-4" aria-hidden /> New chat
           </Link>
         }
       />
-      <nav className="-mx-4 mb-4 flex gap-1.5 overflow-x-auto px-4 pb-1" aria-label="Filter chats">
-        {FILTERS.map((x) => (
-          <Link
-            key={x.key}
-            href={x.key === "open" ? "/chat" : `/chat?f=${x.key}`}
-            aria-current={f === x.key ? "page" : undefined}
-            className={cn(
-              "shrink-0 rounded-full border px-3.5 py-1.5 text-sm transition-colors",
-              f === x.key ? "border-transparent bg-white text-bg" : "border-line text-muted hover:text-text",
-            )}
-          >
-            {x.label}
-          </Link>
-        ))}
-      </nav>
+      <Segmented
+        label="Filter chats"
+        current={f}
+        items={[
+          { key: "open", label: "Open", href: "/chat", count: count("open") },
+          { key: "turn", label: "Your turn", href: "/chat?f=turn", count: count("turn") },
+          { key: "claude", label: "Claude", href: "/chat?f=claude" },
+          { key: "codex", label: "Codex", href: "/chat?f=codex" },
+          { key: "cloud", label: "Codex cloud", href: "/chat?f=cloud" },
+          { key: "archived", label: "Archived", href: "/chat?f=archived" },
+        ]}
+      />
       <Panel className="overflow-hidden">
         {shown.length === 0 ? (
-          <Empty>{f === "archived" ? "Nothing archived yet." : "No chats here. Tap the orb to start one."}</Empty>
+          <Empty>{f === "archived" ? "Nothing archived yet." : f === "turn" ? "Nothing is waiting on you." : "No chats here. Start one with Talk or ⌘K."}</Empty>
         ) : (
-          shown.map((r) => (
-            <Link key={r.id} href={r.href} className="flex min-h-16 items-center gap-3 border-b border-line px-4 py-3 last:border-0 hover:bg-white/[0.02]">
-              <Dot tone={r.tone} pulse={r.live} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[15px]">{r.title}</span>
-                <span className="block truncate text-xs text-muted">
-                  {r.agent}
-                  {r.repo && ` · ${r.repo}`} · {r.status}
+          shown.map((r) => {
+            const p = pill(r.status);
+            return (
+              <Link key={r.id} href={r.href} className="group flex min-h-16 items-center gap-3 border-b border-line px-3 py-2.5 last:border-0 hover:bg-white/[0.025]">
+                <AgentLogo agent={r.agent} size="md" state={r.status === "running" ? "working" : isOpen(r) ? "ready" : "idle"} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[15px]">{r.title}</span>
+                  <span className="block truncate font-mono text-[11px] text-faint">
+                    {AGENT_LABELS[r.agent]}
+                    {r.repo && ` · ${r.repo}`}
+                  </span>
                 </span>
-              </span>
-              {r.pr && <GitPullRequest className="h-4 w-4 shrink-0 text-muted" aria-label="Has a pull request" />}
-              <span className="w-14 shrink-0 text-right text-xs text-faint">{ago(r.at)}</span>
-            </Link>
-          ))
+                {r.pr && <GitPullRequest className="h-4 w-4 shrink-0 text-muted" aria-label="Has a pull request" />}
+                <span className="flex shrink-0 flex-col items-end gap-1">
+                  <StatusPill tone={p.tone} pulse={p.pulse}>
+                    {p.label}
+                  </StatusPill>
+                  <span className="tnum font-mono text-[10.5px] text-faint">{ago(r.at).replace(" ago", "")}</span>
+                </span>
+              </Link>
+            );
+          })
         )}
       </Panel>
     </div>

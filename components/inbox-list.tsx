@@ -2,7 +2,7 @@
 
 import { Check, CircleAlert, GitPullRequest, MessageSquare } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
 import type { InboxItem } from "@/lib/inbox";
 import { ago, cn } from "@/lib/utils";
@@ -61,14 +61,14 @@ export function InboxList({ items, limit, empty }: { items: InboxItem[]; limit?:
                 <AgentLogo agent={i.tone as "claude"} size="sm" state={i.kind === "agent-failed" ? "off" : "ready"} />
               ) : (
                 <span className="grid h-7 w-7 shrink-0 place-items-center rounded-[9px] bg-white/[0.04] shadow-[0_0_0_1px_rgb(255_255_255/0.07)_inset]">
-                  <Icon className={cn("h-4 w-4", TONE[i.tone])} strokeWidth={1.75} />
+                  <Icon className={cn("h-4 w-4", TONE[i.tone])} strokeWidth={1.75} aria-hidden />
                 </span>
               )}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15px]">{i.title}</span>
                 <span className="block truncate text-xs text-muted">{i.detail}</span>
               </span>
-              <span className="shrink-0 pr-2 text-xs text-faint">{ago(i.at)}</span>
+              <span className="tnum shrink-0 pr-2 font-mono text-[11px] text-faint">{ago(i.at).replace(" ago", "")}</span>
             </Link>
             <button
               onClick={() => dismiss([i.key])}
@@ -84,19 +84,31 @@ export function InboxList({ items, limit, empty }: { items: InboxItem[]; limit?:
   );
 }
 
+// Clearing everything can't be undone from the UI, so it takes a second tap within 4 s.
 export function MarkAllDone({ keys }: { keys: string[] }) {
   const [done, setDone] = useState(false);
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
   if (!keys.length || done) return null;
   return (
     <button
       onClick={() => {
+        if (!armed) return setArmed(true);
         markSeen(keys);
         setDone(true);
         window.location.reload();
       }}
-      className="rounded-full border border-line px-4 py-2 text-sm text-muted hover:border-line-hi hover:text-text"
+      aria-live="polite"
+      className={cn(
+        "h-10 rounded-[12px] border px-4 text-sm transition-colors duration-150",
+        armed ? "border-warn/50 text-warn" : "border-line text-muted hover:border-line-hi hover:text-text",
+      )}
     >
-      Mark all done
+      {armed ? `Tap again to clear ${keys.length}` : "Mark all done"}
     </button>
   );
 }
