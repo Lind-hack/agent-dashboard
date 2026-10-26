@@ -1,10 +1,11 @@
 "use client";
 
-import { Bot, CalendarDays, ChevronRight, Globe, House, Inbox, LayoutGrid, MessageSquare, Mic, Settings, Sparkles, Swords, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronRight, Globe, House, Inbox, LayoutGrid, MessageSquare, Mic, Search, Settings, Sparkles, Swords, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
+import { CommandPalette, openPalette } from "@/components/command-palette";
 import { Composer } from "@/components/composer";
 import { Core } from "@/components/core";
 import { AGENT_HEX, AGENT_LABELS, type AgentKey } from "@/lib/agents";
@@ -67,7 +68,7 @@ function TalkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center" role="dialog" aria-modal="true" aria-label="Talk to an agent">
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/65 backdrop-blur-sm" />
-      <div className="rise panel brackets relative w-full max-w-lg rounded-b-none bg-bg-raised/95 px-5 pt-4 pb-[calc(20px+env(safe-area-inset-bottom))] lg:rounded-[var(--radius-panel)] lg:pb-6">
+      <div className="rise panel brackets relative max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-b-none bg-bg-raised/95 px-5 pt-4 pb-[calc(20px+env(safe-area-inset-bottom))] [overscroll-behavior:contain] lg:rounded-[var(--radius-panel)] lg:pb-6">
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15 lg:hidden" />
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -132,6 +133,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-dvh lg:pl-[248px]">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-line bg-[#09090c]/80 px-4 py-5 backdrop-blur-xl lg:flex">
         <Brand working={working} />
@@ -196,7 +200,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <span className="text-text">{(crumb || "vps").toLowerCase()}</span>
           </p>
           <div className="ml-auto flex items-center gap-1">
-            <Link href="/chat" className="hidden h-9 items-center gap-2 rounded-[10px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text sm:flex">
+            <button
+              onClick={openPalette}
+              aria-label="Search and commands"
+              aria-keyshortcuts="Control+K Meta+K"
+              className="flex h-9 items-center gap-2 rounded-[10px] px-2.5 text-sm text-muted hover:bg-white/5 hover:text-text sm:border sm:border-line sm:pr-2 sm:pl-3"
+            >
+              <Search className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+              <span className="hidden sm:inline">Search</span>
+              <kbd className="hidden rounded-[6px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10.5px] text-faint sm:inline">⌘&nbsp;K</kbd>
+            </button>
+            <Link href="/chat" className="hidden h-9 items-center gap-2 rounded-[10px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text md:flex">
               <MessageSquare className="h-4 w-4" strokeWidth={1.75} /> Chats
             </Link>
             <button onClick={() => setTalk(true)} className="flex h-9 items-center gap-2 rounded-[10px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text">
@@ -206,7 +220,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="pb-tabbar mx-auto max-w-[1180px] min-w-0 overflow-x-clip px-4 pt-4 lg:px-8">{children}</main>
+      <main id="main" tabIndex={-1} className="pb-tabbar mx-auto max-w-[1180px] min-w-0 overflow-x-clip px-4 pt-4 outline-none lg:px-8">
+        {children}
+      </main>
 
       {/* Phone tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-[#09090c]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden" aria-label="Main">
@@ -237,6 +253,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </nav>
 
       <TalkSheet open={talk} onClose={() => setTalk(false)} />
+      <CommandPalette nav={[...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }, { href: "/goals", label: "Goals", icon: Sparkles }].filter((i) => LIVE.has(i.href))} onTalk={() => setTalk(true)} />
     </div>
   );
 }
@@ -256,25 +273,28 @@ function TabLink({ item, path, count }: { item: NavItem; path: string; count: nu
   );
 }
 
-// "More" page content on the phone: everything that isn't in the tab bar.
+// "More" page content on the phone: everything that isn't in the tab bar, as thumb-sized tiles.
 export function MoreLinks() {
   const items = [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter(
     (i) => LIVE.has(i.href) && !["/", "/inbox", "/room"].includes(i.href),
   );
   return (
-    <div className="panel overflow-hidden">
+    <div className="grid grid-cols-2 gap-2">
       {items.map((i) => {
         const Icon = i.icon;
         return (
-          <Link key={i.href} href={i.href} className="flex min-h-14 items-center gap-3 border-b border-line px-4 last:border-0 hover:bg-white/[0.02]">
-            <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-white/[0.04] shadow-[0_0_0_1px_rgb(255_255_255/0.06)_inset]">
-              <Icon className="h-[18px] w-[18px] text-muted" strokeWidth={1.75} />
+          <Link key={i.href} href={i.href} className="panel group flex min-h-[96px] flex-col justify-between !rounded-[16px] p-4 transition-colors hover:border-line-hi hover:bg-white/[0.04]">
+            <Icon className="h-5 w-5 text-hud" strokeWidth={1.75} aria-hidden />
+            <span className="flex items-center justify-between text-[15px] font-medium">
+              {i.label}
+              <ChevronRight className="h-4 w-4 text-faint transition-transform group-hover:translate-x-0.5" aria-hidden />
             </span>
-            <span className="text-[15px]">{i.label}</span>
-            <ChevronRight className="ml-auto h-4 w-4 text-faint" aria-hidden />
           </Link>
         );
       })}
+      <button onClick={openPalette} className="panel group col-span-2 flex min-h-14 items-center gap-3 !rounded-[16px] px-4 text-left text-sm text-muted hover:text-text">
+        <Search className="h-4 w-4 text-hud" aria-hidden /> Search everything or type a command…
+      </button>
     </div>
   );
 }

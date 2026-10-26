@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 //   Roast — they debate, a neutral judge scores each round, and you get a verdict.
 
 export type LauncherAgent = { agent: AgentKey; ready: boolean; busy: boolean; note: string; model: string; weeklyPct: number | null };
-type Mode = "solo" | "team" | "roast";
+export type Mode = "solo" | "team" | "roast";
 
 const MODES: { key: Mode; label: string; hint: string }[] = [
   { key: "solo", label: "Solo", hint: "One agent, a back-and-forth chat on its own branch." },
@@ -28,16 +28,16 @@ const SUGGESTIONS: Record<Mode, string[]> = {
   roast: ["Should 383's news pipeline move off Hermes to the runner?", "What's the single highest-leverage thing to build this week for my goals?"],
 };
 
-export function RoomLauncher({ agents, repos, judgeModel }: { agents: LauncherAgent[]; repos: string[]; judgeModel: string }) {
+export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", initialMode = "roast" }: { agents: LauncherAgent[]; repos: string[]; judgeModel: string; initialTask?: string; initialMode?: Mode }) {
   const router = useRouter();
   const byKey = useMemo(() => Object.fromEntries(agents.map((a) => [a.agent, a])) as Record<AgentKey, LauncherAgent>, [agents]);
   const claudeHot = (byKey.claude?.weeklyPct ?? 0) > 70;
-  const [mode, setMode] = useState<Mode>("roast");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [teamKind, setTeamKind] = useState<"ask" | "relay">("ask");
   // R7: Claude is opt-in for debates (it spends the same weekly limit as real coding).
   const [picked, setPicked] = useState<AgentKey[]>(() => agents.filter((a) => a.ready && a.agent !== "claude").map((a) => a.agent));
   const [repo, setRepo] = useState(repos[0] ?? "");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialTask);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 

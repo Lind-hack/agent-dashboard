@@ -19,7 +19,7 @@ async function post<T>(url: string, body: unknown, method = "POST"): Promise<T> 
   return out as T;
 }
 
-const field = "rounded-xl border border-line bg-black/30 px-3 py-2 text-[15px] outline-none focus:border-line-hi";
+const field = "rounded-[12px] border border-line bg-black/30 px-3 py-2 text-[15px] outline-none focus:border-line-hi";
 
 export const KIND_STYLE: Record<PlanBlock["kind"], { label: string; bar: string; text: string }> = {
   task: { label: "Task", bar: "bg-codex", text: "text-codex" },
@@ -67,10 +67,9 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
   }
 
   return (
-    <Panel className="relative overflow-hidden p-5">
-      <div className="pointer-events-none absolute -top-24 -right-16 h-56 w-56 rounded-full bg-hermes/15 blur-3xl" aria-hidden />
-      <p className="flex items-center gap-2 text-xs text-muted">
-        <Sparkles className="h-4 w-4 text-hermes" strokeWidth={1.75} /> {planned ? "Re-plan the rest of today" : "Plan my day"}
+    <Panel className="brackets relative p-5">
+      <p className="hud-label flex items-center gap-2">
+        <Sparkles className="h-3.5 w-3.5 text-hud" strokeWidth={1.75} aria-hidden /> {planned ? "Re-plan the rest of today" : "Plan my day"}
       </p>
       {!plan ? (
         <>
@@ -84,7 +83,7 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
           <button
             onClick={make}
             disabled={!!busy}
-            className="mt-3 flex items-center gap-2 rounded-full bg-text px-5 py-2.5 text-sm font-medium text-bg disabled:opacity-40"
+            className="mt-3 flex items-center gap-2 h-10 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
           >
             {busy === "plan" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
             {busy === "plan" ? "Planning…" : planned ? "Re-plan from now" : "Plan my day"}
@@ -98,9 +97,9 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
           ) : (
             <ol className="mt-4 flex flex-col gap-1.5">
               {plan.blocks.map((b, i) => (
-                <li key={`${b.start}-${i}`} className="flex items-center gap-3 rounded-xl bg-white/[0.03] py-2 pr-1 pl-3">
+                <li key={`${b.start}-${i}`} className="flex items-center gap-3 rounded-[12px] bg-white/[0.03] py-2 pr-1 pl-3">
                   <span className={cn("h-8 w-[3px] shrink-0 rounded-full", KIND_STYLE[b.kind].bar)} aria-hidden />
-                  <span className="tnum w-[92px] shrink-0 text-[13px] text-muted">
+                  <span className="tnum w-[92px] shrink-0 font-mono text-[12px] text-muted">
                     {b.start}–{b.end}
                   </span>
                   <span className="min-w-0 flex-1">
@@ -113,7 +112,7 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
                   <button
                     onClick={() => setPlan({ ...plan, blocks: plan.blocks.filter((_, j) => j !== i) })}
                     aria-label={`Remove ${b.title}`}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-faint hover:bg-white/5 hover:text-text"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-faint hover:bg-white/5 hover:text-text"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -125,14 +124,14 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
             <button
               onClick={apply}
               disabled={!!busy || !plan.blocks.length || !canWrite}
-              className="flex items-center gap-2 rounded-full bg-text px-5 py-2.5 text-sm font-medium text-bg disabled:opacity-40"
+              className="flex items-center gap-2 h-10 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
             >
               {busy === "apply" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} Put on my calendar
             </button>
-            <button onClick={make} disabled={!!busy} className="rounded-full px-4 py-2.5 text-sm text-muted hover:bg-white/5 hover:text-text">
+            <button onClick={make} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
               {busy === "plan" ? "Planning…" : "Try again"}
             </button>
-            <button onClick={() => setPlan(null)} disabled={!!busy} className="rounded-full px-4 py-2.5 text-sm text-muted hover:bg-white/5 hover:text-text">
+            <button onClick={() => setPlan(null)} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
               Discard
             </button>
           </div>
@@ -179,7 +178,7 @@ export function TaskList({ groups }: { groups: { label: string; tone?: "bad"; ta
       ) : (
         shown.map((g) => (
           <div key={g.label}>
-            <p className={cn("px-4 pt-3 pb-1 text-[11px] font-medium tracking-[0.12em] uppercase", g.tone === "bad" ? "text-bad" : "text-faint")}>
+            <p className={cn("hud-label px-4 pt-3 pb-1", g.tone === "bad" && "!text-bad")}>
               {g.label} · {g.tasks.length}
             </p>
             {g.tasks.map((t) => (
@@ -258,15 +257,15 @@ export function CaptureBar() {
   return (
     <>
       {draft && (
-        <div ref={card} className="rise panel mt-8 p-5">
-          <div className="mb-3 flex gap-1 rounded-full bg-white/[0.04] p-1 text-sm" role="tablist" aria-label="Save as">
+        <div ref={card} className="rise panel brackets mt-8 p-5">
+          <div className="mb-3 flex gap-1 rounded-[12px] bg-white/[0.04] p-1 text-sm" role="tablist" aria-label="Save as">
             {(["task", "event"] as const).map((k) => (
               <button
                 key={k}
                 role="tab"
                 aria-selected={draft.kind === k}
                 onClick={() => switchKind(k)}
-                className={cn("flex flex-1 items-center justify-center gap-2 rounded-full px-3 py-2", draft.kind === k ? "bg-white/[0.09] text-text" : "text-muted")}
+                className={cn("flex flex-1 items-center justify-center gap-2 rounded-[9px] px-3 py-2", draft.kind === k ? "bg-white/[0.09] text-text" : "text-muted")}
               >
                 {k === "task" ? <ListTodo className="h-4 w-4" /> : <CalendarPlus className="h-4 w-4" />} {k === "task" ? "TickTick task" : "Calendar event"}
               </button>
@@ -314,10 +313,10 @@ export function CaptureBar() {
           )}
           {error && <p className="mt-3 text-sm text-bad" aria-live="polite">{error}</p>}
           <div className="mt-4 flex gap-2">
-            <button onClick={save} disabled={saving} className="flex items-center gap-2 rounded-full bg-text px-5 py-2.5 text-sm font-medium text-bg disabled:opacity-40">
+            <button onClick={save} disabled={saving} className="flex items-center gap-2 h-10 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40">
               {saving && <LoaderCircle className="h-4 w-4 animate-spin" />} Save
             </button>
-            <button onClick={() => setDraft(null)} className="rounded-full px-4 py-2.5 text-sm text-muted hover:bg-white/5 hover:text-text">
+            <button onClick={() => setDraft(null)} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
               Discard
             </button>
           </div>
@@ -378,7 +377,7 @@ export function TickTickConnect({ error, callback }: { error?: string; callback:
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <input value={id} onChange={(e) => setId(e.target.value)} placeholder="Client ID" aria-label="Client ID" autoComplete="off" className={`${field} min-w-0 flex-1`} />
         <input value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Client Secret" aria-label="Client Secret" type="password" autoComplete="off" className={`${field} min-w-0 flex-1`} />
-        <button onClick={go} disabled={busy || !id.trim() || !secret.trim()} className="flex items-center justify-center gap-2 rounded-full bg-text px-5 py-2.5 font-medium text-bg disabled:opacity-40">
+        <button onClick={go} disabled={busy || !id.trim() || !secret.trim()} className="flex items-center justify-center gap-2 h-10 rounded-[12px] bg-text px-5 font-medium text-bg disabled:opacity-40">
           {busy && <LoaderCircle className="h-4 w-4 animate-spin" />} Connect
         </button>
       </div>

@@ -21,7 +21,9 @@ const STATUS: Record<Room["status"], string> = {
   refused: "refused",
 };
 
-export default async function RoomPage() {
+export default async function RoomPage({ searchParams }: { searchParams: Promise<{ task?: string; mode?: string }> }) {
+  const sp = await searchParams;
+  const initialMode = sp?.mode === "solo" || sp?.mode === "team" ? sp.mode : "roast";
   const [statuses, repos] = await Promise.all([agentStatuses().catch(() => []), listRepos().catch(() => [])]);
   const usage = planUsage();
   const models = agentModels();
@@ -38,7 +40,7 @@ export default async function RoomPage() {
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeader title="Room" sub="Put your agents on one task — alone, as a team, or in a roast until they agree." />
-      <RoomLauncher agents={agents} repos={repos.map((r) => r.name)} judgeModel={judgeModelName()} />
+      <RoomLauncher agents={agents} repos={repos.map((r) => r.name)} judgeModel={judgeModelName()} initialTask={(sp?.task ?? "").slice(0, 2000)} initialMode={initialMode} />
 
       {rooms.length > 0 && (
         <section className="mt-10">

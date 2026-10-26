@@ -28,6 +28,26 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
     if (asked) answer.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [asked]);
 
+  async function ask(q: string) {
+    setThinking(q);
+    try {
+      const res = await fetch("/api/memory/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q }) });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || typeof body?.answer !== "string") throw new Error(body?.error ?? `error ${res.status}`);
+      setAsked({ q, answer: body.answer, sources: body.sources ?? [] });
+    } finally {
+      setThinking("");
+    }
+  }
+
+  // /memory?q=… (from the command palette) asks straight away.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q")?.trim();
+    if (q) void ask(q).catch(() => {});
+    // Runs once on arrival; later questions come from the reply bar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <>
       <div className="grid gap-4 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
@@ -115,20 +135,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
       </div>
 
       <div className="h-28" aria-hidden />
-      <ReplyBar
-        placeholder="Ask your memory — “what did we decide about the Bota index?”"
-        onSend={async (q) => {
-          setThinking(q);
-          try {
-            const res = await fetch("/api/memory/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q }) });
-            const body = await res.json().catch(() => null);
-            if (!res.ok || typeof body?.answer !== "string") throw new Error(body?.error ?? `error ${res.status}`);
-            setAsked({ q, answer: body.answer, sources: body.sources ?? [] });
-          } finally {
-            setThinking("");
-          }
-        }}
-      />
+      <ReplyBar placeholder="Ask your memory — “what did we decide about the Bota index?”" onSend={ask} />
     </>
   );
 }

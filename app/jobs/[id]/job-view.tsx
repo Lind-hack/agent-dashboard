@@ -4,6 +4,7 @@ import { Archive, ArrowUpRight, ChevronDown, GitBranch, Square } from "lucide-re
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
 import { Md } from "@/components/md";
+import { StatusPill } from "@/components/kit";
 import { ReplyBar } from "@/components/reply-bar";
 import { AGENT_LABELS } from "@/lib/agents";
 import type { Job } from "@/lib/store";
@@ -46,7 +47,7 @@ function Tools({ items }: { items: string[] }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="text-xs">
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-muted hover:text-text" aria-expanded={open}>
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 rounded-[9px] border border-line px-3 py-1 font-mono text-[11px] text-muted hover:text-text" aria-expanded={open}>
         <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
         {items.length} step{items.length > 1 ? "s" : ""} · {items.at(-1)?.split(" ")[0]}
       </button>
@@ -109,13 +110,15 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
   return (
     <div className="mx-auto max-w-3xl pb-44">
       <header className="pt-2 pb-5 lg:pt-6">
-        <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-          <span className="flex items-center gap-1.5 text-text">
-            <AgentLogo agent={job.agent ?? "claude"} size="xs" state={job.status === "running" ? "working" : "ready"} /> {agentName}
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted">
+          <span className="flex items-center gap-2 font-sans text-[13px] text-text">
+            <AgentLogo agent={job.agent ?? "claude"} size="sm" state={job.status === "running" ? "working" : "ready"} /> {agentName}
           </span>
-          <span className="flex items-center gap-1">
-            <GitBranch className="h-3.5 w-3.5" /> {job.repo.split("/")[1] ?? job.repo}
-          </span>
+          {job.repo && (
+            <span className="flex items-center gap-1" translate="no">
+              <GitBranch className="h-3.5 w-3.5" aria-hidden /> {job.repo.split("/")[1] ?? job.repo}
+            </span>
+          )}
           {job.issueUrl ? (
             <a href={job.issueUrl} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-text">
               {job.id} <ArrowUpRight className="h-3 w-3" />
@@ -127,34 +130,29 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
         </div>
         <h1 className="text-[1.7rem] leading-tight font-semibold tracking-[-0.03em] text-balance">{job.title}</h1>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span
-            className={cn(
-              "rounded-full px-3 py-1 text-xs",
-              job.status === "failed" ? "bg-bad/15 text-bad" : running ? "bg-claude/15 text-claude" : "bg-white/[0.06] text-muted",
-            )}
-          >
-            {job.status === "queued" ? "waiting for a free slot" : job.status === "running" ? `${agentName} is working` : preparing ? "preparing context" : job.status}
-          </span>
+          <StatusPill tone={job.status === "failed" ? "bad" : running || preparing ? "live" : job.status === "waiting" ? "ok" : "neutral"} pulse={job.status === "running"}>
+            {job.status === "queued" ? "Waiting for a slot" : job.status === "running" ? `${agentName} is working` : preparing ? "Preparing context" : job.status === "waiting" ? "Your turn" : job.status}
+          </StatusPill>
           {job.prUrl && (
-            <a href={job.prUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 rounded-full border border-line px-3 py-1 text-xs hover:border-line-hi">
+            <a href={job.prUrl} target="_blank" rel="noreferrer" className="flex h-8 items-center gap-1 rounded-[10px] border border-line px-3 text-xs hover:border-line-hi">
               Pull request <ArrowUpRight className="h-3.5 w-3.5" />
             </a>
           )}
           {running && (
-            <button onClick={() => post({ action: "cancel" })} className="ml-auto flex items-center gap-1.5 rounded-full border border-bad/40 px-3 py-1 text-xs text-bad">
+            <button onClick={() => post({ action: "cancel" })} className="ml-auto flex h-8 items-center gap-1.5 rounded-[10px] border border-bad/40 px-3 text-xs text-bad hover:bg-bad/10">
               <Square className="h-3 w-3 fill-current" /> Stop
             </button>
           )}
           {/* Linear jobs close when the issue is closed; plain chats are archived here. */}
           {!running && !preparing && !job.issueId && job.status !== "closed" && (
-            <button onClick={() => post({ action: "archive" })} className="ml-auto flex items-center gap-1.5 rounded-full border border-line px-3 py-1 text-xs text-muted hover:text-text">
+            <button onClick={() => post({ action: "archive" })} className="ml-auto flex h-8 items-center gap-1.5 rounded-[10px] border border-line px-3 text-xs text-muted hover:text-text">
               <Archive className="h-3.5 w-3.5" /> Archive
             </button>
           )}
         </div>
         {job.imported && <HandoffStrip imported={job.imported} status={job.status} owner={job.owner} onAction={(a) => void post({ action: a })} />}
         {job.imported && (
-          <div className="mt-4 flex gap-1 rounded-full border border-line p-1 text-sm" role="tablist" aria-label="Chat views">
+          <div className="mt-4 flex gap-1 rounded-[12px] border border-line p-1 text-sm" role="tablist" aria-label="Chat views">
             {(
               [
                 ["chat", "Chat"],
@@ -167,7 +165,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
                 role="tab"
                 aria-selected={tab === k}
                 onClick={() => setTab(k)}
-                className={cn("min-h-9 flex-1 rounded-full px-3 transition-colors", tab === k ? "bg-text text-bg" : "text-muted hover:text-text")}
+                className={cn("min-h-9 flex-1 rounded-[9px] px-3 transition-colors", tab === k ? "bg-text text-bg" : "text-muted hover:text-text")}
               >
                 {label}
               </button>
