@@ -120,8 +120,8 @@ export function Core({ className, energy = 0.25, tints = [], density = 1, label 
         const z = proj[i * 3 + 2];
         const [r, g, bl] = colors[pts[i].tint % colors.length];
         const twinkle = reduced ? 1 : 0.75 + 0.25 * Math.sin(now * 0.002 + pts[i].tw * 40);
-        ctx!.fillStyle = `rgba(${r},${g},${bl},${(0.25 + (z + 1) * 0.37) * twinkle})`;
-        const s = dot * (0.6 + (z + 1) * 0.55);
+        ctx!.fillStyle = `rgba(${r},${g},${bl},${Math.min(1, (0.3 + (z + 1) * 0.42) * twinkle * (0.85 + e * 0.3))})`;
+        const s = dot * (0.7 + (z + 1) * 0.65);
         ctx!.fillRect(proj[i * 3] - s / 2, proj[i * 3 + 1] - s / 2, s, s);
       }
     }

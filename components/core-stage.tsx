@@ -32,7 +32,10 @@ function DockCard({ d, className }: { d: Dock; className?: string }) {
   return (
     <Link
       href="/agents"
-      className={cn("group flex max-w-[210px] items-center gap-3 rounded-[14px] p-1.5 pr-3 transition-colors hover:bg-white/[0.04]", className)}
+      className={cn(
+        "group flex max-w-[210px] items-center gap-3 rounded-[14px] p-1.5 pr-3 transition-colors hover:bg-white/[0.06] sm:bg-black/45 sm:shadow-[0_0_0_1px_rgb(255_255_255/0.06)_inset] sm:backdrop-blur-md",
+        className,
+      )}
       aria-label={`${AGENT_LABELS[d.agent]}: ${lineOf(d)}`}
     >
       <AgentLogo agent={d.agent} size="lg" state={stateOf(d)} />
@@ -51,7 +54,7 @@ export function CoreStage({ docks, readout }: { docks: Dock[]; readout: string[]
   return (
     <section className="panel brackets relative overflow-hidden" aria-label="Agents">
       <div className="relative h-[300px] sm:h-[380px] lg:h-[440px]">
-        <Core className="absolute inset-0 h-full w-full" energy={energy} tints={tints} label={working.length ? `${working.length} agents working` : "Core idle"} />
+        <Core className="absolute inset-0 h-full w-full" density={1.4} energy={energy} tints={tints} label={working.length ? `${working.length} agents working` : "Core idle"} />
         <p className="hud-label absolute top-4 left-1/2 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap">
           <span className={cn("h-1.5 w-1.5 rounded-full", working.length ? "bg-ok shadow-[0_0_8px_var(--color-ok)]" : "bg-hud/60")} />
           core · {working.length ? `${working.length} working` : "idle"}
@@ -76,7 +79,11 @@ export function CoreStage({ docks, readout }: { docks: Dock[]; readout: string[]
           <DockCard key={d.agent} d={d} className={cn("absolute m-3 hidden sm:flex", SPOT[d.agent])} />
         ))}
 
-        <p className="hud-label absolute inset-x-0 bottom-4 truncate px-4 text-center !tracking-[0.14em]">{readout.join("  ·  ")}</p>
+        <p className="hud-label absolute inset-x-0 bottom-3.5 flex flex-wrap justify-center gap-x-3 gap-y-1 px-4 !tracking-[0.14em]">
+          {readout.map((r) => (
+            <span key={r} className="whitespace-nowrap">{r}</span>
+          ))}
+        </p>
       </div>
 
       {/* Docks as a row (phone) */}

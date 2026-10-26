@@ -70,11 +70,10 @@ export default async function Home() {
     runnerAlive ? "runner online" : "runner offline",
     brain.updatedAt ? `brain ${brainFailing ? `${brainFailing} failing` : "synced"}` : "brain idle",
     process.env.MEMORY_VAULT_DIR ? "vault connected" : "vault off",
-    site?.up ? `383 up ${site.ms}ms` : "383 down",
+    site?.up ? "383 up" : "383 down",
   ];
 
   const state = [
-    inbox.length ? `${inbox.length} thing${inbox.length > 1 ? "s" : ""} need${inbox.length > 1 ? "" : "s"} you` : "Nothing needs you",
     running.length ? `${running.length} agent${running.length > 1 ? "s" : ""} working` : "agents idle",
     site?.latest ? `383 published ${ago(site.latest.at)}` : null,
   ].filter(Boolean);
@@ -84,7 +83,16 @@ export default async function Home() {
       <header className="rise flex items-end justify-between gap-4 pt-2 lg:pt-5">
         <div className="min-w-0">
           <h1 className="text-[2.1rem] leading-[1.02] font-semibold tracking-[-0.045em] text-balance sm:text-[2.6rem] lg:text-[3.2rem]">{greeting()}</h1>
-          <p className="mt-2.5 text-[15px] text-muted">{state.join(" · ")}.</p>
+          <p className="mt-2.5 text-[15px] text-muted">
+            {inbox.length ? (
+              <Link href="/inbox" className="text-text underline decoration-hud/40 underline-offset-4 hover:decoration-hud">
+                {inbox.length} thing{inbox.length > 1 ? "s" : ""} need{inbox.length > 1 ? "" : "s"} you
+              </Link>
+            ) : (
+              "Nothing needs you"
+            )}
+            {state.length > 0 && ` · ${state.join(" · ")}`}.
+          </p>
         </div>
         <HudClock className="hidden shrink-0 text-[3.2rem] sm:block" />
       </header>
@@ -104,7 +112,7 @@ export default async function Home() {
                   {day.priorities.slice(0, 3).map((p, i) => (
                     <li key={i} className="flex gap-3 text-[14px] leading-snug">
                       <span className="tnum mt-px font-mono text-[11px] text-hud/80">{String(i + 1).padStart(2, "0")}</span>
-                      <span className="min-w-0">{p}</span>
+                      <span className="line-clamp-3 min-w-0" title={p}>{p}</span>
                     </li>
                   ))}
                 </ol>
