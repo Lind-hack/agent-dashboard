@@ -147,7 +147,8 @@ function installInstructions(ctx: HandoffContext) {
   const rules = ctx.instructions.filter((i) => /[\\/]rules[\\/][^\\/]+\.md$/i.test(i.path));
   if (rules.length) writeFiles(path.join(claudeHome, "rules"), Object.fromEntries(rules.map((r) => [path.basename(r.path.replace(/\\/g, "/")), r.text])));
   for (const [name, files] of Object.entries(ctx.skills ?? {})) {
-    if (/^[\w-]+$/.test(name)) writeFiles(path.join(claudeHome, "skills", name), files);
+    // A skill the PC sync installed (full folder structure) beats the hand-off's flattened copy.
+    if (/^[\w-]+$/.test(name) && !fs.existsSync(path.join(claudeHome, "skills", name, ".synced-from-pc"))) writeFiles(path.join(claudeHome, "skills", name), files);
   }
 }
 

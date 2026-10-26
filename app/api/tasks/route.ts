@@ -3,6 +3,7 @@ import { AGENT_META, VPS_AGENTS, type AgentKey, type TaskAgent } from "@/lib/age
 import { draftTask, transcribe } from "@/lib/groq";
 import { listRepos } from "@/lib/github";
 import { createAgentIssue } from "@/lib/linear";
+import { promptWithSkills } from "@/lib/skills";
 import { pushInbox } from "@/lib/store";
 
 const TASK_AGENTS: TaskAgent[] = [...VPS_AGENTS, "codex-cloud"];
@@ -30,6 +31,12 @@ export async function POST(request: Request) {
       text = [text, await transcribe(audio, name)].filter(Boolean).join("\n\n");
     }
     if (!text) return NextResponse.json({ error: "Nothing was said or typed" }, { status: 400 });
+    const skills = String(form.get("skills") ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .slice(0, 6);
+    const withSkills = (a: AgentKey, t: string) => promptWithSkills(a, skills, t);
     const fallbackRepo = repo ?? repos[0] ?? "";
     const title = text.split("\n")[0].slice(0, 80);
 
@@ -48,7 +55,7 @@ export async function POST(request: Request) {
               agent: a,
               repo: AGENT_META[a].repo ? fallbackRepo : "",
               title,
-              prompt: text,
+              prompt: withSkills(a, text),
               source: "dashboard",
               group: { id: gid, kind: "ask", step: 0, steps: picked, task: text },
             },
@@ -66,7 +73,7 @@ export async function POST(request: Request) {
             agent: steps[0],
             repo: fallbackRepo,
             title: `Plan: ${title.slice(0, 70)}`,
-            prompt: text,
+            prompt: withSkills(steps[0], text),
             source: "dashboard",
             group: { id: gid, kind: "relay", step: 0, steps, task: text },
           },
@@ -97,7 +104,7 @@ export async function POST(request: Request) {
     const chatRepo = AGENT_META[chatAgent].repo ? fallbackRepo : "";
     if (AGENT_META[chatAgent].repo && !chatRepo) return NextResponse.json({ error: "The GitHub token can't see any repos" }, { status: 400 });
     const id = newId("C");
-    pushInbox({ kind: "create", chat: { id, agent: chatAgent, repo: chatRepo, title, prompt: text, source: "dashboard" } });
+    pushInbox({ kind: "create", chat: { id, agent: chatAgent, repo: chatRepo, title, prompt: withSkills(chatAgent, text), source: "dashboard" } });
     return NextResponse.json({ id, agent: chatAgent, repo: chatRepo, title, transcript: text, href: `/jobs/${id}` });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });

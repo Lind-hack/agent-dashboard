@@ -8,6 +8,8 @@
 //   node brain-collect.mjs --dry-run    list what would be sent
 //   node brain-collect.mjs --status     the brain's status on the VPS
 //   node brain-collect.mjs --install    register the scheduled task (every 2 h)
+//   node brain-collect.mjs --skills     sync your Claude + Codex skills and the plugin/hook/MCP manifest now
+//                                       (otherwise they sync on any run where a skill changed)
 //
 // Reads HANDOFF_TOKEN and AGENT_DASHBOARD_URL from ~/.agent-dashboard/handoff.env. Node 24+.
 
@@ -262,3 +264,163 @@ for (const t of todo) {
 }
 if (!flag("dry-run")) saveState();
 out(`brain-collect: ${flag("dry-run") ? "would send" : "sent"} ${sent}, skipped ${skipped} trivial/sub-agent, ${failed} failed, ${redactions} secrets redacted${todo.length - sent - skipped - failed > 0 ? `, ${todo.length - sent - skipped - failed} left for the next run` : ""}`);
+
+// ---------- skills + manifest (PLAN-v2 R21) ----------
+// Your Claude and Codex skill folders go to the VPS agents (text files only, structure kept), plus a
+// manifest of plugins, hooks and MCP servers (names and commands only — nothing is installed from it).
+// Uploaded only when something changed since the last run.
+
+const postSkills = async (body) => {
+  const res = await fetch(`${BASE}/api/skills/sync`, { method: "POST", headers: { Authorization: `Bearer ${env.HANDOFF_TOKEN}`, "Content-Type": "application/octet-stream" }, body });
+  if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
+};
+
+const TEXT_EXT = /\.(md|txt|json|js|mjs|cjs|ts|py|sh|ya?ml|toml|csv|html|css|xml|sql|tsx|jsx)$/i;
+
+function skillFiles(dir) {
+  const files = {};
+  const visit = (d, rel) => {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.name.startsWith(".") || e.name === "node_modules" || e.name === "__pycache__") continue;
+      const p = path.join(d, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) visit(p, r);
+      else if (e.isFile() && TEXT_EXT.test(e.name) && fs.statSync(p).size <= 256 * 1024) files[r] = fs.readFileSync(p, "utf8");
+    }
+  };
+  visit(dir, "");
+  return files;
+}
+
+function skillDirs(roots) {
+  const out = {};
+  for (const root of roots) {
+    let entries = [];
+    try {
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      if (e.isDirectory() && !e.name.startsWith(".") && fs.existsSync(path.join(root, e.name, "SKILL.md")) && !out[e.name]) out[e.name] = path.join(root, e.name);
+    }
+  }
+  return out;
+}
+
+const fingerprint = (dirs) =>
+  JSON.stringify(
+    Object.entries(dirs)
+      .sort()
+      .map(([n, d]) => {
+        let m = 0;
+        const walkM = (x) => {
+          for (const e of fs.readdirSync(x, { withFileTypes: true })) {
+            if (e.name.startsWith(".") || e.name === "node_modules") continue;
+            const p = path.join(x, e.name);
+            m = Math.max(m, fs.statSync(p).mtimeMs);
+            if (e.isDirectory()) walkM(p);
+          }
+        };
+        try {
+          walkM(d);
+        } catch {
+          /* vanished */
+        }
+        return [n, Math.round(m)];
+      }),
+  );
+
+async function uploadSkills(agent, dirs) {
+  const names = Object.keys(dirs);
+  let batch = {};
+  let size = 0;
+  const flush = async () => {
+    if (!Object.keys(batch).length) return;
+    const body = zlib.gzipSync(Buffer.from(JSON.stringify({ kind: "skills", agent, names, skills: batch })));
+    await postSkills(body);
+    batch = {};
+    size = 0;
+  };
+  for (const [name, dir] of Object.entries(dirs)) {
+    const files = skillFiles(dir);
+    const bytes = Object.values(files).reduce((n, t) => n + t.length, 0);
+    if (size + bytes > 20 * 1024 * 1024) await flush(); // keeps each gzipped upload well under the 9 MB limit
+    batch[name] = files;
+    size += bytes;
+  }
+  await flush();
+  return names.length;
+}
+
+function manifest() {
+  const readJSON = (f) => {
+    try {
+      return JSON.parse(fs.readFileSync(f, "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const settings = readJSON(path.join(HOME, ".claude", "settings.json")) ?? {};
+  const claudeJson = readJSON(path.join(HOME, ".claude.json")) ?? {};
+  let codexToml = "";
+  try {
+    codexToml = fs.readFileSync(path.join(HOME, ".codex", "config.toml"), "utf8");
+  } catch {
+    /* no codex */
+  }
+  const hooks = Object.fromEntries(
+    Object.entries(settings.hooks ?? {}).map(([event, groups]) => [
+      event,
+      (Array.isArray(groups) ? groups : []).flatMap((g) => (g?.hooks ?? []).map((h) => ({ matcher: g?.matcher ?? "", command: redact(String(h?.command ?? "")).text.slice(0, 300) }))),
+    ]),
+  );
+  return {
+    kind: "manifest",
+    at: new Date().toISOString(),
+    plugins: Object.entries(settings.enabledPlugins ?? {}).filter(([, on]) => on).map(([p]) => p),
+    hooks,
+    mcp: { claude: Object.keys(claudeJson.mcpServers ?? {}), codex: [...codexToml.matchAll(/^\[mcp_servers\.([^\].]+)\]/gm)].map((m) => m[1]) },
+    skills: { claude: Object.keys(skillDirs([path.join(HOME, ".claude", "skills")])).length, codex: Object.keys(skillDirs([path.join(HOME, ".codex", "skills"), path.join(HOME, ".agents", "skills")])).length },
+  };
+}
+
+if (!flag("dry-run") || flag("skills")) {
+  try {
+    const sets = {
+      claude: skillDirs([path.join(HOME, ".claude", "skills")]),
+      codex: skillDirs([path.join(HOME, ".codex", "skills"), path.join(HOME, ".agents", "skills")]),
+    };
+    state.skills ??= {};
+    for (const agent of ["claude", "codex"]) {
+      const fp = fingerprint(sets[agent]);
+      if (state.skills[agent] === fp && !flag("skills")) continue;
+      if (flag("dry-run")) {
+        out(`  would sync ${Object.keys(sets[agent]).length} ${agent} skills`);
+        continue;
+      }
+      const n = await uploadSkills(agent, sets[agent]);
+      state.skills[agent] = fp;
+      saveState();
+      out(`brain-collect: synced ${n} ${agent} skills to the VPS`);
+    }
+    if (!flag("dry-run")) {
+      const m = manifest();
+      const mfp = JSON.stringify({ ...m, at: undefined });
+      if (state.manifest !== mfp || flag("skills")) {
+        await postSkills(zlib.gzipSync(Buffer.from(JSON.stringify(m))));
+        state.manifest = mfp;
+        saveState();
+        out(`brain-collect: sent the manifest (${m.plugins.length} plugins, ${Object.keys(m.hooks).length} hook events, ${m.mcp.claude.length + m.mcp.codex.length} MCP servers)`);
+      }
+    }
+  } catch (err) {
+    out(`  ✗ skills sync: ${err.message}`);
+  }
+}

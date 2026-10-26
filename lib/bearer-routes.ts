@@ -13,6 +13,7 @@ export const BEARER_ROUTES = [
   "/api/memory/notes",
   "/api/brain/ingest",
   "/api/brain/status",
+  "/api/skills/sync",
 ] as const;
 
 export const isBearerRoute = (pathname: string) => (BEARER_ROUTES as readonly string[]).includes(pathname);

@@ -11,6 +11,8 @@ import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, ty
 import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
 import { cancelRoom, createRoom, roomTick } from "./room";
+import { syncSkillsTick } from "./skills-sync";
+import { expandInlineSkills } from "../lib/skills";
 import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
@@ -479,6 +481,16 @@ async function runTurn(job: Job) {
     const extra = turn.source === "dashboard" && job.turns.length ? turn.prompt : "";
     turn.prompt = brief(job) + (extra ? `\n\n## Additional instructions from Lind\n${extra}` : "");
   }
+  // Claude only runs a skill command that starts the prompt: keep a picked "/skill" in front of any brief.
+  const lead = job.agent === "claude" ? (shown.match(/^\/([\w:.-]+)\s/) ?? (!job.sessionId ? job.description.match(/^\/([\w:.-]+)\s/) : null)) : null;
+  if (lead && !turn.prompt.startsWith(`/${lead[1]}`)) turn.prompt = `/${lead[1]} ${turn.prompt}`;
+  // OpenCode / Hermes have no skill loader: picked "/skill" tokens become the skill instructions.
+  if (job.agent === "opencode" || job.agent === "hermes") {
+    const TOKENS = /^((?:\/[\w:.-]+\s+)+)/;
+    const inline = shown.match(TOKENS)?.[1] ?? (!job.sessionId ? job.description.match(TOKENS)?.[1] : undefined);
+    if (inline && !turn.prompt.startsWith(inline)) turn.prompt = inline + turn.prompt;
+    turn.prompt = expandInlineSkills(job.agent, turn.prompt);
+  }
   job.pending = undefined;
   job.status = "running";
   job.error = undefined;
@@ -587,6 +599,11 @@ async function tick() {
   await handleInbox();
   await importHandoffs().catch((e) => log("handoff import", e instanceof Error ? e.message : e));
   await exportReturns().catch((e) => log("handoff export", e instanceof Error ? e.message : e));
+  try {
+    syncSkillsTick();
+  } catch (e) {
+    log("skills sync", e instanceof Error ? e.message : e);
+  }
   // Roast debaters run on the same per-agent slots as chat turns: a chat and a debate never share an agent.
   roomTick({
     take: (a, id) => !active.has(a) && !!active.set(a, { id: `room:${id}` }),

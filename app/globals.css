@@ -24,6 +24,8 @@
   /* HUD instrument light: the OS's own voice for lines, the core and live readouts. Never an agent. */
   --color-hud: #a9e4f5;
   --color-hud-dim: rgb(169 228 245 / 0.14);
+  /* Skill / command tokens only ("/impeccable", "$graphify") — never an agent, never decoration. */
+  --color-command: #6cb6ff;
 
   --color-ok: #5fd39a;
   --color-warn: #f2c14e;
