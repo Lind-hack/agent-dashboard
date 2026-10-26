@@ -130,6 +130,22 @@ function parseDebater(text: string): DebaterJSON | null {
   }
 }
 
+// Models refer to each other by name ("Hermes", "OpenCode", "codex"): map any spelling to the agent key,
+// or drop it if it isn't one of this room's agents.
+function keyOf(room: Room, name: unknown): AgentKey | undefined {
+  const n = String(name ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  return room.agents.find((a) => a === n || AGENT_LABELS[a].toLowerCase().replace(/[^a-z]/g, "") === n);
+}
+
+function normalizeDebater(room: Room, j: DebaterJSON | null): DebaterJSON | null {
+  if (!j) return null;
+  return {
+    ...j,
+    agrees_with: [...new Set((j.agrees_with ?? []).map((a) => keyOf(room, a)).filter((a): a is AgentKey => !!a))],
+    weakest_claims: (j.weakest_claims ?? []).map((w) => ({ ...w, agent: keyOf(room, w?.agent) ?? String(w?.agent ?? "") })),
+  };
+}
+
 // R5 repair: one extraction pass by a free model over the agent's own words (it may only copy, not add).
 async function repairJSON(text: string): Promise<DebaterJSON | null> {
   const j = await groqJSON<DebaterJSON>(
@@ -167,6 +183,7 @@ async function judgeRound(room: Room, n: number): Promise<JudgeRound | null> {
   const r = await judgeJSON<JudgeRound>(
     `You are the neutral judge of a debate between AI coding agents (you are not one of them). Score how far they AGREE on the substance, weighing evidence (files, commands, facts they cite) over eloquence or confidence.
 Flag premature or sycophantic agreement (agreeing without new evidence) — it must not raise the score much. List claims that rest on no cited evidence as unverified.
+Use exactly these agent keys: ${room.agents.join(", ")}.
 Return JSON: {"agreement": 0-100, "open_disagreements": [{"topic","sides","blocking": true|false}], "per_agent": [{"agent": "<agent key>","stance","changed": true|false,"why"}], "unverified_claims": [{"agent","claim"}]}.`,
     `Task: ${room.task}\n\nRound ${n} answers:\n\n${transcriptFor(room, n)}`,
   );
@@ -175,8 +192,8 @@ Return JSON: {"agreement": 0-100, "open_disagreements": [{"topic","sides","block
   return {
     agreement: Math.max(0, Math.min(100, Math.round(Number(v.agreement) || 0))),
     open_disagreements: Array.isArray(v.open_disagreements) ? v.open_disagreements.slice(0, 8).map((d) => ({ topic: String(d?.topic ?? ""), sides: d?.sides ? String(d.sides) : undefined, blocking: !!d?.blocking })) : [],
-    per_agent: Array.isArray(v.per_agent) ? v.per_agent.slice(0, 6).map((p) => ({ agent: String(p?.agent ?? ""), stance: String(p?.stance ?? ""), changed: !!p?.changed, why: p?.why ? String(p.why) : undefined })) : [],
-    unverified_claims: Array.isArray(v.unverified_claims) ? v.unverified_claims.slice(0, 10).map((u) => ({ agent: String(u?.agent ?? ""), claim: String(u?.claim ?? "") })) : [],
+    per_agent: Array.isArray(v.per_agent) ? v.per_agent.slice(0, 6).map((p) => ({ agent: keyOf(room, p?.agent) ?? String(p?.agent ?? ""), stance: String(p?.stance ?? ""), changed: !!p?.changed, why: p?.why ? String(p.why) : undefined })) : [],
+    unverified_claims: Array.isArray(v.unverified_claims) ? v.unverified_claims.slice(0, 10).map((u) => ({ agent: keyOf(room, u?.agent) ?? String(u?.agent ?? ""), claim: String(u?.claim ?? "") })) : [],
     model: r.model,
   };
 }
@@ -185,6 +202,7 @@ async function writeVerdict(room: Room, outcome: Verdict["outcome"]) {
   const n = room.rounds.length;
   const r = await judgeJSON<Verdict>(
     `You are the neutral judge closing a debate between AI coding agents. Write the verdict Lind will act on. Prefer the position best supported by cited evidence; keep real dissent visible. It is a recommendation, not an order.
+Use exactly these agent keys: ${room.agents.join(", ")}. "support" must have one entry per agent key.
 Return JSON: {"recommendation": "<markdown: what to do and why, with the concrete steps>", "support": {"<agent key>": <0-100 how much that agent's final position supports the recommendation>}, "positions": [{"agent","final"}], "dissent": ["..."], "next_step": "<one concrete next action>", "best_agent": "<agent key best placed to carry it out>"}.`,
     `Task: ${room.task}\n\nOutcome so far: ${outcome}. Final round ${n} answers:\n\n${transcriptFor(room, n)}\n\nJudge's last scores: ${JSON.stringify(room.rounds[n - 1].judge ?? null)}`,
   );
@@ -197,11 +215,15 @@ Return JSON: {"recommendation": "<markdown: what to do and why, with the concret
   room.verdict = {
     outcome,
     recommendation: redact(String(v.recommendation ?? "")).text,
-    support: Object.fromEntries(Object.entries(v.support ?? {}).filter(([k]) => room.agents.includes(k as AgentKey)).map(([k, x]) => [k, Math.max(0, Math.min(100, Math.round(Number(x) || 0)))])),
-    positions: Array.isArray(v.positions) ? v.positions.map((p) => ({ agent: String(p?.agent ?? ""), final: String(p?.final ?? "") })) : [],
+    support: Object.fromEntries(
+      Object.entries(v.support ?? {})
+        .map(([k, x]) => [keyOf(room, k), Math.max(0, Math.min(100, Math.round(Number(x) || 0)))] as const)
+        .filter(([k]) => !!k),
+    ),
+    positions: Array.isArray(v.positions) ? v.positions.map((p) => ({ agent: keyOf(room, p?.agent) ?? String(p?.agent ?? ""), final: String(p?.final ?? "") })) : [],
     dissent: Array.isArray(v.dissent) ? v.dissent.map(String).slice(0, 8) : [],
     next_step: String(v.next_step ?? ""),
-    best_agent: room.agents.includes(v.best_agent as AgentKey) ? v.best_agent : undefined,
+    best_agent: keyOf(room, v.best_agent),
     model: r.model,
   };
 }
@@ -233,6 +255,7 @@ async function runDebater(room: Room, agent: AgentKey, n: number, slots: Slots) 
     const text = redact(res.result).text.slice(0, 200_000); // R37: stored output cap
     let json = parseDebater(text);
     if (!json) json = await repairJSON(text);
+    json = normalizeDebater(room, json);
     Object.assign(ans, { status: "done", text, json, endedAt: new Date().toISOString() });
   } catch (e) {
     Object.assign(ans, { status: "failed", error: (e instanceof Error ? e.message : String(e)).slice(0, 400), endedAt: new Date().toISOString() });
