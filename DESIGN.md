@@ -219,6 +219,12 @@ The Core in a bracketed panel with the four agents docked at its corners (mark, 
 ### Usage Gauge
 Agent tile + mono label ("CLAUDE · WEEKLY") + reset line, a big tabular numeral, and a 40-segment scale lit in the agent colour with a soft glow (warn at ≥80%), ticks 0–100 in mono. Unknown usage leaves the scale dark with "Shows after the next run".
 
+### Room (Solo · Team · Roast)
+Mode switch is a 3-segment control (ink fill on the active segment). Agents are picked from 2×2 (phone) / 4-up (desktop) cards: an lg Agent Tile, name, the real model in mono, readiness/usage; a picked card gets a 1px ring and glow in the agent colour plus an ink check badge. The picking panel carries corner brackets. Roast shows the judge, the call budget and warnings (shared model, Claude opt-in) under the cards.
+
+### Debate view
+A segmented agreement meter (HUD cyan, signal green at ≥80) with the per-round trail in mono. Each round is a row of answer cards (phone: horizontal snap-scroll at 86vw; desktop: one column per agent) — tile, name, model, a big confidence numeral, the one-sentence position, "agrees with" chips (xs tiles), roasts with a flame icon, and a collapsible full answer. The judge's notes sit under each round (blocking disagreements outlined in red). The Verdict card is the router-pick card from Lind's reference: bracketed, outcome chip, one support card per agent with the picked one ringed in its colour, the recommendation, next step, dissent, then "Run it with <agent>" buttons (picked first, ink).
+
 ### HUD Label
 Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout labels only (DIRECTIVES, PLAN USAGE, CORE · IDLE), never body copy and never a kicker above a heading.
 

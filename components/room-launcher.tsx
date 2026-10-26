@@ -178,7 +178,8 @@ export function RoomLauncher({ agents, repos, judgeModel }: { agents: LauncherAg
           {mode === "roast" && (
             <div className="mt-3 flex flex-col gap-1.5 border-t border-line px-1 pt-3 text-xs text-muted">
               <p>
-                Judge: <span className="font-mono text-text/80">{judgeModel}</span> — not one of the debaters.
+                Judge: <span className="font-mono text-text/80">{judgeModel}</span> — not one of the debaters
+                {chosen.includes("hermes") ? " (if Groq is out of quota, the Nemotron fallback is Hermes' own model)" : ""}.
               </p>
               <p>
                 Up to 3 rounds · at most <span className="tnum">{calls}</span> model calls · debaters can read the evidence but can&apos;t run tools or change anything.
