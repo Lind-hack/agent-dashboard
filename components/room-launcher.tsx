@@ -57,7 +57,7 @@ export function RoomLauncher({ agents, repos, judgeModel }: { agents: LauncherAg
 
   const chosen = mode === "solo" ? picked.slice(0, 1) : picked;
   const sharedModel = mode === "roast" ? chosen.find((a, i) => chosen.some((b, j) => j > i && byKey[a]?.model === byKey[b]?.model)) : undefined;
-  const calls = chosen.length * 3 + 4;
+  const calls = chosen.length * 6 + 8; // same budget the runner enforces (debaters, repairs, judge, verdict)
   const valid = text.trim() && (mode === "solo" ? chosen.length === 1 : mode === "team" && teamKind === "relay" ? true : chosen.length >= 2 && chosen.length <= 4);
 
   async function start(audio?: Blob) {

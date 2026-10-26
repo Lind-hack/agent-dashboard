@@ -172,8 +172,9 @@ const OUTCOME: Record<Verdict["outcome"], { text: string; tone: string }> = {
   "no-verdict": { text: "No verdict", tone: "text-bad border-bad/40" },
 };
 
-function VerdictCard({ room, onRun, running }: { room: Room; onRun: (a: AgentKey) => void; running: AgentKey | null }) {
+function VerdictCard({ room, onRun, running, repos }: { room: Room; onRun: (a: AgentKey, repo: string) => void; running: AgentKey | null; repos: string[] }) {
   const v = room.verdict!;
+  const [repo, setRepo] = useState("");
   const order = [...room.agents].sort((a, b) => (a === v.best_agent ? -1 : b === v.best_agent ? 1 : (v.support[b] ?? 0) - (v.support[a] ?? 0)));
   return (
     <section className="panel brackets flex flex-col gap-5 p-4 sm:p-5" aria-label="Verdict">
@@ -232,13 +233,26 @@ function VerdictCard({ room, onRun, running }: { room: Room; onRun: (a: AgentKey
         </div>
       )}
 
+      {v.outcome !== "no-verdict" && !room.repo && (
+        <label className="flex flex-col gap-1.5 border-t border-line pt-4 text-xs text-muted">
+          This debate had no repo — pick where the work should happen (Hermes doesn&apos;t need one):
+          <select value={repo} onChange={(e) => setRepo(e.target.value)} className="min-h-10 rounded-[10px] border border-line bg-white/[0.02] px-3 text-sm text-text outline-none focus:border-line-hi">
+            <option value="">Choose a repo…</option>
+            {repos.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       {v.outcome !== "no-verdict" && (
-        <div className="flex flex-wrap gap-2 border-t border-line pt-4">
+        <div className={cn("flex flex-wrap gap-2", room.repo && "border-t border-line pt-4")}>
           {order.map((a, i) => (
             <button
               key={a}
-              onClick={() => onRun(a)}
-              disabled={running !== null}
+              onClick={() => onRun(a, repo)}
+              disabled={running !== null || (!room.repo && !repo && AGENT_META[a].repo)}
               className={cn(
                 "flex min-h-10 items-center gap-2 rounded-[12px] px-3.5 text-sm disabled:opacity-40",
                 i === 0 ? "bg-text font-medium text-bg" : "border border-line text-muted hover:border-line-hi hover:text-text",
@@ -263,7 +277,7 @@ const STATUS_LINE: Record<Room["status"], string> = {
   refused: "Refused",
 };
 
-export function RoomView({ initial }: { initial: Room }) {
+export function RoomView({ initial, repos = [] }: { initial: Room; repos?: string[] }) {
   const router = useRouter();
   const [room, setRoom] = useState(initial);
   const [running, setRunning] = useState<AgentKey | null>(null);
@@ -339,7 +353,7 @@ export function RoomView({ initial }: { initial: Room }) {
         </div>
       </section>
 
-      {room.verdict && <VerdictCard room={room} running={running} onRun={(a) => (setRunning(a), void act({ action: "run", agent: a }))} />}
+      {room.verdict && <VerdictCard room={room} repos={repos} running={running} onRun={(a, repo) => (setRunning(a), void act({ action: "run", agent: a, repo }))} />}
       {error && <p className="rounded-[12px] border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{error}</p>}
 
       {[...room.rounds].reverse().map((round) => (

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { VPS_AGENTS, type AgentKey } from "@/lib/agents";
 import { listRepos } from "@/lib/github";
 import { transcribe } from "@/lib/groq";
-import { listRooms } from "@/lib/rooms";
+import { listRooms, newRoomId } from "@/lib/rooms";
 import { pushInbox } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const repoRaw = String(form.get("repo") ?? "");
     const repo = repoRaw ? (await listRepos()).map((r) => r.name).find((r) => r === repoRaw) : undefined;
     if (repoRaw && !repo) return NextResponse.json({ error: "That repo isn't on the dashboard's token" }, { status: 400 });
-    const id = `R-${Date.now().toString(36).toUpperCase()}`;
+    const id = newRoomId();
     pushInbox({ kind: "room-create", room: { id, task, repo, agents } });
     return NextResponse.json({ id, href: `/room/${id}`, transcript: task });
   } catch (err) {

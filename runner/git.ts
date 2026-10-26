@@ -88,7 +88,8 @@ export function repoTree(repo: RepoKey, base: string) {
       await git(path.dirname(dir), ["clone", `https://github.com/${repo}.git`, dir], true);
     }
     await git(dir, ["fetch", "--prune", "origin"], true);
-    const ref = `origin/${base}`;
+    // Pinned inside the lock: a later fetch can't change what the pack reads.
+    const ref = await git(dir, ["rev-parse", `origin/${base}^{commit}`]);
     const entries = (await git(dir, ["ls-tree", "-r", "-l", ref]))
       .split("\n")
       .filter(Boolean)

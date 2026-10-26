@@ -58,7 +58,8 @@ export type Room = {
   evidence?: { files: string[]; bytes: number; note?: string };
   rounds: RoomRound[];
   verdict?: Verdict;
-  budget: { calls: number; used: number };
+  budget: { calls: number; used: number }; // every model call, reserved before it's made (R43)
+  startedAt?: string; // admitted by the runner — the daily limit counts these
   createdAt: string;
   updatedAt: string;
 };
@@ -66,7 +67,10 @@ export type Room = {
 export const ROOMS_DIR = () => path.join(DATA_DIR, "rooms");
 export const MAX_ROUNDS = 3;
 export const ROOMS_PER_DAY = 5;
-export const ROOM_ID_RE = /^R-[A-Z0-9]{6,12}$/;
+export const ROOM_ID_RE = /^R-[A-Z0-9]{6,16}$/;
+
+// Collision-free even for two rooms asked for in the same millisecond.
+export const newRoomId = () => `R-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, "0")}`;
 
 export function readRoom(id: string): Room | null {
   if (!ROOM_ID_RE.test(id)) return null;
@@ -129,7 +133,7 @@ export function agentModels(): Record<AgentKey, string> {
 
 export const judgeModelName = () => `groq ${groqModel()} (fallback: Nemotron)`;
 
-export function roomsToday(): number {
+export function roomsStartedToday(rooms: Room[]): number {
   const day = new Date().toISOString().slice(0, 10);
-  return listRooms().filter((r) => r.createdAt.startsWith(day) && r.status !== "refused").length;
+  return rooms.filter((r) => r.startedAt?.startsWith(day)).length;
 }

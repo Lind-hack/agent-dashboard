@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { claudeBin, claudeModel, codexBin, codexModel, jobTimeoutMs, type AgentKey } from "../lib/config";
+import fs from "node:fs";
+import path from "node:path";
+import { claudeBin, claudeModel, codexBin, codexModel, jobTimeoutMs, WORK_DIR, type AgentKey } from "../lib/config";
 
 const opencodeBin = () => process.env.OPENCODE_BIN ?? "opencode";
 // Free on OpenCode while it lasts; only answers inside the OpenCode client, which is what runs here.
@@ -184,8 +186,23 @@ function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChi
   });
 }
 
-// `readonly` = a Roast debater: no tools at all (Claude), a read-only sandbox that fails closed on this
-// VPS (Codex), no auto-approved permissions (OpenCode). Debaters reason from the evidence in the prompt.
+// `readonly` = a Roast debater, tool-free on every backend (each verified on the VPS, 2026-10-26):
+//   Claude   — no built-in tools (--tools ""), no MCP servers.
+//   Codex    — read-only sandbox plus its shell, exec, apps, plugins, browser and image tools disabled.
+//   OpenCode — a config file that denies bash, edits, web fetches and anything outside its empty folder.
+//   Hermes   — its bridge runs the full Hermes agent, which can't be confined: never run read-only here
+//              (runner/room.ts asks Hermes' model directly instead).
+// Debaters reason only from the evidence the runner puts in the prompt.
+const CODEX_TOOLS_OFF = ["shell_tool", "unified_exec", "apps", "plugins", "browser_use", "image_generation", "view_image"].flatMap((f) => ["--disable", f]);
+
+function opencodeDebateConfig(): string {
+  const file = path.join(WORK_DIR, "rooms", "opencode-debate.json");
+  if (!fs.existsSync(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ $schema: "https://opencode.ai/config.json", permission: { bash: "deny", edit: "deny", webfetch: "deny", external_directory: "deny" }, mcp: {} }));
+  }
+  return file;
+}
 function command(agent: AgentKey, prompt: string, resume?: string, readonly = false): { bin: string; args: string[]; parser: Parser } {
   if (agent === "opencode") {
     const args = ["run", "--format", "json", ...(readonly ? [] : ["--auto"]), "-m", opencodeModel()];
@@ -196,7 +213,7 @@ function command(agent: AgentKey, prompt: string, resume?: string, readonly = fa
   if (agent === "codex") {
     // The agent user has no sudo and the worktree is disposable, so Codex gets full access like Claude.
     // `codex exec resume` takes its own copy of the flags, so they go after the subcommand.
-    const flags = ["--json", ...(readonly ? ["-s", "read-only"] : ["--dangerously-bypass-approvals-and-sandbox"]), "--skip-git-repo-check"];
+    const flags = ["--json", ...(readonly ? ["-s", "read-only", ...CODEX_TOOLS_OFF] : ["--dangerously-bypass-approvals-and-sandbox"]), "--skip-git-repo-check"];
     if (codexModel()) flags.push("-m", codexModel());
     const args = resume ? ["exec", "resume", ...flags, resume, prompt] : ["exec", ...flags, prompt];
     return { bin: codexBin(), args, parser: codexParser(resume) };
@@ -219,10 +236,15 @@ export function runAgent(opts: {
   readonly?: boolean;
   timeoutMs?: number;
 }): Promise<TurnResult> {
-  if (opts.agent === "hermes") return runHermes(opts);
+  if (opts.agent === "hermes") {
+    // Fail closed: the Hermes bridge can't run without its tools.
+    if (opts.readonly) return Promise.resolve({ ok: false, result: "Hermes can't run tool-free through its bridge." });
+    return runHermes(opts);
+  }
   const { bin, args, parser } = command(opts.agent, opts.prompt, opts.resume, opts.readonly);
   const env = { ...process.env };
   for (const k of [...HIDDEN_ENV, ...(opts.readonly ? READONLY_HIDDEN : [])]) delete env[k];
+  if (opts.readonly && opts.agent === "opencode") env.OPENCODE_CONFIG = opencodeDebateConfig();
   const limit = opts.timeoutMs ?? jobTimeoutMs();
 
   return new Promise((resolve) => {
