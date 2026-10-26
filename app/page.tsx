@@ -170,7 +170,7 @@ export default async function Home() {
           <Section label="Recent chats" right={<More href="/chat">All</More>}>
             <Panel className="overflow-hidden">
               {recent.length === 0 ? (
-                <Empty>No chats yet. Tap the core to start one.</Empty>
+                <Empty>No chats yet. Start one with Talk or Voice.</Empty>
               ) : (
                 recent.map((j) => (
                   <Link key={j.id} href={`/jobs/${j.id}`} className="flex min-h-14 items-center gap-3 border-b border-line px-3 py-2.5 last:border-0 hover:bg-white/[0.02]">

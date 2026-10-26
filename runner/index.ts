@@ -18,25 +18,56 @@ import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type Expo
 // opens a PR and (for Linear jobs) reports back on the issue.
 
 // Exactly one runner may own the job files and schedules: a second one (a deploy overlap, a manual
-// start) exits. A lock left by a dead process is taken over.
+// start) exits. The lock is published with link(), which is atomic and fails if it exists, so it is
+// never seen half-written; a lock left by a dead process is moved aside with rename(), which only one
+// contender can win, and the link is retried.
 const LOCK = path.join(DATA_DIR, "runner.lock");
 fs.mkdirSync(DATA_DIR, { recursive: true });
-try {
-  fs.writeFileSync(LOCK, String(process.pid), { flag: "wx" });
-} catch {
-  const pid = Number(fs.readFileSync(LOCK, "utf8"));
-  let alive = false;
+function takeLock(): boolean {
+  const mine = `${LOCK}.${process.pid}`;
+  fs.writeFileSync(mine, String(process.pid));
   try {
-    if (pid && pid !== process.pid) process.kill(pid, 0);
-    alive = !!pid && pid !== process.pid;
-  } catch {
-    /* gone */
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        fs.linkSync(mine, LOCK);
+        return true;
+      } catch {
+        const pid = Number(fs.readFileSync(LOCK, "utf8").trim() || 0);
+        let alive = false;
+        try {
+          if (pid) process.kill(pid, 0);
+          alive = !!pid;
+        } catch (e) {
+          alive = (e as NodeJS.ErrnoException).code === "EPERM"; // exists, just not ours to signal
+        }
+        if (alive) return false;
+        const stale = `${LOCK}.stale-${process.pid}`;
+        try {
+          fs.renameSync(LOCK, stale);
+          // If what we moved isn't the dead lock we inspected, another runner just took it: put it back.
+          if (Number(fs.readFileSync(stale, "utf8").trim() || 0) !== pid) {
+            try {
+              fs.linkSync(stale, LOCK);
+            } catch {
+              /* someone else holds it now */
+            }
+            fs.rmSync(stale, { force: true });
+            return false;
+          }
+          fs.rmSync(stale, { force: true });
+        } catch {
+          /* another runner moved it first; retry the link */
+        }
+      }
+    }
+    return false;
+  } finally {
+    fs.rmSync(mine, { force: true });
   }
-  if (alive) {
-    console.error(`Another runner (pid ${pid}) is running — exiting.`);
-    process.exit(1);
-  }
-  fs.writeFileSync(LOCK, String(process.pid));
+}
+if (!takeLock()) {
+  console.error("Another runner holds the lock — exiting.");
+  process.exit(1);
 }
 const releaseLock = () => {
   try {

@@ -22,6 +22,10 @@ export function Core({ className, energy = 0.25, tints = [], density = 1, label 
   const ref = useRef<HTMLCanvasElement>(null);
   const live = useRef({ energy, tints });
   live.current = { energy, tints };
+  const redraw = useRef<() => void>(() => {});
+  const tintKey = tints.join(",");
+  // A paused canvas (reduced motion, offscreen) still has to show a status change.
+  useEffect(() => redraw.current(), [energy, tintKey]);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -146,6 +150,9 @@ export function Core({ className, energy = 0.25, tints = [], density = 1, label 
       cancelAnimationFrame(raf);
     };
 
+    redraw.current = () => {
+      if (!running) draw(performance.now(), 0);
+    };
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
     const io = new IntersectionObserver(([entry]) => {
