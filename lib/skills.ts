@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentKey } from "./agents";
+import { DATA_DIR } from "./config";
 
 // The skills each agent really has on the VPS, so the "/" picker only offers ones that will run:
 //   Claude — your skills (~/.claude/skills, synced from the PC), account skills synced from claude.ai
@@ -110,4 +111,52 @@ export function applySkills(agent: AgentKey, skills: string[] | undefined, promp
     return `<skill name="${name}">\n${body}\n</skill>`;
   });
   return `Follow these skills for this task (from Lind's skill library):\n${blocks.join("\n\n")}\n\n## Lind's message\n${prompt}`;
+}
+
+// A GitHub repo / folder / SKILL.md URL for "Add a skill from GitHub" (runner/skills-github.ts installs it).
+// `rest` is everything after /tree/ or /blob/: "<ref>/<path>", where the ref itself may contain slashes —
+// the runner finds where the ref ends by asking GitHub.
+export type GithubTarget = { owner: string; repo: string; rest?: string[] };
+
+export function parseGithubUrl(raw: string): GithubTarget | null {
+  let parts: string[];
+  let host: string;
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== "https:") return null;
+    host = u.hostname;
+    parts = u.pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  } catch {
+    return null;
+  }
+  if (host !== "github.com" && host !== "www.github.com") return null;
+  const [owner, rawRepo, kind, ...rest] = parts;
+  const repo = rawRepo?.replace(/\.git$/, "");
+  const ok = (s?: string) => !!s && /^[\w.-]{1,100}$/.test(s) && !s.startsWith(".");
+  if (!ok(owner) || !ok(repo)) return null;
+  if (!kind) return { owner, repo };
+  if ((kind !== "tree" && kind !== "blob") || !rest.length || rest.length > 30) return null;
+  if (kind === "blob" && /^SKILL\.md$/i.test(rest[rest.length - 1])) rest.pop();
+  if (!rest.length || rest.some((x) => x === "." || x === ".." || !/^[\w.@+() -][\w.@+() -]{0,119}$/.test(x))) return null;
+  return { owner, repo, rest };
+}
+
+// What the runner wrote about skill syncs (runner/skills-sync.ts) — read-only here, for Settings.
+type SyncRun = { at?: string; installed?: number; removed?: number; skipped?: { name: string; why: string }[] };
+export type SkillsStatus = {
+  claude?: SyncRun;
+  codex?: SyncRun;
+  github?: { at?: string; url?: string; installed?: string[]; unchanged?: string[]; skipped?: { name: string; why: string }[]; error?: string };
+  fromGithub?: Record<string, { url?: string; commit?: string; at?: string }>;
+  manifestAt?: string;
+};
+export function readSkillsStatus(): SkillsStatus {
+  const read = (f: string) => {
+    try {
+      return JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  return { ...(read("skills-status.json") ?? {}), manifestAt: read("pc-manifest.json")?.receivedAt };
 }

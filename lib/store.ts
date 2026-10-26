@@ -160,6 +160,7 @@ export type InboxItem = (
   | { kind: "room-create"; room: { id: string; task: string; repo?: string; agents: AgentKey[] } } // a Roast room
   | { kind: "room-cancel"; roomId: string }
   | { kind: "sync" }
+  | { kind: "skill-install"; url: string } // Settings: install skills from a GitHub URL
 ) & { eventId?: string }; // sync = poll Linear / look for new hand-offs now
 
 const inboxDir = path.join(DATA_DIR, "inbox");

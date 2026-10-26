@@ -12,6 +12,7 @@ import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
 import { cancelRoom, createRoom, roomTick } from "./room";
 import { syncSkillsTick } from "./skills-sync";
+import { installSkillsFromGithub } from "./skills-github";
 import { applySkills, skillDisplay } from "../lib/skills";
 import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
@@ -221,10 +222,18 @@ async function createChat(chat: NewChat) {
   log("new chat", job.id, job.agent, job.repo);
 }
 
+let skillInstalls: Promise<void> = Promise.resolve();
+
 async function handleInbox() {
   for (const { item, ack } of claimInbox()) {
     if (item.kind === "sync") {
       forceSync = true;
+      ack();
+      continue;
+    }
+    if (item.kind === "skill-install") {
+      // In the background, one at a time — a big pack takes a while and mustn't hold up chat turns.
+      skillInstalls = skillInstalls.then(() => installSkillsFromGithub(item.url));
       ack();
       continue;
     }

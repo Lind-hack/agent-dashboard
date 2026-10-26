@@ -23,6 +23,7 @@ const INBOX = () => path.join(DATA_DIR, "skills-inbox");
 const STATUS = () => path.join(DATA_DIR, "skills-status.json");
 const MANIFEST = () => path.join(DATA_DIR, "pc-manifest.json");
 const MARKER = ".synced-from-pc";
+const GITHUB_MARKER = ".synced-from-github"; // from the SKILLS/ mirror on GitHub — a PC sync always wins over it
 const NAME = /^[A-Za-z0-9][\w.-]{0,79}$/;
 const SEGMENT = /^[\w @+()-][\w .@+()-]{0,119}$/; // no leading dot: no "..", no hidden files
 const LIMITS = { fileBytes: 256 * 1024, skillBytes: 3 * 1024 * 1024, filesPerSkill: 500, depth: 8, skillsPerUpload: 800, unpacked: 96 * 1024 * 1024 };
@@ -32,7 +33,9 @@ const PC_ONLY = [/^chrome/, /^claude-in-chrome/, /computer-use/, /^orca/, /^herd
 
 type Upload = { kind: "skills"; agent: "claude" | "codex"; names: string[]; complete?: boolean; skills: Record<string, Record<string, string>> };
 type AgentStatus = { at?: string; installed: number; removed: number; skipped: { name: string; why: string }[] };
-type Status = Record<"claude" | "codex", AgentStatus>;
+// Last "install from GitHub" result + every skill installed that way (for Settings).
+export type GithubInstall = { at: string; url: string; commit?: string; installed: string[]; unchanged: string[]; skipped: { name: string; why: string }[]; error?: string };
+type Status = Record<"claude" | "codex", AgentStatus> & { github?: GithubInstall; fromGithub?: Record<string, { url: string; commit: string; at: string }> };
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "skills:", ...a);
 const homeFor = (agent: "claude" | "codex") => (agent === "codex" ? (process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex")) : path.join(os.homedir(), ".claude"));
@@ -90,7 +93,7 @@ function validate(files: Record<string, unknown>): { ok: [string[], string][] } 
   return { ok };
 }
 
-function installOne(root: string, name: string, files: [string[], string][]) {
+function installOne(root: string, name: string, files: [string[], string][], marker = MARKER, stamp = new Date().toISOString()) {
   // A fresh private staging folder each time (mkdtemp can't be pre-planted as a symlink).
   const staging = fs.mkdtempSync(path.join(root, `.stage-${name}-`));
   try {
@@ -100,7 +103,7 @@ function installOne(root: string, name: string, files: [string[], string][]) {
       fs.mkdirSync(path.dirname(f), { recursive: true });
       fs.writeFileSync(f, text, { flag: "wx" });
     }
-    fs.writeFileSync(path.join(staging, MARKER), new Date().toISOString());
+    fs.writeFileSync(path.join(staging, marker), stamp);
     const dest = path.join(root, name);
     const old = path.join(root, `.old-${name}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`);
     const had = fs.existsSync(dest);
@@ -200,4 +203,69 @@ export function syncSkillsTick() {
     }
     fs.rmSync(file, { force: true });
   }
+}
+
+// Skills installed from a GitHub URL (runner/skills-github.ts): into BOTH agents (Codex reads the same
+// SKILL.md format). Never over a PC-synced copy (the PC is the source of truth when it's on) or a skill
+// made by hand on the VPS; an earlier GitHub install or a broken copy (no SKILL.md) is replaced.
+export function installFromGithub(skills: Record<string, Record<string, string>>, meta: { url: string; commit: string }) {
+  const r: GithubInstall = { at: new Date().toISOString(), ...meta, installed: [], unchanged: [], skipped: [] };
+  const roots = (["claude", "codex"] as const).map((a) => {
+    const root = safeRoot(a);
+    recover(root);
+    return root;
+  });
+  const status = readStatus();
+  status.fromGithub ??= {};
+  for (const [name, files] of Object.entries(skills).slice(0, LIMITS.skillsPerUpload)) {
+    if (!NAME.test(name) || PC_ONLY.some((re) => re.test(name))) {
+      r.skipped.push({ name: name.slice(0, 80), why: NAME.test(name) ? "needs the PC" : "bad name" });
+      continue;
+    }
+    const v = validate(files);
+    if ("why" in v) {
+      r.skipped.push({ name, why: v.why });
+      continue;
+    }
+    const stamp = crypto.createHash("sha256").update(JSON.stringify(v.ok)).digest("hex");
+    let wrote = false;
+    let same = false;
+    const blocked: string[] = []; // per agent, so a skill that only reached one of them says so
+    for (const [i, root] of roots.entries()) {
+      const agent = i === 0 ? "Claude" : "Codex";
+      const dir = path.join(root, name);
+      const ours = path.join(dir, GITHUB_MARKER);
+      if (fs.existsSync(path.join(dir, MARKER))) blocked.push(`${agent}: synced from your PC — the PC's copy wins`);
+      else if (fs.existsSync(ours) && fs.readFileSync(ours, "utf8") === stamp) same = true;
+      else if (!fs.existsSync(ours) && fs.existsSync(path.join(dir, "SKILL.md"))) blocked.push(`${agent}: a skill with this name already exists`);
+      else {
+        try {
+          installOne(root, name, v.ok, GITHUB_MARKER, stamp);
+          wrote = true;
+        } catch (e) {
+          blocked.push(`${agent}: install failed: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+    }
+    if (wrote || same) status.fromGithub[name] = { url: meta.url, commit: meta.commit, at: r.at };
+    if (wrote) r.installed.push(name);
+    else if (same) r.unchanged.push(name);
+    if (blocked.length) r.skipped.push({ name, why: blocked.join("; ") });
+  }
+  r.skipped = r.skipped.slice(-100);
+  status.github = r;
+  writeStatus(status);
+  log("github", meta.url, `installed ${r.installed.length}, unchanged ${r.unchanged.length}, skipped ${r.skipped.length}`);
+}
+
+export function githubFailed(url: string, error: string) {
+  const status = readStatus();
+  status.github = { at: new Date().toISOString(), url, installed: [], unchanged: [], skipped: [], error };
+  writeStatus(status);
+  log("github", url, error);
+}
+
+function writeStatus(status: Status) {
+  fs.writeFileSync(`${STATUS()}.tmp`, JSON.stringify(status, null, 2));
+  fs.renameSync(`${STATUS()}.tmp`, STATUS());
 }

@@ -13,6 +13,7 @@ export const BEARER_ROUTES = [
   "/api/memory/notes",
   "/api/brain/ingest",
   "/api/brain/status",
+  "/api/brain/collector",
   "/api/skills/sync",
 ] as const;
 

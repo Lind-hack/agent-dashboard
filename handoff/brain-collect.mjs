@@ -9,6 +9,7 @@
 //   node brain-collect.mjs --status     the brain's status on the VPS
 //   node brain-collect.mjs --install    register the scheduled task (every 2 h)
 //   node brain-collect.mjs --skills     sync your Claude + Codex skills and the plugin/hook/MCP manifest now
+//   node brain-collect.mjs --no-update  skip the self-update (the installed copy updates itself from the dashboard each run)
 //                                       (otherwise they sync on any run where a skill changed)
 //
 // Reads HANDOFF_TOKEN and AGENT_DASHBOARD_URL from ~/.agent-dashboard/handoff.env. Node 24+.
@@ -18,12 +19,24 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import zlib from "node:zlib";
 
 const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 const lib = fs.existsSync(path.join(here, "redact.ts")) ? here : path.join(here, "..", "lib");
-const { redact } = await import(new URL(`file:///${path.join(lib, "redact.ts").replace(/\\/g, "/")}`).href);
-const { parseTranscript, condense, titleOf } = await import(new URL(`file:///${path.join(lib, "transcript.ts").replace(/\\/g, "/")}`).href);
+// The libs load after the self-update (below), so a release whose libs don't load still gets replaced
+// by the next fix instead of stopping the collector for good.
+const loadLibs = async () => ({
+  ...(await import(new URL(`file:///${path.join(lib, "redact.ts").replace(/\\/g, "/")}`).href)),
+  ...(await import(new URL(`file:///${path.join(lib, "transcript.ts").replace(/\\/g, "/")}`).href)),
+});
+// Used by the self-update: a staged new version must at least load with its libs before it's swapped in.
+if (process.argv.includes("--self-test")) {
+  const l = await loadLibs();
+  const ok = ["redact", "parseTranscript", "condense", "titleOf"].every((k) => typeof l[k] === "function");
+  console.log(ok ? "self-test ok" : "self-test: missing exports");
+  process.exit(ok ? 0 : 1);
+}
 
 const HOME = os.homedir();
 const STATE_DIR = path.join(HOME, ".agent-dashboard");
@@ -112,6 +125,73 @@ try {
   fs.writeFileSync(lock, String(process.pid));
 }
 process.on("exit", () => fs.rmSync(lock, { force: true }));
+
+// ---------- Self-update ----------
+// The installed copy (~/.agent-dashboard, run by the scheduled task) keeps itself and the other PC scripts
+// in step with the deployed dashboard, so a dashboard update never needs a command on the PC. Only files
+// already installed here are replaced (plus the two libs they import). Before anything is swapped, every
+// staged .mjs must parse and the staged collector must load with the staged libs; the old copies stay
+// next to them as <name>.prev. A copy run from a repo checkout never updates itself. It runs first, so even a
+// version that breaks later in the run still gets replaced by the next fix.
+const UPDATABLE = ["brain-collect.mjs", "handoff.mjs", "takeback.mjs", "sync-notes.mjs", "google-auth.mjs", "redact.ts", "transcript.ts"];
+const sameDir = (a, b) => (process.platform === "win32" ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b));
+if (sameDir(fileURLToPath(new URL(".", import.meta.url)), STATE_DIR) && !flag("no-update") && !flag("dry-run")) {
+  try {
+    const res = await fetch(`${BASE}/api/brain/collector`, { headers: { Authorization: `Bearer ${env.HANDOFF_TOKEN}` }, signal: AbortSignal.timeout(30_000) });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || typeof body?.files !== "object" || !body.files) throw new Error(body?.error ?? `HTTP ${res.status}`);
+    const current = (n) => {
+      try {
+        return fs.readFileSync(path.join(STATE_DIR, n), "utf8");
+      } catch {
+        return null;
+      }
+    };
+    const installed = (n) => n === "redact.ts" || n === "transcript.ts" || current(n) !== null;
+    const changed = UPDATABLE.filter((n) => typeof body.files[n] === "string" && body.files[n].length > 0 && installed(n) && current(n) !== body.files[n]);
+    if (changed.length) {
+      const stage = fs.mkdtempSync(path.join(STATE_DIR, ".update-"));
+      try {
+        for (const n of UPDATABLE) {
+          const text = changed.includes(n) ? body.files[n] : current(n);
+          if (text !== null) fs.writeFileSync(path.join(stage, n), text);
+        }
+        for (const n of UPDATABLE.filter((x) => x.endsWith(".mjs") && fs.existsSync(path.join(stage, x)))) {
+          execFileSync(process.execPath, ["--check", path.join(stage, n)], { stdio: "pipe", timeout: 30_000 });
+        }
+        execFileSync(process.execPath, [path.join(stage, "brain-collect.mjs"), "--self-test"], { stdio: "pipe", timeout: 60_000 });
+        // Libs first, the collector last; if any swap fails, the ones already done are put back.
+        const order = [...changed].sort((x, y) => Number(x === "brain-collect.mjs") - Number(y === "brain-collect.mjs") || Number(y.endsWith(".ts")) - Number(x.endsWith(".ts")));
+        const done = [];
+        try {
+          for (const n of order) {
+            const dest = path.join(STATE_DIR, n);
+            const had = fs.existsSync(dest);
+            if (had) fs.copyFileSync(dest, `${dest}.prev`);
+            fs.renameSync(path.join(stage, n), dest);
+            done.push([n, had]);
+          }
+        } catch (err) {
+          for (const [n, had] of done.reverse()) {
+            const dest = path.join(STATE_DIR, n);
+            if (had) fs.copyFileSync(`${dest}.prev`, dest);
+            else fs.rmSync(dest, { force: true });
+          }
+          throw err;
+        }
+      } finally {
+        fs.rmSync(stage, { recursive: true, force: true });
+      }
+      out(`brain-collect: updated ${changed.join(", ")} from the dashboard${body.build ? ` (build ${String(body.build).slice(0, 7)})` : ""}`);
+    }
+  } catch (err) {
+    // A staged version that failed its checks: say why in one line, keep running the current one.
+    const why = `${err.stderr ?? ""}\n${err.stdout ?? ""}`.split("\n").find((l) => /Error|self-test/.test(l));
+    out(`  ✗ self-update: ${why ? `new version rejected, keeping this one (${why.trim().slice(0, 200)})` : err.message}`);
+  }
+}
+
+const { redact, parseTranscript, condense, titleOf } = await loadLibs();
 
 const state = (() => {
   try {

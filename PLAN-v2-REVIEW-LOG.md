@@ -234,3 +234,16 @@ Fresh read-only Codex review, 15 findings, all accepted:
 - skill-only messages rejected; OpenCode/Hermes dropped skills 4-6 → one MAX of 4 everywhere, all inlined; empty text allowed with a skill.
 - picker: stale per-agent fetch, out-of-range active row, never-refreshing cache, missing aria-activedescendant in Room → fixed.
 Verification: tsc + next build clean; installer tests in a fake HOME (".." rejected, symlink trap untouched, broken SKILL.md kept the working copy, 600-file skill refused, crash recovery, complete-inventory pruning keeps hand-made skills); applySkills leaves "/tmp/x" text alone; headless Chromium: type "/des" → menu → Enter → blue /design chip, following text intact (caret bug found and fixed: rAF was too late; now a layout effect).
+
+## PC bottleneck removal — skills from GitHub + self-updating collector (2026-10-26)
+Finding during build: no GitHub repo holds a skills mirror (all 7 of Lind's repos checked), so the planned "pull SKILLS/ daily" source was dropped; auto-pulling third-party upstreams daily was rejected (unreviewed instruction changes). Built instead: Settings → "Add a skill from GitHub" (pinned commit, on demand) and a self-updating PC collector.
+Fresh read-only Codex review, 9 findings, 7 accepted:
+- [P1] interrupted/broken update could disable self-updating (libs imported before the updater) → the libs load after the self-update; swap order libs → scripts → collector, rollback from .prev on a failed swap; verified self-heal with broken local libs.
+- truncated trees installed as complete → rejected; folder links fetch only that folder's subtree.
+- SKILL.md exempt from the download size cap → cap applies to every blob before download.
+- refs with slashes misparsed → the parser keeps raw segments; the runner tries prefixes until GitHub knows the ref.
+- per-agent failure hidden by the other agent's success → outcomes are recorded per agent.
+- results stopped refreshing before big installs finished → refreshes at 6/20/60/150 s.
+- malformed %-escapes threw (HTTP 500) → decoding happens inside the parser's try.
+Rejected: durable install queue across runner restarts (manual and idempotent, re-paste is enough); hashing installed files to detect hand edits of GitHub skills (rare; marker hash suffices).
+Verification: tsc + next build clean. GitHub installs in a fake HOME: single skill, a blob/SKILL.md link, a .claude/ path, a 25-skill pack (~10 s), unchanged re-paste, PC copy and hand-made skill untouched, bad branch/folder/repo errors. Collector with Node 24 against a mock dashboard: update + .prev, no-op when current, syntax error rejected, missing lib exports rejected, --no-update, repo-checkout copy never updates, self-heal from broken local libs.

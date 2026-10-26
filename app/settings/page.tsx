@@ -1,9 +1,11 @@
 import { ArrowUpRight } from "lucide-react";
 import { PageHeader, Panel, SectionTitle, StatusPill } from "@/components/kit";
 import { listRepos } from "@/lib/github";
+import { readSkillsStatus, skillsFor } from "@/lib/skills";
 import { readHeartbeat } from "@/lib/store";
 import { ago } from "@/lib/utils";
 import { LogoutButton } from "./logout";
+import { SkillFromGithub } from "./skill-from-github";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,10 @@ export default async function SettingsPage() {
   const hb = readHeartbeat();
   const alive = !!hb.at && Date.now() - new Date(hb.at).getTime() < 60_000;
   const connected = CONNECTIONS.filter((c) => !!process.env[c.env]).length;
+  const skills = readSkillsStatus();
+  const pcAt = [skills.claude?.at, skills.codex?.at, skills.manifestAt].filter(Boolean).sort().pop();
+  const gh = skills.github;
+  const fromGithub = Object.entries(skills.fromGithub ?? {});
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -80,6 +86,55 @@ export default async function SettingsPage() {
               <ArrowUpRight className="h-4 w-4 text-faint transition-colors group-hover:text-text" aria-hidden />
             </a>
           ))
+        )}
+      </Panel>
+
+      <SectionTitle right="stays on the VPS when the PC is off">Skills</SectionTitle>
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {(
+          [
+            ["Claude", String(skillsFor("claude").length)],
+            ["Codex", String(skillsFor("codex").length)],
+            ["PC sync", pcAt ? ago(pcAt) : "never"],
+          ] as const
+        ).map(([label, value]) => (
+          <Panel key={label} className="flex min-h-[64px] flex-col justify-center !rounded-[14px] px-4 py-3 last:col-span-2 sm:last:col-span-1">
+            <span className="hud-label !text-[9.5px]">{label}</span>
+            <span className="font-mono text-[15px] tabular-nums">{value}</span>
+          </Panel>
+        ))}
+      </div>
+      <Panel className="mb-8 flex flex-col gap-3 px-4 py-4">
+        <p className="text-sm text-muted">
+          Your PC sends its skills on its own every 2 hours while it&apos;s on. To add one without the PC, paste a GitHub link to a skill folder — or a repo full of them.
+        </p>
+        <SkillFromGithub />
+        {gh?.at && (
+          <p className="font-mono text-[11px] break-all text-faint" role="status">
+            {gh.error ? (
+              <span className="text-bad">✗ {gh.error}</span>
+            ) : (
+              <>
+                {[gh.installed?.length && `installed ${gh.installed.join(", ")}`, gh.unchanged?.length && `${gh.unchanged.length} already current`, gh.skipped?.length && `skipped ${gh.skipped.map((s) => `${s.name} (${s.why})`).join(", ")}`]
+                  .filter(Boolean)
+                  .join(" · ") || "nothing to install"}
+              </>
+            )}{" "}
+            · {ago(gh.at)}
+          </p>
+        )}
+        {fromGithub.length > 0 && (
+          <ul className="flex flex-col border-t border-line pt-2">
+            {fromGithub.map(([name, s]) => (
+              <li key={name} className="flex min-h-9 items-center gap-3 text-[13px]">
+                <span className="font-mono text-command">/{name}</span>
+                <a href={s.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate font-mono text-[11px] text-faint hover:text-text">
+                  {s.url?.replace(/^https:\/\/(www\.)?github\.com\//, "")}
+                </a>
+                <span className="font-mono text-[11px] text-faint">{s.commit?.slice(0, 7)}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </Panel>
 
