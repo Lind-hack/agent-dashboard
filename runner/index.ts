@@ -10,6 +10,7 @@ import { pendingImports, releaseReservation } from "../lib/handoff";
 import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
 import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
+import { cancelRoom, createRoom, roomTick } from "./room";
 import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
@@ -227,6 +228,16 @@ async function handleInbox() {
     }
     if (item.kind === "create") {
       await createChat(item.chat).catch((e) => log("create chat", e instanceof Error ? e.message : e));
+      ack();
+      continue;
+    }
+    if (item.kind === "room-create" || item.kind === "room-cancel") {
+      try {
+        if (item.kind === "room-create") createRoom(item.room);
+        else cancelRoom(item.roomId);
+      } catch (e) {
+        log("room", e instanceof Error ? e.message : e);
+      }
       ack();
       continue;
     }
@@ -576,6 +587,13 @@ async function tick() {
   await handleInbox();
   await importHandoffs().catch((e) => log("handoff import", e instanceof Error ? e.message : e));
   await exportReturns().catch((e) => log("handoff export", e instanceof Error ? e.message : e));
+  // Roast debaters run on the same per-agent slots as chat turns: a chat and a debate never share an agent.
+  roomTick({
+    take: (a, id) => !active.has(a) && !!active.set(a, { id: `room:${id}` }),
+    release: (a, id) => {
+      if (active.get(a)?.id === `room:${id}`) active.delete(a);
+    },
+  });
   // The brain's weekly Luna pass uses Codex, so it takes Codex's slot like a chat turn would.
   brainTick({
     take: () => !active.has("codex") && !!active.set("codex", { id: "brain-weekly" }),

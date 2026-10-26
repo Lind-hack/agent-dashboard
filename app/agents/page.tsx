@@ -1,17 +1,16 @@
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { AgentLogo } from "@/components/agent-logo";
-import { AgentsConsole } from "@/components/agents-console";
 import { PageHeader, Panel, SectionTitle } from "@/components/kit";
 import { agentStatuses } from "@/lib/agent-status";
 import { AGENT_LABELS, AGENT_META, type AgentKey } from "@/lib/agents";
-import { listRepos } from "@/lib/github";
 import { listJobs } from "@/lib/store";
 import { ago } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function AgentsPage() {
-  const [statuses, repos] = await Promise.all([agentStatuses(), listRepos().catch(() => [])]);
+  const statuses = await agentStatuses();
   // Recent ask-all and relay runs, newest first, one row per group.
   const groups = new Map<string, { id: string; kind: string; task: string; at: string; agents: string[] }>();
   for (const j of listJobs()) {
@@ -25,10 +24,17 @@ export default async function AgentsPage() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Agents" sub="Claude, Codex, OpenCode and Hermes from one place. Light them up and ask." />
-      <AgentsConsole statuses={statuses} repos={repos.map((r) => r.name)} />
+      <PageHeader
+        title="Agents"
+        sub="Who you have, what they run on, and whether they're ready."
+        right={
+          <Link href="/room" className="flex min-h-10 items-center gap-2 rounded-[12px] bg-text px-4 text-sm font-medium text-bg">
+            Open the Room <ArrowRight className="h-4 w-4" />
+          </Link>
+        }
+      />
 
-      <section className="mt-10">
+      <section className="mt-2">
         <SectionTitle>Your agents</SectionTitle>
         <Panel className="overflow-hidden">
           {statuses.map((s) => (

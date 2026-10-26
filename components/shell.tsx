@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, CalendarDays, ChevronRight, Globe, House, Inbox, LayoutGrid, MessageSquare, Mic, Settings, Sparkles, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronRight, Globe, House, Inbox, LayoutGrid, MessageSquare, Mic, Settings, Sparkles, Swords, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -18,6 +18,7 @@ type NavItem = { href: string; label: string; icon: typeof House; badge?: boolea
 export const WORKSPACE: NavItem[] = [
   { href: "/", label: "Home", icon: House },
   { href: "/inbox", label: "Inbox", icon: Inbox, badge: true },
+  { href: "/room", label: "Room", icon: Swords },
   { href: "/chat", label: "Chats", icon: MessageSquare },
   { href: "/calendar", label: "Today", icon: CalendarDays },
   { href: "/memory", label: "Memory", icon: Sparkles },
@@ -27,7 +28,7 @@ export const TOOLS: NavItem[] = [
   { href: "/website", label: "Website", icon: Globe },
 ];
 // Sections still being built in this release stay out of the nav until they exist.
-const LIVE = new Set(["/", "/inbox", "/chat", "/calendar", "/memory", "/website", "/agents", "/settings", "/more"]);
+const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/memory", "/website", "/agents", "/settings", "/more"]);
 
 const isActive = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 
@@ -127,7 +128,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const tools = TOOLS.filter((i) => LIVE.has(i.href));
   const crumb =
     [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].find((i) => isActive(path, i.href))?.label ??
-    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : "");
+    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : path.startsWith("/agents/g") ? "Room" : "");
 
   return (
     <div className="min-h-dvh lg:pl-[248px]">
@@ -227,7 +228,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           {[
-            { href: "/calendar", label: "Today", icon: CalendarDays },
+            { href: "/room", label: "Room", icon: Swords },
             { href: "/more", label: "More", icon: LayoutGrid },
           ].map((i) => (
             <TabLink key={i.href} item={i} path={path} count={count} />
@@ -258,7 +259,7 @@ function TabLink({ item, path, count }: { item: NavItem; path: string; count: nu
 // "More" page content on the phone: everything that isn't in the tab bar.
 export function MoreLinks() {
   const items = [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter(
-    (i) => LIVE.has(i.href) && !["/", "/inbox", "/calendar"].includes(i.href),
+    (i) => LIVE.has(i.href) && !["/", "/inbox", "/room"].includes(i.href),
   );
   return (
     <div className="panel overflow-hidden">

@@ -155,6 +155,8 @@ export type InboxItem = (
   | { kind: "return"; jobId: string } // take-back: freeze a hand-off and export it for the PC
   | { kind: "keep"; jobId: string } // undo a return that the PC hasn't completed
   | { kind: "complete"; jobId: string; digest: string } // the PC installed the export
+  | { kind: "room-create"; room: { id: string; task: string; repo?: string; agents: AgentKey[] } } // a Roast room
+  | { kind: "room-cancel"; roomId: string }
   | { kind: "sync" }
 ) & { eventId?: string }; // sync = poll Linear / look for new hand-offs now
 

@@ -1,4 +1,4 @@
-import { ArrowRight, ArrowUpRight, Brain, CalendarDays, Inbox, Radio, Users } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Brain, CalendarDays, Inbox, Radio, Swords } from "lucide-react";
 import Link from "next/link";
 import { AgentLogo } from "@/components/agent-logo";
 import { CoreStage, type Dock } from "@/components/core-stage";
@@ -7,11 +7,13 @@ import { InboxList } from "@/components/inbox-list";
 import { Dot, Empty, Panel } from "@/components/kit";
 import { UsageGauge } from "@/components/usage-gauge";
 import { agentStatuses, type AgentStatus } from "@/lib/agent-status";
+import type { AgentKey } from "@/lib/agents";
 import { readBrainStatus } from "@/lib/brain";
 import { repoShort } from "@/lib/config";
 import { inboxItems, type InboxItem } from "@/lib/inbox";
 import { today, type Today } from "@/lib/planner";
 import { listJobs, readHeartbeat } from "@/lib/store";
+import { listRooms } from "@/lib/rooms";
 import { planUsage } from "@/lib/usage";
 import { ago, cn } from "@/lib/utils";
 import { siteHealth } from "@/lib/website";
@@ -53,6 +55,11 @@ export default async function Home() {
     agentStatuses().catch(() => [] as AgentStatus[]),
   ]);
 
+  const debating = listRooms().filter((r) => r.status === "debating");
+  const debateOf = (a: AgentKey) => {
+    const r = debating.find((x) => x.rounds.at(-1)?.answers[a]?.status === "running");
+    return r ? `Debating: ${r.task.split("\n")[0]}` : undefined;
+  };
   const runnerAlive = !!heartbeat.at && Date.now() - new Date(heartbeat.at).getTime() < 60_000;
   const running = jobs.filter((j) => j.status === "running");
   const recent = jobs.filter((j) => j.status !== "closed").slice(0, 6);
@@ -62,7 +69,7 @@ export default async function Home() {
   const docks: Dock[] = statuses.map((s) => ({
     agent: s.agent,
     ready: s.ready,
-    working: running.find((j) => j.agent === s.agent)?.title,
+    working: running.find((j) => j.agent === s.agent)?.title ?? debateOf(s.agent),
     queued: jobs.filter((j) => j.agent === s.agent && j.status === "queued").length,
     note: s.note,
   }));
@@ -137,7 +144,7 @@ export default async function Home() {
               {[
                 { href: "/calendar", label: "Plan today", icon: CalendarDays },
                 { href: "/inbox", label: "Inbox brief", icon: Inbox },
-                { href: "/agents", label: "Ask all", icon: Users },
+                { href: "/room", label: "Roast room", icon: Swords },
                 { href: "/memory", label: "Ask memory", icon: Brain },
               ].map((c) => {
                 const Icon = c.icon;

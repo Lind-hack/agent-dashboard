@@ -30,6 +30,8 @@ type Emit = (e: Record<string, unknown>) => void;
 
 // Secrets the runner needs but the agents don't. NODE_ENV=production (for the services) would make
 // `npm ci` in a repo skip devDependencies, so typecheck/build fail inside the worktree.
+// Debaters also lose every other credential the runner holds.
+const READONLY_HIDDEN = ["NVIDIA_API_KEY", "GITHUB_READ_TOKEN", "MONITOR_TOKEN", "GOOGLE_CLIENT_SECRET"];
 const HIDDEN_ENV = ["GITHUB_TOKEN", "LINEAR_API_KEY", "GROQ_API_KEY", "SESSION_SECRET", "DASHBOARD_PASSWORD", "HANDOFF_TOKEN", "NODE_ENV"];
 
 const clip = (v: unknown, n = 160) => String(v ?? "").replace(/\s+/g, " ").slice(0, n);
@@ -147,13 +149,13 @@ function opencodeParser(resume?: string): Parser {
 }
 
 // Hermes answers in one block: the reply, then a "session_id: …" line.
-function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChild: (c: ChildProcess) => void }): Promise<TurnResult> {
+function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChild: (c: ChildProcess) => void; timeoutMs?: number }): Promise<TurnResult> {
   return new Promise((resolve) => {
     const child = spawn("sudo", ["-n", "/usr/local/bin/ask-hermes", ...(opts.resume ? [opts.resume] : [])], { stdio: ["pipe", "pipe", "pipe"], detached: true });
     opts.onChild(child);
     let out = "";
     let err = "";
-    const timer = setTimeout(() => killTree(child), jobTimeoutMs());
+    const timer = setTimeout(() => killTree(child), opts.timeoutMs ?? jobTimeoutMs());
     child.stdout!.on("data", (c: Buffer) => (out += c.toString()));
     child.stderr!.on("data", (c: Buffer) => (err = (err + c.toString()).slice(-4000)));
     child.stdin!.end(opts.prompt);
@@ -182,9 +184,11 @@ function runHermes(opts: { prompt: string; resume?: string; onEvent: Emit; onChi
   });
 }
 
-function command(agent: AgentKey, prompt: string, resume?: string): { bin: string; args: string[]; parser: Parser } {
+// `readonly` = a Roast debater: no tools at all (Claude), a read-only sandbox that fails closed on this
+// VPS (Codex), no auto-approved permissions (OpenCode). Debaters reason from the evidence in the prompt.
+function command(agent: AgentKey, prompt: string, resume?: string, readonly = false): { bin: string; args: string[]; parser: Parser } {
   if (agent === "opencode") {
-    const args = ["run", "--format", "json", "--auto", "-m", opencodeModel()];
+    const args = ["run", "--format", "json", ...(readonly ? [] : ["--auto"]), "-m", opencodeModel()];
     if (resume) args.push("--session", resume);
     args.push(prompt);
     return { bin: opencodeBin(), args, parser: opencodeParser(resume) };
@@ -192,12 +196,14 @@ function command(agent: AgentKey, prompt: string, resume?: string): { bin: strin
   if (agent === "codex") {
     // The agent user has no sudo and the worktree is disposable, so Codex gets full access like Claude.
     // `codex exec resume` takes its own copy of the flags, so they go after the subcommand.
-    const flags = ["--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check"];
+    const flags = ["--json", ...(readonly ? ["-s", "read-only"] : ["--dangerously-bypass-approvals-and-sandbox"]), "--skip-git-repo-check"];
     if (codexModel()) flags.push("-m", codexModel());
     const args = resume ? ["exec", "resume", ...flags, resume, prompt] : ["exec", ...flags, prompt];
     return { bin: codexBin(), args, parser: codexParser(resume) };
   }
-  const args = ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"];
+  const args = readonly
+    ? ["-p", prompt, "--output-format", "stream-json", "--verbose", "--tools", "", "--strict-mcp-config", "--max-turns", "2"]
+    : ["-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "bypassPermissions"];
   if (resume) args.push("--resume", resume);
   if (claudeModel()) args.push("--model", claudeModel());
   return { bin: claudeBin(), args, parser: claudeParser(resume) };
@@ -210,11 +216,14 @@ export function runAgent(opts: {
   resume?: string;
   onEvent: Emit;
   onChild: (child: ChildProcess) => void;
+  readonly?: boolean;
+  timeoutMs?: number;
 }): Promise<TurnResult> {
   if (opts.agent === "hermes") return runHermes(opts);
-  const { bin, args, parser } = command(opts.agent, opts.prompt, opts.resume);
+  const { bin, args, parser } = command(opts.agent, opts.prompt, opts.resume, opts.readonly);
   const env = { ...process.env };
-  for (const k of HIDDEN_ENV) delete env[k];
+  for (const k of [...HIDDEN_ENV, ...(opts.readonly ? READONLY_HIDDEN : [])]) delete env[k];
+  const limit = opts.timeoutMs ?? jobTimeoutMs();
 
   return new Promise((resolve) => {
     const child = spawn(bin, args, { cwd: opts.cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
@@ -223,9 +232,9 @@ export function runAgent(opts: {
     let stderr = "";
 
     const timer = setTimeout(() => {
-      opts.onEvent({ kind: "error", text: `Timed out after ${jobTimeoutMs() / 60_000} min` });
+      opts.onEvent({ kind: "error", text: `Timed out after ${Math.round(limit / 60_000)} min` });
       killTree(child);
-    }, jobTimeoutMs());
+    }, limit);
 
     child.stdout!.on("data", (chunk: Buffer) => {
       buf += chunk.toString();

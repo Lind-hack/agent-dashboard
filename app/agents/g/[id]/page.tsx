@@ -3,9 +3,9 @@
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
-import { Dot } from "@/components/kit";
+import { AgentLogo } from "@/components/agent-logo";
 import { Md } from "@/components/md";
-import { AGENT_LABELS, AGENT_TONE, RELAY_STEPS, type AgentKey } from "@/lib/agents";
+import { AGENT_LABELS, RELAY_STEPS, type AgentKey } from "@/lib/agents";
 import { ago, cn } from "@/lib/utils";
 
 type Member = {
@@ -57,12 +57,11 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 
       <div className={cn("grid grid-cols-[minmax(0,1fr)] gap-4", !relay && cards.length > 1 && "lg:grid-cols-2", relay && "lg:grid-cols-3")}>
         {cards.map((c, i) => {
-          const tone = AGENT_TONE[c.agent];
           if ("placeholder" in c) {
             return (
               <div key={i} className="panel flex min-h-40 flex-col gap-2 p-5 opacity-50">
                 <p className="flex items-center gap-2 text-sm">
-                  <Dot tone={tone} /> {RELAY_STEPS[c.step]} · {AGENT_LABELS[c.agent]}
+                  <AgentLogo agent={c.agent} size="xs" /> {RELAY_STEPS[c.step]} · {AGENT_LABELS[c.agent]}
                 </p>
                 <p className="text-sm text-muted">Waiting for the previous step.</p>
               </div>
@@ -72,7 +71,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           return (
             <article key={c.id} className="panel flex min-w-0 flex-col p-5">
               <header className="mb-3 flex items-center gap-2 text-sm">
-                <Dot tone={tone} pulse={c.status === "running"} />
+                <AgentLogo agent={c.agent} size="sm" state={c.status === "running" ? "working" : "ready"} />
                 <span className="font-medium">{relay ? `${RELAY_STEPS[c.step]} · ${AGENT_LABELS[c.agent]}` : AGENT_LABELS[c.agent]}</span>
                 <span className="ml-auto text-xs text-faint">{running ? (c.status === "queued" ? "queued" : "working") : ago(c.updatedAt)}</span>
               </header>

@@ -78,6 +78,34 @@ async function ensureWorktreeLocked(opts: WorktreeOpts) {
   return wt;
 }
 
+// Read-only view of a repo at origin/<base> for a Roast room's evidence pack: tracked entries with
+// their mode (symlinks = 120000, rejected by the caller) and size, plus readers that never check out.
+export function repoTree(repo: RepoKey, base: string) {
+  return withRepoLock(repo, async () => {
+    const dir = repoDir(repo);
+    if (!fs.existsSync(path.join(dir, ".git"))) {
+      fs.mkdirSync(path.dirname(dir), { recursive: true });
+      await git(path.dirname(dir), ["clone", `https://github.com/${repo}.git`, dir], true);
+    }
+    await git(dir, ["fetch", "--prune", "origin"], true);
+    const ref = `origin/${base}`;
+    const entries = (await git(dir, ["ls-tree", "-r", "-l", ref]))
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => {
+        const [meta, file] = l.split("\t");
+        const [mode, type, , size] = meta.split(/\s+/);
+        return { path: file, mode, type, size: Number(size) || 0 };
+      });
+    return {
+      ref,
+      entries,
+      show: (file: string) => git(dir, ["show", `${ref}:${file}`]),
+      log: () => git(dir, ["log", "-n", "30", "--date=short", "--format=%h %ad %s", ref]),
+    };
+  });
+}
+
 export async function removeWorktree(repo: RepoKey, jobId: string) {
   const wt = worktreeDir(jobId);
   if (!fs.existsSync(wt)) return;
