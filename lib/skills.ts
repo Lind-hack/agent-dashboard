@@ -74,44 +74,40 @@ export function skillsFor(agent: AgentKey): Skill[] {
 }
 
 const INLINE_CAP = 12_000;
+export const MAX_SKILLS = 4; // per message — the picker, the API and the runner all use this
 
-// Turns picked skills into what each agent understands. Unknown names are dropped (never passed through).
-export function promptWithSkills(agent: AgentKey, picked: string[] | undefined, text: string): string {
-  if (!picked?.length) return text;
-  const known = new Map(skillsFor(agent).map((s) => [s.invoke, s]));
-  const chosen = [...new Set(picked)].map((p) => known.get(p)).filter((s): s is Skill => !!s).slice(0, 6);
-  if (!chosen.length) return text;
-  if (agent === "claude") {
-    const [first, ...rest] = chosen;
-    return `/${first.invoke} ${text}${rest.length ? `\n\nAlso use these skills: ${rest.map((s) => `/${s.invoke}`).join(" ")}` : ""}`.trim();
-  }
-  if (agent === "codex") return `${chosen.map((s) => `$${s.invoke}`).join(" ")} ${text}`.trim();
-  // OpenCode / Hermes: the message keeps short "/skill" tokens (what Lind sees in the chat); the
-  // runner expands them into the skill instructions right before the turn (expandInlineSkills).
-  return `${chosen.map((s) => `/${s.invoke}`).join(" ")} ${text}`.trim();
+// Keeps only skills this agent really has (exact names), deduped, at most MAX_SKILLS.
+export function validSkills(agent: AgentKey, picked: unknown): string[] {
+  if (!Array.isArray(picked)) return [];
+  const known = new Set(skillsFor(agent).map((s) => s.invoke));
+  return [...new Set(picked.filter((x): x is string => typeof x === "string" && known.has(x)))].slice(0, MAX_SKILLS);
 }
 
-// Runner side, for agents without a skill loader: leading "/skill" tokens → the skill instructions.
-export function expandInlineSkills(agent: AgentKey, prompt: string): string {
-  if (agent !== "opencode" && agent !== "hermes") return prompt;
-  const m = prompt.match(/^((?:\/[\w:.-]+\s+)+)/);
-  if (!m) return prompt;
-  const known = new Map(skillsFor(agent).map((s) => [s.invoke, s]));
-  const chosen = m[1]
-    .trim()
-    .split(/\s+/)
-    .map((t) => known.get(t.slice(1)))
-    .filter((s): s is Skill => !!s);
+// What Lind sees in the chat for a turn: the skill tokens, then his words.
+export const skillDisplay = (agent: AgentKey, skills: string[] | undefined, text: string) =>
+  [(skills ?? []).map((s) => `${agent === "codex" ? "$" : "/"}${s}`).join(" "), text].filter(Boolean).join(" ");
+
+// Runner side: turns the turn's picked skills (structured, never parsed from text) into each agent's
+// own invocation. Re-checked against what's installed right now.
+export function applySkills(agent: AgentKey, skills: string[] | undefined, prompt: string): string {
+  const chosen = validSkills(agent, skills);
   if (!chosen.length) return prompt;
-  const text = prompt.slice(m[1].length);
-  const blocks = chosen.slice(0, 3).map((s) => {
+  if (agent === "claude") {
+    // Claude runs a skill command only when it starts the prompt.
+    const [first, ...rest] = chosen;
+    return `/${first} ${prompt}${rest.length ? `\n\nAlso use these skills: ${rest.map((s) => `/${s}`).join(" ")}` : ""}`;
+  }
+  if (agent === "codex") return `${chosen.map((s) => `$${s}`).join(" ")}\n\n${prompt}`;
+  // OpenCode / Hermes have no skill loader: include every picked skill's instructions.
+  const files = new Map(skillsFor(agent).map((s) => [s.invoke, s.file]));
+  const blocks = chosen.map((name) => {
     let body = "";
     try {
-      body = fs.readFileSync(s.file, "utf8").slice(0, INLINE_CAP);
+      body = fs.readFileSync(files.get(name)!, "utf8").slice(0, INLINE_CAP);
     } catch {
-      /* gone since listing */
+      /* removed since it was picked */
     }
-    return `<skill name="${s.invoke}">\n${body}\n</skill>`;
+    return `<skill name="${name}">\n${body}\n</skill>`;
   });
-  return `Follow these skills for this task (from Lind's skill library):\n${blocks.join("\n\n")}\n\n## Lind's message\n${text}`;
+  return `Follow these skills for this task (from Lind's skill library):\n${blocks.join("\n\n")}\n\n## Lind's message\n${prompt}`;
 }

@@ -14,6 +14,7 @@
 // Reads HANDOFF_TOKEN and AGENT_DASHBOARD_URL from ~/.agent-dashboard/handoff.env. Node 24+.
 
 import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -314,36 +315,40 @@ function skillDirs(roots) {
   return out;
 }
 
-const fingerprint = (dirs) =>
-  JSON.stringify(
-    Object.entries(dirs)
-      .sort()
-      .map(([n, d]) => {
-        let m = 0;
-        const walkM = (x) => {
-          for (const e of fs.readdirSync(x, { withFileTypes: true })) {
-            if (e.name.startsWith(".") || e.name === "node_modules") continue;
-            const p = path.join(x, e.name);
-            m = Math.max(m, fs.statSync(p).mtimeMs);
-            if (e.isDirectory()) walkM(p);
-          }
-        };
-        try {
-          walkM(d);
-        } catch {
-          /* vanished */
+// Every collected file's path, size and mtime: adding, editing or deleting any file changes it.
+const fingerprint = (dirs) => {
+  const h = crypto.createHash("sha256");
+  for (const [n, d] of Object.entries(dirs).sort()) {
+    const visit = (x, rel) => {
+      let entries = [];
+      try {
+        entries = fs.readdirSync(x, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+      } catch {
+        return;
+      }
+      for (const e of entries) {
+        if (e.name.startsWith(".") || e.name === "node_modules" || e.name === "__pycache__") continue;
+        const p = path.join(x, e.name);
+        if (e.isDirectory()) visit(p, `${rel}/${e.name}`);
+        else if (e.isFile() && TEXT_EXT.test(e.name)) {
+          const st = fs.statSync(p);
+          h.update(`${n}${rel}/${e.name}|${st.size}|${Math.round(st.mtimeMs)}\n`);
         }
-        return [n, Math.round(m)];
-      }),
-  );
+      }
+    };
+    visit(d, "");
+  }
+  return h.digest("hex");
+};
 
 async function uploadSkills(agent, dirs) {
   const names = Object.keys(dirs);
   let batch = {};
   let size = 0;
-  const flush = async () => {
-    if (!Object.keys(batch).length) return;
-    const body = zlib.gzipSync(Buffer.from(JSON.stringify({ kind: "skills", agent, names, skills: batch })));
+  const flush = async (force = false) => {
+    if (!Object.keys(batch).length && !force) return;
+    // `names` is the complete inventory on the PC, so the VPS can prune skills you deleted.
+    const body = zlib.gzipSync(Buffer.from(JSON.stringify({ kind: "skills", agent, names, complete: true, skills: batch })));
     await postSkills(body);
     batch = {};
     size = 0;
@@ -355,7 +360,8 @@ async function uploadSkills(agent, dirs) {
     batch[name] = files;
     size += bytes;
   }
-  await flush();
+  // An empty set still goes up, so removing your last skill reaches the VPS too.
+  await flush(names.length === 0);
   return names.length;
 }
 

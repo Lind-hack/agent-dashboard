@@ -12,7 +12,7 @@ import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
 import { cancelRoom, createRoom, roomTick } from "./room";
 import { syncSkillsTick } from "./skills-sync";
-import { expandInlineSkills } from "../lib/skills";
+import { applySkills, skillDisplay } from "../lib/skills";
 import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
@@ -211,7 +211,7 @@ async function createChat(chat: NewChat) {
     fromBranch: chat.fromBranch,
     group: chat.group,
     status: "queued",
-    pending: { prompt: chat.prompt, source: chat.source },
+    pending: { prompt: chat.prompt, source: chat.source, skills: chat.skills },
     turns: [],
     seenCommentIds: [],
     createdAt: now,
@@ -297,15 +297,18 @@ async function handleInbox() {
       appendLog(job.id, { kind: "turn", text: "Back on the PC — continue there with claude --resume." });
       if (job.repo) await removeWorktree(job.repo, job.id).catch((e) => log("worktree cleanup", job.id, e.message));
     }
-    if (item.kind === "reply" && item.prompt.trim() && job.owner && job.owner !== "vps") {
+    const hasReply = item.kind === "reply" && (!!item.prompt.trim() || !!item.skills?.length);
+    if (hasReply && job.owner && job.owner !== "vps") {
       appendLog(job.id, { kind: "error", text: job.owner === "pc" ? "This chat is back on the PC — continue it there." : "This chat is being returned to the PC. Tap “Keep on VPS” to continue here instead." });
       seen(job);
       save(job);
-    } else if (item.kind === "reply" && item.prompt.trim()) {
+    } else if (hasReply && item.kind === "reply") {
       // A reply to a running turn waits until that turn ends; a hand-off still preparing gets it after.
+      const skills = [...new Set([...(job.pending?.skills ?? []), ...(item.skills ?? [])])];
       job.pending = {
         prompt: [job.pending?.prompt, item.prompt.trim()].filter(Boolean).join("\n\n"),
         source: "dashboard",
+        ...(skills.length ? { skills } : {}),
       };
       if (!isActive(job) && job.status !== "preparing") job.status = "queued";
       seen(job);
@@ -481,16 +484,9 @@ async function runTurn(job: Job) {
     const extra = turn.source === "dashboard" && job.turns.length ? turn.prompt : "";
     turn.prompt = brief(job) + (extra ? `\n\n## Additional instructions from Lind\n${extra}` : "");
   }
-  // Claude only runs a skill command that starts the prompt: keep a picked "/skill" in front of any brief.
-  const lead = job.agent === "claude" ? (shown.match(/^\/([\w:.-]+)\s/) ?? (!job.sessionId ? job.description.match(/^\/([\w:.-]+)\s/) : null)) : null;
-  if (lead && !turn.prompt.startsWith(`/${lead[1]}`)) turn.prompt = `/${lead[1]} ${turn.prompt}`;
-  // OpenCode / Hermes have no skill loader: picked "/skill" tokens become the skill instructions.
-  if (job.agent === "opencode" || job.agent === "hermes") {
-    const TOKENS = /^((?:\/[\w:.-]+\s+)+)/;
-    const inline = shown.match(TOKENS)?.[1] ?? (!job.sessionId ? job.description.match(TOKENS)?.[1] : undefined);
-    if (inline && !turn.prompt.startsWith(inline)) turn.prompt = inline + turn.prompt;
-    turn.prompt = expandInlineSkills(job.agent, turn.prompt);
-  }
+  // Skills Lind picked with "/" (structured on the turn — never parsed from his words) become this
+  // agent's own invocation, in front of any brief or hand-off preamble.
+  turn.prompt = applySkills(agent, turn.skills, turn.prompt);
   job.pending = undefined;
   job.status = "running";
   job.error = undefined;
@@ -502,7 +498,7 @@ async function runTurn(job: Job) {
     text:
       job.turns.length === 1 && !job.imported
         ? `Started (${[AGENT_LABELS[agent], job.repo, job.group?.kind === "relay" ? `relay ${RELAY_STEPS[job.group.step] ?? ""}` : ""].filter(Boolean).join(" · ")})`
-        : `You: ${shown}`,
+        : `You: ${skillDisplay(agent, turn.skills, shown)}`,
   });
 
   try {

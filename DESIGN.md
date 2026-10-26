@@ -138,6 +138,9 @@ A restrained neutral system: most of the screen is canvas and ink, and the colou
 - **Hermes Violet** (hermes-violet): Codex cloud and Hermes, plus the inbox badge.
 - **OpenCode Mint** (opencode-mint): reserved for the OpenCode agent.
 
+### Command
+- **Command Blue** (command, #6cb6ff): skill and command tokens only — "/impeccable" chips, the skill names in the "/" menu, and "/skill" or "$skill" in sent messages. Distinct from Codex Blue on purpose; never decoration.
+
 ### HUD
 - **HUD Cyan** (hud): the system's voice, not an agent. Mono labels' accents, wires between the core and idle docks, the idle core, the active-nav tick, corner brackets, live "now" times.
 
@@ -239,6 +242,9 @@ Under every page title and its plain sentence, a HUD-label line of live counts (
 
 ### Time Rail (Today)
 Schedule as a vertical rail: mono start/end times, a 10px square node per event in its calendar colour (HUD cyan and glowing while it's happening), and a NOW separator — the current time in HUD cyan, a glowing dot on the rail and a fading line.
+
+### Skill Picker ("/" menu)
+In any chat box with a known agent, typing "/" (or "$") opens a menu above the box: a HUD-label header with how many skills that agent has on the VPS, then up to 8 matches — the invocation in Command Blue mono, a one-line description, and a source tag (YOURS / ACCOUNT / PLUGIN / CODEX). ↑↓ + Enter/Tab or tap picks; the typed "/word" disappears and a Command Blue chip (8px radius, tinted fill, inner ring, × to remove) appears above the text. At most 4 per message; the menu says so when full. Sent messages show the tokens in Command Blue.
 
 ### HUD Label
 Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout labels only (DIRECTIVES, PLAN USAGE, CORE · IDLE), never body copy and never a kicker above a heading.

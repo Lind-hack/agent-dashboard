@@ -254,6 +254,7 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
           aria-autocomplete={mode === "solo" ? "list" : undefined}
           aria-expanded={mode === "solo" ? picker.open : undefined}
           aria-controls={mode === "solo" && picker.open ? "room-skills" : undefined}
+          aria-activedescendant={mode === "solo" && picker.open && picker.matches.length ? `room-skills-${picker.active}` : undefined}
           placeholder={mic.recording ? `Listening · ${mic.seconds}s — tap to send` : mode === "roast" ? "What should they debate?" : mode === "solo" ? "What should it work on? — / for skills" : "What should they work on?"}
           className="max-h-48 min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] outline-none [field-sizing:content] placeholder:text-faint"
         />

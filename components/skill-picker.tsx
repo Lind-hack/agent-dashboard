@@ -11,21 +11,22 @@ import { cn } from "@/lib/utils";
 
 export type SkillInfo = { invoke: string; name: string; description: string; source: "you" | "account" | "plugin" | "codex" };
 
-const cache = new Map<AgentKey, Promise<SkillInfo[]>>();
-function loadSkills(agent: AgentKey): Promise<SkillInfo[]> {
-  if (!cache.has(agent)) {
-    cache.set(
-      agent,
-      fetch(`/api/skills?agent=${agent}`, { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : { skills: [] }))
-        .then((b) => (Array.isArray(b?.skills) ? (b.skills as SkillInfo[]) : []))
-        .catch(() => {
-          cache.delete(agent);
-          return [];
-        }),
-    );
-  }
-  return cache.get(agent)!;
+// Per-agent list, refreshed after a minute so newly synced skills show up without a reload.
+const MAX_CHIPS = 4; // same limit as the server (lib/skills.ts MAX_SKILLS)
+const TTL = 60_000;
+const cache = new Map<AgentKey, { at: number; list: Promise<SkillInfo[]> }>();
+function loadSkills(agent: AgentKey, fresh = false): Promise<SkillInfo[]> {
+  const hit = cache.get(agent);
+  if (hit && !fresh && Date.now() - hit.at < TTL) return hit.list;
+  const list = fetch(`/api/skills?agent=${agent}`, { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : { skills: [] }))
+    .then((b) => (Array.isArray(b?.skills) ? (b.skills as SkillInfo[]) : []))
+    .catch(() => {
+      cache.delete(agent);
+      return [] as SkillInfo[];
+    });
+  cache.set(agent, { at: Date.now(), list });
+  return list;
 }
 
 const SIGIL = (agent?: AgentKey) => (agent === "codex" ? "$" : "/");
@@ -55,11 +56,28 @@ export function useSkillPicker(agent: AgentKey | undefined, box?: React.RefObjec
   const [query, setQuery] = useState<string | null>(null); // null = menu closed
   const [active, setActive] = useState(0);
 
+  // A new agent starts clean, and a late answer for the previous agent is ignored.
   useEffect(() => {
+    let current = true;
     setSkills(null);
     setChips([]);
-    if (agent) void loadSkills(agent).then(setSkills);
+    setQuery(null);
+    setActive(0);
+    if (agent) void loadSkills(agent).then((l) => current && setSkills(l));
+    return () => {
+      current = false;
+    };
   }, [agent]);
+  // Opening the menu refreshes a stale list (TTL) — the visible list never sits on removed skills for long.
+  const menuOpen = query !== null;
+  useEffect(() => {
+    if (!menuOpen || !agent) return;
+    let current = true;
+    void loadSkills(agent).then((l) => current && setSkills(l));
+    return () => {
+      current = false;
+    };
+  }, [menuOpen, agent]);
 
   const matches = useMemo(() => {
     if (query === null || !skills) return [];
@@ -85,7 +103,7 @@ export function useSkillPicker(agent: AgentKey | undefined, box?: React.RefObjec
   // Picks a skill: removes the typed "/word" from the text and adds the chip.
   const pick = useCallback((s: SkillInfo, text: string, caret: number): { text: string; caret: number } => {
     const before = text.slice(0, caret).replace(TRIGGER, (_m, sp: string) => sp);
-    setChips((c) => (c.includes(s.invoke) ? c : [...c, s.invoke].slice(0, 6)));
+    setChips((c) => (c.includes(s.invoke) || c.length >= MAX_CHIPS ? c : [...c, s.invoke]));
     setQuery(null);
     caretAfter.current = before.length;
     setCaretTick((t) => t + 1);
@@ -108,8 +126,10 @@ export function useSkillPicker(agent: AgentKey | undefined, box?: React.RefObjec
         return true;
       }
       if (e.key === "Enter" || e.key === "Tab") {
+        const s = matches[Math.min(active, matches.length - 1)];
+        if (!s) return false;
         e.preventDefault();
-        apply(matches[active]);
+        apply(s);
         return true;
       }
       return false;
@@ -117,7 +137,8 @@ export function useSkillPicker(agent: AgentKey | undefined, box?: React.RefObjec
     [query, matches, active],
   );
 
-  return { skills, chips, setChips, query, matches, active, setActive, onText, pick, onKey, open: query !== null, sigil: SIGIL(agent) };
+  const safeActive = Math.min(active, Math.max(0, matches.length - 1));
+  return { skills, chips, setChips, query, matches, active: safeActive, setActive, onText, pick, onKey, open: query !== null, sigil: SIGIL(agent), full: chips.length >= MAX_CHIPS };
 }
 
 export type Picker = ReturnType<typeof useSkillPicker>;
@@ -160,10 +181,11 @@ export function SkillMenu({ picker, onPick, id }: { picker: Picker; onPick: (s: 
         <Puzzle className="h-3 w-3 text-command" aria-hidden /> Skills {picker.skills ? `· ${picker.skills.length} on the VPS` : "· loading…"}
       </p>
       <ul ref={list} id={id} role="listbox" aria-label="Skills" className="max-h-[min(40dvh,320px)] overflow-y-auto p-1">
-        {picker.skills && picker.matches.length === 0 && (
+        {picker.full && <li className="px-3 py-2 text-xs text-warn">Up to 4 skills per message — remove one to add another.</li>}
+        {!picker.full && picker.skills && picker.matches.length === 0 && (
           <li className="px-3 py-3 text-sm text-muted">{picker.skills.length ? `No skill matches “${picker.query}”.` : "No skills for this agent on the VPS yet — they sync from your PC."}</li>
         )}
-        {picker.matches.map((s, i) => (
+        {!picker.full && picker.matches.map((s, i) => (
           <li
             key={s.invoke}
             id={`${id}-${i}`}

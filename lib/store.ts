@@ -28,6 +28,7 @@ export type Imported = {
 
 export type Turn = {
   prompt: string;
+  skills?: string[]; // picked with "/" — invoked by the runner, never parsed out of the text
   source: "linear" | "dashboard" | "linear-comment" | "handoff";
   startedAt?: string;
   endedAt?: string;
@@ -142,6 +143,7 @@ export type NewChat = {
   repo: RepoKey;
   title: string;
   prompt: string;
+  skills?: string[];
   fromBranch?: string;
   source: "dashboard" | "handoff";
   group?: JobGroup;
@@ -149,7 +151,7 @@ export type NewChat = {
 
 export type InboxItem = (
   | { kind: "create"; chat: NewChat } // a chat not tracked in Linear
-  | { kind: "reply"; jobId: string; prompt: string }
+  | { kind: "reply"; jobId: string; prompt: string; skills?: string[] }
   | { kind: "cancel"; jobId: string }
   | { kind: "archive"; jobId: string } // a finished chat: close it and free its worktree
   | { kind: "return"; jobId: string } // take-back: freeze a hand-off and export it for the PC

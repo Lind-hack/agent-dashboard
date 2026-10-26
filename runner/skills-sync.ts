@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,28 +7,36 @@ import { DATA_DIR } from "../lib/config";
 import { redact } from "../lib/redact";
 
 // Installs the skill folders the PC collector uploads (PLAN-v2 R21) into the VPS agents' skill dirs:
-// Claude → ~/.claude/skills, Codex → $CODEX_HOME/skills. Every file is validated (relative paths only,
-// ≤256 KB, text, no secret-looking content); skills that only make sense on the PC are skipped; each
-// skill is staged and swapped in whole. Skills this sync installed carry a marker, and only those are
-// removed when they disappear from the PC. Hooks, plugins and MCP servers arrive as a manifest only.
+// Claude → ~/.claude/skills, Codex → $CODEX_HOME/skills.
+//   - Names must start with a letter or digit (no ".", "..", or our own hidden working folders).
+//   - The skills folder must be a real directory under the agent's home, never a symlink.
+//   - Every file is validated before anything is written: relative path, depth ≤ 8, ≤ 256 KB, text, no
+//     secret-looking content; SKILL.md must pass or the whole skill is rejected. Size/count limits cap
+//     an upload so it can't exhaust the disk or stall the runner.
+//   - Each skill is staged in a fresh private folder and swapped in; a failed swap restores the old
+//     version, and an interrupted one is recovered on the next tick.
+//   - Only skills this sync installed (marker file) are removed when they vanish from the PC, and only
+//     when the PC sent its complete inventory.
+// Hooks, plugins and MCP servers arrive as a manifest only — nothing is installed from it.
 
 const INBOX = () => path.join(DATA_DIR, "skills-inbox");
 const STATUS = () => path.join(DATA_DIR, "skills-status.json");
 const MANIFEST = () => path.join(DATA_DIR, "pc-manifest.json");
 const MARKER = ".synced-from-pc";
-const NAME = /^[\w.-]{1,80}$/;
-const SEGMENT = /^[\w .@+()-]{1,120}$/;
-const FILE_CAP = 256 * 1024;
-const SKILL_CAP = 3 * 1024 * 1024;
+const NAME = /^[A-Za-z0-9][\w.-]{0,79}$/;
+const SEGMENT = /^[\w @+()-][\w .@+()-]{0,119}$/; // no leading dot: no "..", no hidden files
+const LIMITS = { fileBytes: 256 * 1024, skillBytes: 3 * 1024 * 1024, filesPerSkill: 500, depth: 8, skillsPerUpload: 800, unpacked: 96 * 1024 * 1024 };
 
 // Need the PC (Windows, its Chrome, its desktop apps) or change the harness itself — not useful on the VPS.
 const PC_ONLY = [/^chrome/, /^claude-in-chrome/, /computer-use/, /^orca/, /^herdr/, /^keybindings/, /^statusline/, /^update-config/, /^fewer-permission/, /^plugin-authoring/, /windows/i, /^synced$/];
 
-type Upload = { kind: "skills"; agent: "claude" | "codex"; names: string[]; skills: Record<string, Record<string, string>> };
-type Status = Record<"claude" | "codex", { at?: string; installed: number; removed: number; skipped: { name: string; why: string }[] }>;
+type Upload = { kind: "skills"; agent: "claude" | "codex"; names: string[]; complete?: boolean; skills: Record<string, Record<string, string>> };
+type AgentStatus = { at?: string; installed: number; removed: number; skipped: { name: string; why: string }[] };
+type Status = Record<"claude" | "codex", AgentStatus>;
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "skills:", ...a);
-const rootFor = (agent: "claude" | "codex") => (agent === "codex" ? path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex"), "skills") : path.join(os.homedir(), ".claude", "skills"));
+const homeFor = (agent: "claude" | "codex") => (agent === "codex" ? (process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex")) : path.join(os.homedir(), ".claude"));
+const rootFor = (agent: "claude" | "codex") => path.join(homeFor(agent), "skills");
 
 function readStatus(): Status {
   try {
@@ -37,79 +46,133 @@ function readStatus(): Status {
   }
 }
 
-function safeRel(rel: string): string[] | null {
-  if (!rel || rel.startsWith("/") || rel.includes("\\") || rel.includes("\0")) return null;
-  const parts = rel.split("/");
-  return parts.every((p) => p !== "." && p !== ".." && SEGMENT.test(p)) ? parts : null;
+// The skills root must be a real directory inside the agent's home — refuse to touch anything else.
+function safeRoot(agent: "claude" | "codex"): string {
+  const root = rootFor(agent);
+  fs.mkdirSync(root, { recursive: true });
+  const st = fs.lstatSync(root);
+  if (st.isSymbolicLink() || !st.isDirectory()) throw new Error(`${root} is not a plain directory`);
+  const real = fs.realpathSync(root);
+  const home = fs.realpathSync(homeFor(agent));
+  if (!real.startsWith(home + path.sep)) throw new Error(`${root} resolves outside ${home}`);
+  return real;
 }
 
-function installOne(root: string, name: string, files: Record<string, string>): string | null {
-  if (!files["SKILL.md"]) return "no SKILL.md";
+function safeRel(rel: string): string[] | null {
+  if (typeof rel !== "string" || !rel || rel.startsWith("/") || rel.includes("\\") || rel.includes("\0")) return null;
+  const parts = rel.split("/");
+  return parts.length <= LIMITS.depth && parts.every((p) => SEGMENT.test(p)) ? parts : null;
+}
+
+// Validates a whole skill before anything touches the disk. Returns the files to write, or why not.
+function validate(files: Record<string, unknown>): { ok: [string[], string][] } | { why: string } {
+  const entries = Object.entries(files ?? {});
+  if (entries.length > LIMITS.filesPerSkill) return { why: `more than ${LIMITS.filesPerSkill} files` };
+  const skillMd = files?.["SKILL.md"];
+  if (typeof skillMd !== "string" || !skillMd.trim() || skillMd.includes("\0") || Buffer.byteLength(skillMd) > LIMITS.fileBytes) return { why: "no usable SKILL.md" };
   let total = 0;
-  const clean: [string[], string][] = [];
-  for (const [rel, text] of Object.entries(files)) {
+  const ok: [string[], string][] = [];
+  for (const [rel, text] of entries) {
     const parts = safeRel(rel);
-    if (!parts) return `unsafe path ${rel.slice(0, 80)}`;
-    if (typeof text !== "string" || text.length > FILE_CAP || text.includes("\0")) continue; // binary/huge files just don't come along
+    if (!parts) return { why: `unsafe path ${String(rel).slice(0, 80)}` };
+    if (typeof text !== "string" || text.includes("\0")) continue;
+    const bytes = Buffer.byteLength(text);
+    if (bytes > LIMITS.fileBytes) continue; // too big to be a skill text — left behind
     const hits = Object.keys(redact(text).hits).filter((k) => k !== "high-entropy");
     if (hits.length) {
-      if (rel === "SKILL.md") return `SKILL.md looks like it contains a secret (${hits.join(", ")})`;
+      if (rel === "SKILL.md") return { why: `SKILL.md looks like it contains a secret (${hits.join(", ")})` };
       continue;
     }
-    total += text.length;
-    if (total > SKILL_CAP) return "skill is over 3 MB of text";
-    clean.push([parts, text]);
+    total += bytes;
+    if (total > LIMITS.skillBytes) return { why: "over 3 MB of text" };
+    ok.push([parts, text]);
   }
-  const staging = path.join(root, ".sync-staging", name);
-  fs.rmSync(staging, { recursive: true, force: true });
-  for (const [parts, text] of clean) {
-    const f = path.join(staging, ...parts);
-    fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.writeFileSync(f, text);
+  return { ok };
+}
+
+function installOne(root: string, name: string, files: [string[], string][]) {
+  // A fresh private staging folder each time (mkdtemp can't be pre-planted as a symlink).
+  const staging = fs.mkdtempSync(path.join(root, `.stage-${name}-`));
+  try {
+    for (const [parts, text] of files) {
+      const f = path.join(staging, ...parts);
+      if (!f.startsWith(staging + path.sep)) throw new Error("path escaped staging");
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, text, { flag: "wx" });
+    }
+    fs.writeFileSync(path.join(staging, MARKER), new Date().toISOString());
+    const dest = path.join(root, name);
+    const old = path.join(root, `.old-${name}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`);
+    const had = fs.existsSync(dest);
+    if (had) fs.renameSync(dest, old);
+    try {
+      fs.renameSync(staging, dest);
+    } catch (e) {
+      if (had) fs.renameSync(old, dest); // put the working version back
+      throw e;
+    }
+    if (had) fs.rmSync(old, { recursive: true, force: true });
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
   }
-  fs.writeFileSync(path.join(staging, MARKER), new Date().toISOString());
-  const dest = path.join(root, name);
-  const old = path.join(root, ".sync-old", `${name}-${Date.now()}`);
-  if (fs.existsSync(dest)) {
-    fs.mkdirSync(path.dirname(old), { recursive: true });
-    fs.renameSync(dest, old);
+}
+
+// After a crash mid-swap: a skill missing but backed up gets its backup back; leftovers are cleared.
+function recover(root: string) {
+  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
+    if (e.name.startsWith(".stage-")) fs.rmSync(path.join(root, e.name), { recursive: true, force: true });
+    const m = e.name.match(/^\.old-(.+)-\d+-[0-9a-f]{6}$/);
+    if (m) {
+      const dest = path.join(root, m[1]);
+      if (!fs.existsSync(dest) && NAME.test(m[1])) fs.renameSync(path.join(root, e.name), dest);
+      else fs.rmSync(path.join(root, e.name), { recursive: true, force: true });
+    }
   }
-  fs.renameSync(staging, dest);
-  fs.rmSync(old, { recursive: true, force: true });
-  return null;
 }
 
 function applySkills(u: Upload) {
-  const root = rootFor(u.agent);
-  fs.mkdirSync(root, { recursive: true });
+  const root = safeRoot(u.agent);
+  recover(root);
   const status = readStatus();
-  const s = { at: new Date().toISOString(), installed: 0, removed: 0, skipped: [] as { name: string; why: string }[] };
-  for (const [name, files] of Object.entries(u.skills ?? {})) {
+  const s: AgentStatus = { at: new Date().toISOString(), installed: 0, removed: 0, skipped: [] };
+  const entries = Object.entries(u.skills ?? {});
+  if (entries.length > LIMITS.skillsPerUpload) throw new Error(`upload has more than ${LIMITS.skillsPerUpload} skills`);
+  for (const [name, files] of entries) {
     if (!NAME.test(name)) {
       s.skipped.push({ name: name.slice(0, 80), why: "bad name" });
       continue;
     }
-    const pcOnly = PC_ONLY.find((re) => re.test(name));
-    if (pcOnly) {
+    if (PC_ONLY.some((re) => re.test(name))) {
       s.skipped.push({ name, why: "needs the PC" });
       continue;
     }
-    const why = installOne(root, name, files ?? {});
-    if (why) s.skipped.push({ name, why });
-    else s.installed++;
+    const v = validate(files);
+    if ("why" in v) {
+      s.skipped.push({ name, why: v.why });
+      continue;
+    }
+    try {
+      installOne(root, name, v.ok);
+      s.installed++;
+    } catch (e) {
+      s.skipped.push({ name, why: `install failed: ${e instanceof Error ? e.message : e}` });
+    }
   }
-  // Skills this sync installed earlier and that no longer exist on the PC.
-  const onPc = new Set(Array.isArray(u.names) ? u.names : []);
-  if (onPc.size) {
+  // Skills this sync installed earlier that no longer exist on the PC — only with a complete inventory.
+  if (u.complete === true && Array.isArray(u.names)) {
+    const onPc = new Set(u.names.filter((n) => typeof n === "string"));
     for (const e of fs.readdirSync(root, { withFileTypes: true })) {
-      if (!e.isDirectory() || e.name.startsWith(".") || onPc.has(e.name)) continue;
+      if (!e.isDirectory() || !NAME.test(e.name) || onPc.has(e.name)) continue;
       if (fs.existsSync(path.join(root, e.name, MARKER))) {
         fs.rmSync(path.join(root, e.name), { recursive: true, force: true });
         s.removed++;
       }
     }
   }
-  status[u.agent] = { ...s, installed: (u.skills && Object.keys(u.skills).length ? s.installed : status[u.agent]?.installed) ?? 0 };
+  // Batches of one sync add up; a new sync (a different first batch) starts the count again.
+  const prev = status[u.agent];
+  const sameSync = prev?.at && Date.now() - new Date(prev.at).getTime() < 5 * 60_000;
+  status[u.agent] = sameSync ? { at: s.at, installed: prev.installed + s.installed, removed: prev.removed + s.removed, skipped: [...prev.skipped, ...s.skipped].slice(-200) } : s;
   fs.writeFileSync(`${STATUS()}.tmp`, JSON.stringify(status, null, 2));
   fs.renameSync(`${STATUS()}.tmp`, STATUS());
   log(u.agent, `installed ${s.installed}, removed ${s.removed}, skipped ${s.skipped.length}`);
@@ -126,7 +189,7 @@ export function syncSkillsTick() {
   for (const f of files) {
     const file = path.join(INBOX(), f);
     try {
-      const body = JSON.parse(gunzipSync(fs.readFileSync(file)).toString("utf8"));
+      const body = JSON.parse(gunzipSync(fs.readFileSync(file), { maxOutputLength: LIMITS.unpacked }).toString("utf8"));
       if (body?.kind === "skills" && (body.agent === "claude" || body.agent === "codex")) applySkills(body as Upload);
       else if (body?.kind === "manifest") {
         fs.writeFileSync(`${MANIFEST()}.tmp`, JSON.stringify({ ...body, receivedAt: new Date().toISOString() }, null, 2));
