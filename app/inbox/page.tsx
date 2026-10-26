@@ -14,7 +14,7 @@ type Group = keyof typeof GROUPS;
 
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ k?: string }> }) {
   const raw = (await searchParams)?.k ?? "all";
-  const k: Group = raw in GROUPS ? (raw as Group) : "all";
+  const k: Group = Object.hasOwn(GROUPS, raw) ? (raw as Group) : "all";
   const items = await inboxItems().catch(() => [] as InboxItem[]);
   const inGroup = (g: Group) => (GROUPS[g].kinds === null ? items : items.filter((i) => (GROUPS[g].kinds as readonly string[]).includes(i.kind)));
   const shown = inGroup(k);

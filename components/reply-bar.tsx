@@ -52,7 +52,7 @@ export function ReplyBar({
     <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-3 pb-2 lg:bottom-0 lg:left-[248px] lg:px-8 lg:pb-5">
       <div className="mx-auto max-w-3xl">
         {(notice || mic.error) && <p className="mb-1.5 px-3 text-xs text-muted" aria-live="polite">{mic.error || notice}</p>}
-        <div className="panel flex items-end gap-1.5 rounded-[26px] bg-bg-raised/90 p-1.5">
+        <div className="panel flex items-end gap-1.5 rounded-[26px] bg-bg-raised/[0.97] p-1.5 shadow-[0_-12px_32px_-12px_rgb(0_0_0/0.9)]">
           <button
             onClick={mic.toggle}
             disabled={disabled || (busy && !mic.recording)}

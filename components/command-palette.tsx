@@ -45,14 +45,19 @@ export function CommandPalette({ nav, onTalk }: { nav: Nav[]; onTalk: () => void
     setOpen(false);
     setQ("");
     setActive(0);
-    restore.current?.focus?.();
+    const el = restore.current;
+    requestAnimationFrame(() => el?.focus?.()); // after the dialog has unmounted
   }, []);
 
+  // Every dismissal goes through close(), so focus always returns to where it was.
+  const openRef = useRef(false);
+  openRef.current = open;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && !e.isComposing) {
         e.preventDefault();
-        setOpen((o) => !o);
+        if (openRef.current) close();
+        else setOpen(true);
       }
     };
     const onOpen = () => setOpen(true);
@@ -62,7 +67,7 @@ export function CommandPalette({ nav, onTalk }: { nav: Nav[]; onTalk: () => void
       window.removeEventListener("keydown", onKey);
       window.removeEventListener(OPEN_PALETTE, onOpen);
     };
-  }, []);
+  }, [close]);
 
   useEffect(() => {
     if (!open) return;
@@ -125,6 +130,7 @@ export function CommandPalette({ nav, onTalk }: { nav: Nav[]; onTalk: () => void
   if (!open) return null;
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return; // IME confirmation, not a command
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActive((a) => Math.min(items.length - 1, a + 1));
