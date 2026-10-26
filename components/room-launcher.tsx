@@ -34,7 +34,8 @@ export function RoomLauncher({ agents, repos, judgeModel }: { agents: LauncherAg
   const claudeHot = (byKey.claude?.weeklyPct ?? 0) > 70;
   const [mode, setMode] = useState<Mode>("roast");
   const [teamKind, setTeamKind] = useState<"ask" | "relay">("ask");
-  const [picked, setPicked] = useState<AgentKey[]>(() => agents.filter((a) => a.ready && !(a.agent === "claude" && claudeHot)).map((a) => a.agent));
+  // R7: Claude is opt-in for debates (it spends the same weekly limit as real coding).
+  const [picked, setPicked] = useState<AgentKey[]>(() => agents.filter((a) => a.ready && a.agent !== "claude").map((a) => a.agent));
   const [repo, setRepo] = useState(repos[0] ?? "");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -148,13 +149,21 @@ export function RoomLauncher({ agents, repos, judgeModel }: { agents: LauncherAg
                   style={on ? { boxShadow: `0 0 0 1px ${AGENT_META[a.agent].color} inset, 0 12px 30px -18px ${AGENT_META[a.agent].color}` } : undefined}
                 >
                   <AgentLogo agent={a.agent} size="lg" state={!a.ready ? "off" : a.busy ? "working" : on ? "ready" : "idle"} />
-                  <span className="min-w-0">
+                  <span className="w-full min-w-0">
                     <span className="block text-[15px] font-medium">{AGENT_LABELS[a.agent]}</span>
                     <span className="block truncate font-mono text-[10.5px] text-faint" title={a.model}>
                       {a.model}
                     </span>
                     <span className={cn("mt-1 block text-xs", a.ready ? "text-muted" : "text-warn")}>
-                      {!a.ready ? "not set up" : a.busy ? "busy · waits its turn" : a.weeklyPct !== null ? `${a.weeklyPct}% of week used` : "free model"}
+                      {!a.ready
+                        ? "not set up"
+                        : a.busy
+                          ? "busy · waits its turn"
+                          : a.weeklyPct !== null
+                            ? `${a.weeklyPct}% of week used`
+                            : a.agent === "claude" || a.agent === "codex"
+                              ? "uses your plan"
+                              : "free model"}
                     </span>
                   </span>
                   {on && (
@@ -174,7 +183,9 @@ export function RoomLauncher({ agents, repos, judgeModel }: { agents: LauncherAg
               <p>
                 Up to 3 rounds · at most <span className="tnum">{calls}</span> model calls · debaters can read the evidence but can&apos;t run tools or change anything.
               </p>
-              {claudeHot && !chosen.includes("claude") && <p className="text-faint">Claude is off by default: {byKey.claude?.weeklyPct}% of its week is used.</p>}
+              {!chosen.includes("claude") && (
+                <p className="text-faint">Claude is off by default so debates don&apos;t eat its weekly limit{claudeHot ? ` (${byKey.claude?.weeklyPct}% used)` : ""} — tap it to add.</p>
+              )}
               {sharedModel && (
                 <p className="flex items-center gap-1.5 text-warn">
                   <TriangleAlert className="h-3.5 w-3.5" /> Two debaters run the same model ({byKey[sharedModel]?.model}) — expect them to agree too easily.
