@@ -10,18 +10,19 @@ export const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data")
 export const WORK_DIR = process.env.WORK_DIR ?? path.join(DATA_DIR, "work");
 
 // A repo is its GitHub full name ("Lind-hack/383lajme"). Which repos exist is decided by the
-// GitHub token: whatever it can access shows up in the picker (lib/github.ts).
+// AGENT_REPOS allowlist, filtered by GitHub token visibility (lib/github.ts).
 export type RepoKey = string;
 
 // Extra rules for specific repos, added to the agent's brief.
 const REPO_NOTES: Record<string, string> = {
   "Lind-hack/383lajme":
-    "383lajme is the live Kosovo news site. main deploys to production on Railway automatically, so never push to main or merge — the runner opens a PR. Read CLAUDE.md and AGENTS.md first.",
+    "383lajme is the live Kosovo news site. main deploys to production on Railway automatically. Follow Lind's delivery preference in the brief, verify before publishing, and read CLAUDE.md and AGENTS.md first.",
   "Lind-hack/agent-dashboard": "This is the agent dashboard itself (Next.js 16 + runner). Read README.md first.",
+  "Lind-hack/learning-lab": "This is Lind's daily computer-science Learning Lab. Read README.md and any CLAUDE.md / AGENTS.md first. Follow Lind's delivery preference in the brief and verify the repo's deployment workflow before publishing.",
 };
 
 export const repoNotes = (repo: RepoKey) =>
-  REPO_NOTES[repo] ?? "Read the repo's CLAUDE.md / AGENTS.md / README first and follow them. Never push to or merge into the default branch — the runner opens a PR.";
+  REPO_NOTES[repo] ?? "Read the repo's CLAUDE.md / AGENTS.md / README first and follow them. Follow Lind's delivery preference in the brief and verify the repo's deployment workflow before publishing.";
 
 // Linear labels carry the short name (repo:383lajme). Older issues used these aliases.
 const REPO_ALIASES: Record<string, RepoKey> = {

@@ -33,8 +33,24 @@ scheduled on the VPS.
 The picker lists the repos in `AGENT_REPOS` (env file, comma-separated `owner/name`). To let agents
 work on another repo, add it there **and** grant it on the fine-grained `GITHUB_TOKEN` (Contents +
 Pull requests: write) — the token can read every public repo, so visibility alone proves nothing. Repo-specific rules for
-the brief live in `lib/config.ts` (`REPO_NOTES`). Agents never push the default branch; every change
-lands as a PR.
+the brief live in `lib/config.ts` (`REPO_NOTES`).
+
+The Learning dashboard is [`Lind-hack/learning-lab`](https://github.com/Lind-hack/learning-lab).
+It is explicitly included by the picker alongside the existing env allowlist, still filtered by
+GitHub token access. Setup includes it alongside `383lajme` and `agent-dashboard`. The next `deploy/update.sh` run
+adds it to an existing `AGENT_REPOS` list, preserving other entries (an unset or empty list
+starts with those three repos). Before deploying, grant `learning-lab` on the dashboard's
+fine-grained GitHub token with **Contents: write** and **Pull requests: write**. This grant
+must be made in GitHub's token settings; the deployment cannot grant itself access.
+
+## Delivery preference
+
+Lind's standing instruction (2026-10-27): feature requests include checking the change, committing,
+pushing, merging the verified change when needed, deploying through the repository's documented
+production workflow, and verifying the live result. Agents should finish this without asking for
+a second push/deploy request. The runner injects this preference into every new coding task.
+Task-specific instructions take precedence. Preserve unrelated changes and running jobs; report
+concrete delivery blockers such as missing permissions or failing checks instead of claiming success.
 
 ## Linear conventions
 

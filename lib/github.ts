@@ -3,7 +3,8 @@ import { githubToken, type RepoKey } from "./config";
 // Repos agents may work on = AGENT_REPOS (comma-separated full names), checked against what the
 // token can see. The allowlist is needed because a fine-grained token can *read* every public repo
 // and GitHub reports the owner's permissions, not the token's — so "visible" ≠ "can push".
-// To add a repo: grant it on the token AND add it to AGENT_REPOS. Cached 5 min.
+// Learning Lab is also explicitly registered here so existing installations can enable it without
+// editing their root-owned env file. GitHub token access is still required. Cached 5 min.
 
 export type RepoInfo = { name: RepoKey; base: string; private: boolean };
 
@@ -30,6 +31,7 @@ export async function listRepos(): Promise<RepoInfo[]> {
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+  if (allow.length && !allow.includes("lind-hack/learning-lab")) allow.push("lind-hack/learning-lab");
   const repos = body
     .filter((r) => r?.full_name && !r.archived && (!allow.length || allow.includes(r.full_name.toLowerCase())))
     .map((r) => ({ name: r.full_name!, base: r.default_branch ?? "main", private: !!r.private }));
