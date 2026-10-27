@@ -36,6 +36,13 @@ Pull requests: write) — the token can read every public repo, so visibility al
 the brief live in `lib/config.ts` (`REPO_NOTES`). Agents never push the default branch; every change
 lands as a PR.
 
+The Learning dashboard is [`Lind-hack/learning-lab`](https://github.com/Lind-hack/learning-lab).
+Setup includes it alongside `383lajme` and `agent-dashboard`. The next `deploy/update.sh` run
+adds it to an existing `AGENT_REPOS` list, preserving other entries (an unset or empty list
+starts with those three repos). Before deploying, grant `learning-lab` on the dashboard's
+fine-grained GitHub token with **Contents: write** and **Pull requests: write**. This grant
+must be made in GitHub's token settings; the deployment cannot grant itself access.
+
 ## Linear conventions
 
 - `agent:claude` / `agent:codex` → runs on the VPS. `agent:codex-cloud` → Codex for Linear.
