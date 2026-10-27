@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, Mic, SendHorizontal, Square } from "lucide-react";
+import { ArrowUp, LoaderCircle, Mic, Square } from "lucide-react";
 import { useRef, useState } from "react";
 import type { AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
@@ -41,7 +41,7 @@ export function ReplyBar({
   });
 
   async function send() {
-    if (!text.trim() && !picker.chips.length) return;
+    if (disabled || busy || mic.recording || (!text.trim() && !picker.chips.length)) return;
     setBusy(true);
     setNotice("");
     try {
@@ -63,7 +63,7 @@ export function ReplyBar({
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-3 pb-2 lg:bottom-0 lg:left-[248px] lg:px-8 lg:pb-5">
+    <div className="chat-reply fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-20 px-3 pb-2 lg:bottom-0 lg:left-[248px] lg:px-8 lg:pb-5">
       <div className="relative mx-auto max-w-3xl">
         <SkillMenu picker={picker} onPick={apply} id="reply-skills" />
         {(notice || mic.error) && (
@@ -94,7 +94,10 @@ export function ReplyBar({
               }}
               onKeyDown={(e) => {
                 if (picker.onKey(e, apply)) return;
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
+                if (!e.nativeEvent.isComposing && e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void send();
+                }
               }}
               onBlur={() => picker.onText("", 0)}
               rows={1}
@@ -106,15 +109,17 @@ export function ReplyBar({
               aria-controls={agent && picker.open ? "reply-skills" : undefined}
               aria-activedescendant={agent && picker.open && picker.matches.length ? `reply-skills-${picker.active}` : undefined}
               aria-label="Message"
+              name="message"
+              autoComplete="off"
               className="max-h-40 min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] outline-none [field-sizing:content] placeholder:text-faint"
             />
             <button
               onClick={send}
               disabled={disabled || busy || mic.recording || (!text.trim() && !picker.chips.length)}
               aria-label="Send"
-              className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-text text-bg transition-opacity disabled:opacity-20"
+              className="chat-send grid h-11 w-11 shrink-0 place-items-center rounded-full bg-text text-bg transition-opacity disabled:opacity-20"
             >
-              {busy && !mic.recording ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+              {busy && !mic.recording ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-5 w-5" aria-hidden />}
             </button>
           </div>
         </div>

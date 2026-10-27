@@ -2,7 +2,8 @@
 
 import { use, useEffect, useRef, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
-import { Dot } from "@/components/kit";
+import { AgentLogo } from "@/components/agent-logo";
+import { ChatEmpty } from "@/components/chat-empty";
 import { ReplyBar } from "@/components/reply-bar";
 import { ago, cn } from "@/lib/utils";
 
@@ -45,7 +46,7 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
       setError("");
       setIssue(body.issue);
       setMessages((prev) => {
-        if ((body.messages?.length ?? 0) !== prev.length) setTimeout(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), 50);
+        if ((body.messages?.length ?? 0) !== prev.length) setTimeout(() => bottom.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }), 50);
         return body.messages ?? [];
       });
     }
@@ -60,11 +61,11 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
   const lastRole = messages.at(-1)?.role;
 
   return (
-    <div className="mx-auto max-w-3xl pb-44">
-      <header className="pt-2 pb-5 lg:pt-6">
+    <div className="chat-skin chat-page mx-auto max-w-3xl pb-44" data-agent="codex-cloud">
+      <header className="chat-header pt-2 pb-5 lg:pt-6">
         <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           <span className="flex items-center gap-1.5 text-text">
-            <Dot tone="hermes" pulse={lastRole === "you"} /> Codex cloud
+            <AgentLogo agent="codex-cloud" size="sm" state={lastRole === "you" ? "working" : "ready"} /> Codex cloud
           </span>
           {issue && (
             <a href={issue.url} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-text">
@@ -77,7 +78,9 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
       </header>
       {error && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/5 px-4 py-3 text-sm text-bad">{error}</p>}
 
-      <div className="flex flex-col gap-4 text-[15px] leading-relaxed">
+      <div className="chat-thread flex flex-col gap-6 text-[15px] leading-relaxed">
+        {!issue && !error && <p role="status" className="text-sm text-muted">Loading conversation…</p>}
+        {issue && messages.length === 0 && <ChatEmpty agent="codex-cloud" />}
         {messages.map((m, i) =>
           m.role === "status" ? (
             <p key={i} className="text-xs text-faint">
@@ -87,8 +90,8 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
             <div
               key={i}
               className={cn(
-                "max-w-[85%] whitespace-pre-wrap px-4 py-2.5",
-                m.role === "you" ? "self-end rounded-[20px] rounded-br-md bg-white/[0.08]" : "panel self-start rounded-[20px] rounded-bl-md",
+                "min-w-0 whitespace-pre-wrap px-4 py-2.5",
+                m.role === "you" ? "chat-user max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08]" : "chat-answer panel w-full self-start",
               )}
             >
               <Text text={m.text} />
@@ -96,8 +99,8 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
             </div>
           ),
         )}
-        {lastRole === "you" && <p className="animate-pulse text-xs text-muted">waiting for Codex…</p>}
-        <div ref={bottom} />
+        {lastRole === "you" && <p role="status" className="text-xs text-muted">Waiting for Codex…</p>}
+        <div ref={bottom} className="scroll-mb-[calc(170px+env(safe-area-inset-bottom))] lg:scroll-mb-32" />
       </div>
 
       <ReplyBar

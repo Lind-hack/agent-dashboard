@@ -303,6 +303,160 @@ body::before {
     0 -12px 32px -12px rgb(0 0 0 / 0.9);
 }
 
+/* Chat surfaces have their own palette; the surrounding OS keeps its instrument colours.
+   Claude: warm charcoal, paper-like messages and an editorial serif.
+   Codex (local and cloud): neutral graphite, sans text and a quiet command surface. */
+.chat-skin[data-agent="claude"] {
+  --color-bg: #262624;
+  --color-bg-raised: #30302e;
+  --color-text: #f0eee5;
+  --color-muted: #b5b3ab;
+  --color-faint: #aaa89f;
+  --color-line: #45453f;
+  --color-line-hi: #6b6960;
+  --chat-accent: #e5a184;
+  --chat-user: #3b3b36;
+  --chat-serif: Georgia, "Times New Roman", serif;
+  --chat-radius: 18px;
+}
+.chat-skin[data-agent="codex"],
+.chat-skin[data-agent="codex-cloud"] {
+  --color-bg: #202020;
+  --color-bg-raised: #292929;
+  --color-text: #ececec;
+  --color-muted: #b4b4b4;
+  --color-faint: #a6a6a6;
+  --color-line: #414141;
+  --color-line-hi: #686868;
+  --chat-accent: #ececec;
+  --agent: var(--chat-accent);
+  --chat-user: #303030;
+  --chat-radius: 24px;
+}
+.chat-page {
+  min-height: calc(100dvh - 100px);
+  padding-inline: clamp(1rem, 3vw, 2.5rem);
+  border: 1px solid var(--color-line);
+  border-radius: 24px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.chat-header {
+  padding-top: 1.5rem;
+  padding-bottom: 1.75rem;
+}
+.chat-header h1 {
+  overflow-wrap: anywhere;
+}
+.chat-skin[data-agent="claude"] .chat-header h1,
+.chat-skin[data-agent="claude"] .chat-empty h2 {
+  font-family: var(--chat-serif);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+}
+.chat-thread {
+  overflow-wrap: anywhere;
+}
+.chat-skin[data-agent="claude"] :is(.chat-answer, .chat-prose) {
+  font-family: var(--chat-serif);
+  font-size: 1.0625rem;
+  line-height: 1.8;
+}
+.chat-skin :is(.chat-answer, .chat-prose) pre {
+  max-width: 100%;
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-line);
+  overflow-wrap: normal;
+}
+.chat-skin :is(.chat-answer, .chat-prose) a,
+.chat-skin .chat-thread a {
+  color: var(--agent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chat-answer {
+  min-width: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0.25rem 0 0;
+}
+.chat-answer-rule {
+  display: none;
+}
+.chat-answer-actions {
+  font-family: var(--font-sans);
+}
+.chat-user {
+  background: var(--chat-user, var(--color-panel-hi));
+  border-radius: var(--chat-radius, 20px);
+  box-shadow: none;
+  overflow-wrap: anywhere;
+  padding: 0.875rem 1.125rem;
+}
+.chat-skin .chat-speaker {
+  margin-top: 0.5rem;
+}
+.chat-skin .agent-tile {
+  background: var(--color-bg-raised);
+  box-shadow: 0 0 0 1px var(--color-line) inset;
+}
+.chat-skin[data-agent="claude"] .agent-tile {
+  --color-claude: var(--agent);
+}
+.chat-skin .reply-panel {
+  background: var(--color-bg-raised);
+  border: 1px solid var(--color-line-hi);
+  border-radius: var(--chat-radius, 26px);
+  box-shadow: 0 8px 28px -16px rgb(0 0 0 / 0.5);
+}
+.chat-skin .reply-panel:focus-within {
+  border-color: var(--agent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--agent), transparent 80%);
+}
+.chat-reply {
+  background: linear-gradient(transparent, var(--color-bg) 40%);
+  padding-top: 1.25rem;
+}
+.chat-skin[data-agent="claude"] .chat-send {
+  background: #c47759;
+  color: #fff;
+  border-radius: 12px;
+}
+.chat-skin .chat-send:enabled:hover {
+  filter: brightness(1.15);
+}
+.chat-skin .chat-send:enabled:active {
+  transform: scale(0.96);
+}
+.chat-skin :focus-visible {
+  outline-color: var(--agent);
+}
+.chat-skin textarea:focus-visible {
+  outline: none; /* The containing reply-panel supplies the focus ring. */
+}
+.chat-compose {
+  border: 1px solid var(--color-line);
+  border-radius: 24px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: 1.25rem;
+}
+@media (max-width: 639px) {
+  .chat-page {
+    margin-inline: -0.5rem;
+    border-radius: 18px;
+    padding-inline: 1rem;
+  }
+  .chat-header h1 {
+    font-size: 1.5rem;
+  }
+  .chat-compose {
+    padding: 1rem;
+  }
+}
+
 /* The working line: a light travels along a hairline in the agent's colour while it works. */
 .live-trace {
   position: relative;

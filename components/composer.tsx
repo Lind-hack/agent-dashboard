@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, GitBranch, LoaderCircle, Mic, SendHorizontal, Square } from "lucide-react";
+import { ArrowUp, Check, GitBranch, LoaderCircle, Mic, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
@@ -96,7 +96,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
   const mic = useRecorder((audio) => void send(audio));
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="chat-skin chat-compose flex flex-col gap-5" data-agent={agent} style={{ ["--agent" as string]: `var(--chat-accent, ${AGENT_HEX[agent]})` }}>
       <div role="radiogroup" aria-label="Agent" className="-mx-1 flex gap-1.5 overflow-x-auto rounded-[16px] border border-line bg-white/[0.02] p-1.5">
         {AGENTS.map((a) => {
           const on = agent === a.key;
@@ -172,7 +172,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
 
       <div className="relative">
       <SkillMenu picker={picker} onPick={apply} id="composer-skills" />
-      <div className="rounded-[18px] border border-line bg-white/[0.02] p-2 focus-within:border-line-hi">
+      <div className="reply-panel rounded-[18px] border border-line bg-white/[0.02] p-2 focus-within:border-line-hi">
         <SkillChips picker={picker} />
         <div className="flex items-end gap-2">
         <textarea
@@ -190,6 +190,8 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
           onBlur={() => picker.onText("", 0)}
           rows={2}
           aria-label="Message"
+          name="message"
+          autoComplete="off"
           role={tracked ? undefined : "combobox"}
           aria-autocomplete={tracked ? undefined : "list"}
           aria-expanded={tracked ? undefined : picker.open}
@@ -202,9 +204,9 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
           onClick={() => send()}
           disabled={busy || mic.recording || (!text.trim() && !picker.chips.length) || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label="Send"
-          className="grid h-10 w-10 place-items-center rounded-[12px] bg-text text-bg transition-opacity disabled:opacity-25"
+          className="chat-send grid h-11 w-11 shrink-0 place-items-center rounded-full bg-text text-bg transition-opacity disabled:opacity-25"
         >
-          <SendHorizontal className="h-4 w-4" />
+          <ArrowUp className="h-5 w-5" aria-hidden />
         </button>
         </div>
       </div>

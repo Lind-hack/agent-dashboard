@@ -2,6 +2,7 @@
 
 import { Archive, ArrowDown, ArrowUpRight, Check, ChevronDown, Copy, FilePen, FileText, GitBranch, Globe, Play, Plug, Search, Square, SquareTerminal, Volume2, VolumeX, Wrench } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ChatEmpty } from "@/components/chat-empty";
 import { AgentLogo } from "@/components/agent-logo";
 import { Md } from "@/components/md";
 import { StatusPill } from "@/components/kit";
@@ -140,20 +141,23 @@ function Listen({ text, agent, id }: { text: string; agent: TaskAgent; id: strin
 }
 
 function CopyText({ text }: { text: string }) {
-  const [done, setDone] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   return (
     <button
-      onClick={() => {
-        void navigator.clipboard?.writeText(text).then(() => {
-          setDone(true);
-          setTimeout(() => setDone(false), 1400);
-        });
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setState("copied");
+        } catch {
+          setState("failed");
+        }
+        setTimeout(() => setState("idle"), 2000);
       }}
       aria-label="Copy answer"
       className="flex h-8 items-center gap-1.5 rounded-[9px] px-2.5 text-xs text-muted transition-colors hover:bg-white/5 hover:text-text"
     >
-      {done ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
-      {done ? "Copied" : "Copy"}
+      {state === "copied" ? <Check className="h-3.5 w-3.5" aria-hidden /> : <Copy className="h-3.5 w-3.5" aria-hidden />}
+      <span aria-live="polite">{state === "copied" ? "Copied" : state === "failed" ? "Copy failed — try again" : "Copy"}</span>
     </button>
   );
 }
@@ -161,9 +165,9 @@ function CopyText({ text }: { text: string }) {
 // Who's talking: the agent's mark and name at the start of each of its turns.
 function Speaker({ agent }: { agent: TaskAgent }) {
   return (
-    <p className="-mb-1.5 flex items-center gap-2">
+    <p className="chat-speaker -mb-1.5 flex items-center gap-2">
       <AgentLogo agent={agent} size="xs" />
-      <span className="hud-label !text-[10px]" style={{ color: "color-mix(in oklab, var(--agent), white 25%)" }}>
+      <span className="text-xs font-medium" style={{ color: "var(--agent)" }}>
         {AGENT_LABELS[agent]}
       </span>
     </p>
@@ -236,7 +240,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
     const fresh = arrived.current;
     if (!fresh.length) return;
     arrived.current = [];
-    if (nearBottom.current) requestAnimationFrame(() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }));
+    if (nearBottom.current) requestAnimationFrame(() => bottom.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "end" }));
     else setBelow((b) => b + fresh.length);
     if (readAloud) {
       fresh.forEach((e, k) => {
@@ -261,8 +265,8 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
   const lastStep = [...log].reverse().find((e) => e.kind === "tool")?.text;
 
   return (
-    <div className="chat-skin mx-auto max-w-3xl pb-44" style={{ ["--agent" as string]: AGENT_HEX[agent] }}>
-      <header className="pt-2 pb-5 lg:pt-6">
+    <div className="chat-skin chat-page mx-auto max-w-3xl pb-44" data-agent={agent} style={{ ["--agent" as string]: `var(--chat-accent, ${AGENT_HEX[agent]})` }}>
+      <header className="chat-header pt-2 pb-5 lg:pt-6">
         <div className="mb-4 flex items-center gap-3">
           <AgentLogo agent={agent} size="md" state={job.status === "running" ? "working" : job.status === "closed" ? "idle" : "ready"} />
           <div className="min-w-0 flex-1 leading-tight">
@@ -356,8 +360,8 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
       {job.imported && tab === "context" && <ContextPanel jobId={job.id} dossierState={job.imported.dossier} />}
       {job.imported && tab === "earlier" && <EarlierOnPc jobId={job.id} Tools={Tools} />}
 
-      <div className={cn("flex flex-col gap-4 text-[15px] leading-relaxed", job.imported && tab !== "chat" && "hidden")}>
-        {blocks.length === 0 && !running && !preparing && <p className="text-sm text-muted">{AGENT_PERSONA[agent].idle}</p>}
+      <div className={cn("chat-thread flex flex-col gap-6 text-[15px] leading-relaxed", job.imported && tab !== "chat" && "hidden")}>
+        {blocks.length === 0 && !running && !preparing && <ChatEmpty agent={agent} />}
         {blocks.map((b, i) => {
           const fresh = dropped + b.at >= initialLog.length ? "msg-in" : undefined; // arrived while you watched
           const prev = blocks[i - 1];
@@ -374,7 +378,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
           if (b.kind === "start") return <p key={dropped + b.at} className={cn("hud-label pt-2 text-center !text-[9.5px]", fresh)}>{b.text}</p>;
           if (b.kind === "you")
             return (
-              <div key={dropped + b.at} className={cn("max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08] px-4 py-2.5 whitespace-pre-wrap shadow-[0_1px_0_rgb(255_255_255/0.05)_inset]", fresh)}>
+              <div key={dropped + b.at} className={cn("chat-user max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08] px-4 py-2.5 whitespace-pre-wrap shadow-[0_1px_0_rgb(255_255_255/0.05)_inset]", fresh)}>
                 <HighlightSkills text={b.text} />
               </div>
             );
@@ -388,10 +392,10 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             return (
               <div key={dropped + b.at} className={cn("flex flex-col gap-3", fresh)}>
                 {head}
-                <div className="panel relative overflow-hidden px-4 pt-3.5 pb-1.5">
-                  <span className="absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, color-mix(in oklab, var(--agent), transparent 30%), transparent)" }} aria-hidden />
+                <div className="chat-answer panel relative px-4 pt-3.5 pb-1.5">
+                  <span className="chat-answer-rule absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, color-mix(in oklab, var(--agent), transparent 30%), transparent)" }} aria-hidden />
                   <Md text={b.text} />
-                  <div className="-mx-1.5 mt-2 flex items-center gap-0.5 border-t border-line pt-1.5">
+                  <div className="chat-answer-actions -mx-1.5 mt-2 flex items-center gap-0.5 border-t border-line pt-1.5">
                     <Listen text={b.text} agent={agent} id={`${job.id}:${dropped + b.at}`} />
                     <CopyText text={b.text} />
                     {typeof b.cost === "number" && b.cost > 0 && <span className="tnum ml-auto pr-1.5 font-mono text-[10.5px] text-faint">${b.cost.toFixed(2)}</span>}
@@ -400,7 +404,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
               </div>
             );
           return (
-            <div key={dropped + b.at} className={cn("flex flex-col gap-3 text-text/90", fresh)}>
+            <div key={dropped + b.at} className={cn("chat-prose flex flex-col gap-3 text-text/90", fresh)}>
               {head}
               <Md text={b.text} />
             </div>
@@ -424,7 +428,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
 
       {below > 0 && (
         <button
-          onClick={() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" })}
+          onClick={() => bottom.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "end" })}
           className="msg-in fixed bottom-[calc(140px+env(safe-area-inset-bottom))] left-1/2 z-20 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full border border-[color-mix(in_oklab,var(--agent),transparent_55%)] bg-bg-raised/95 px-3.5 text-xs shadow-[0_10px_30px_-12px_rgb(0_0_0/0.9)] backdrop-blur lg:bottom-28 lg:left-[calc(50%+124px)]"
         >
           <ArrowDown className="h-3.5 w-3.5" style={{ color: "var(--agent)" }} aria-hidden /> New from {agentName}

@@ -36,7 +36,7 @@ export function Md({ text }: { text: string }) {
       {blocks.map((b, bi) => {
         if (b.startsWith("```")) {
           return (
-            <pre key={bi} className="overflow-x-auto rounded-xl bg-black/40 p-3 font-mono text-[12.5px] leading-relaxed text-muted">
+            <pre key={bi} tabIndex={0} aria-label="Code block" className="overflow-x-auto rounded-xl bg-black/40 p-3 font-mono text-[12.5px] leading-relaxed text-muted">
               {b.replace(/^```\w*\n?/, "").replace(/\n?```$/, "")}
             </pre>
           );
