@@ -73,3 +73,52 @@ journalctl -u agent-dashboard-runner -f
 - No Claude/Codex login inside the web app — the dashboard drives the official CLIs on our own
   server, and Codex cloud through Linear.
 - Chats that live only on the PC can't be joined; hand them off, or use Claude Code Remote Control.
+
+## Automatic chat memory
+
+In **Settings → Memory**, turn on **Automatically capture chat memory**. It defaults to off and
+includes existing accessible history when enabled. Turning it off stops new chat uploads and pauses
+queued chat summaries and the weekly synthesis; existing vault pages are kept. A summary request
+already sent to the model cannot be recalled. Graph reports and the nightly GitHub feed keep their
+existing behavior.
+
+The runner checks every five minutes for chats quiet for at least 20 minutes. The existing PC brain
+collector runs every two hours while the PC is on, updates itself from the dashboard, and reads the
+same setting before reading chat content. It skips chats if the policy cannot be fetched. Both use
+per-chat checkpoints and retry failed work. Summaries live in `wiki/sources/chats/` in the Syncthing
+vault and become searchable on `/memory` (the search index refreshes within ten minutes). Each page
+keeps its origin and covers discussions, decisions, fixes, annoyances, and **unvalidated proposals**
+for businesses or upgrades, including beneficiaries, a possible business model, and a validation
+step. Weekly synthesis connects recurring problems and ideas with source links.
+
+Requirements:
+
+- VPS: writable `MEMORY_VAULT_DIR`, `NVIDIA_API_KEY`, running runner, and `BRAIN_ENABLED` other than `0`.
+  Redacted chat text is sent to NVIDIA Nemotron for summaries; the existing weekly pass uses Codex.
+  Collection errors appear in Memory's brain status.
+- PC: existing `handoff/brain-collect.mjs` installation in `~/.agent-dashboard/`, Node 24+, and
+  `handoff.env` with `HANDOFF_TOKEN` and `AGENT_DASHBOARD_URL`. On Windows, run
+  `node ~/.agent-dashboard/brain-collect.mjs --install` once to register its scheduled task.
+  On Linux/macOS, schedule the same script yourself (for example, every two hours with cron).
+- Claude and Codex: local JSONL histories in their normal homes. `CLAUDE_CONFIG_DIR` and `CODEX_HOME`
+  overrides are respected. The VPS also captures dashboard turns for all four agents, including
+  failed turns and handoffs.
+- OpenCode: installed CLI on `PATH` (or `OPENCODE_BIN`); uses
+  [`session list --format json` and `export`](https://opencode.ai/docs/cli/), across projects.
+- Hermes: readable default profile's [`state.db`](https://github.com/NousResearch/hermes-agent/blob/main/website/docs/developer-guide/session-storage.md)
+  and Python 3 with sqlite3 (`MEMORY_PYTHON_BIN` overrides the executable). `HERMES_HOME` or
+  `MEMORY_HERMES_DB` selects a different profile/store. Run a collector in each account/container
+  with its own history, or explicitly expose a readable store; the runner does not gain privileges
+  to read another account's files.
+- Cloud: connected Codex for Linear issues are collected through the existing conversation bridge,
+  with all issue-list pages visited. That bridge currently reads up to 50 comments, 10 agent sessions,
+  and 40 activities per session. Chats available only in Claude.ai, ChatGPT, or another cloud account
+  are not readable through the dashboard's credentials; they need a local transcript/export or an
+  additional service integration. There is no browser scraping or implicit access to those accounts.
+
+Collector text is condensed and secret patterns are redacted before upload and again on ingestion.
+Redaction is best-effort, not a guarantee that every sensitive phrase is detected. To inspect the
+PC run, use `node ~/.agent-dashboard/brain-collect.mjs --dry-run` or `--status`.
+
+Feature checks: `node --import tsx --test tests/*.test.ts` and
+`node --import tsx handoff/test-redact.mjs`, plus `npm run typecheck` and `npm run build`.

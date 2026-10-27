@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { redact } from "./redact";
 import { DATA_DIR } from "./config";
 
 // The brain: everything Lind does with agents, crystallized into the Obsidian vault. The PC collector
@@ -29,6 +30,8 @@ export const ITEM_KEY = (i: Pick<BrainItem, "kind" | "id">) => `${i.kind}-${i.id
 
 // Latest version wins: a chat uploaded again before it was processed just replaces the queued copy.
 export function queueBrainItem(item: BrainItem) {
+  item = { ...item, title: redact(item.title).text, project: redact(item.project).text,
+    text: redact(item.text).text, source: item.source ? redact(item.source).text : undefined };
   fs.mkdirSync(brainInbox(), { recursive: true });
   const file = path.join(brainInbox(), `${ITEM_KEY(item)}.json`);
   fs.writeFileSync(`${file}.tmp`, JSON.stringify(item));

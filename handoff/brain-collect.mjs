@@ -33,7 +33,7 @@ const loadLibs = async () => ({
 // Used by the self-update: a staged new version must at least load with its libs before it's swapped in.
 if (process.argv.includes("--self-test")) {
   const l = await loadLibs();
-  const ok = ["redact", "parseTranscript", "condense", "titleOf"].every((k) => typeof l[k] === "function");
+  const ok = ["redact", "parseTranscript", "condense", "titleOf", "databaseChats"].every((k) => typeof l[k] === "function");
   console.log(ok ? "self-test ok" : "self-test: missing exports");
   process.exit(ok ? 0 : 1);
 }
@@ -42,8 +42,8 @@ const HOME = os.homedir();
 const STATE_DIR = path.join(HOME, ".agent-dashboard");
 const STATE_FILE = path.join(STATE_DIR, "brain-state.json");
 const LOG_FILE = path.join(STATE_DIR, "brain-collect.log");
-const CLAUDE_PROJECTS = path.join(HOME, ".claude", "projects");
-const CODEX_SESSIONS = path.join(HOME, ".codex", "sessions");
+const CLAUDE_PROJECTS = path.join(process.env.CLAUDE_CONFIG_DIR ?? path.join(HOME, ".claude"), "projects");
+const CODEX_SESSIONS = path.join(process.env.CODEX_HOME ?? path.join(HOME, ".codex"), "sessions");
 const QUIET_MS = 20 * 60_000;
 const MAX_UPLOADS = Number(process.env.BRAIN_MAX_UPLOADS ?? 60); // per run; the rest go next run
 const TEXT_CAP = 3_500_000;
@@ -191,7 +191,7 @@ if (sameDir(fileURLToPath(new URL(".", import.meta.url)), STATE_DIR) && !flag("n
   }
 }
 
-const { redact, parseTranscript, condense, titleOf } = await loadLibs();
+const { redact, parseTranscript, condense, titleOf, databaseChats } = await loadLibs();
 
 const state = (() => {
   try {
@@ -239,12 +239,27 @@ function projectOf(cwd) {
 
 const capText = (t) => (t.length <= TEXT_CAP ? t : `${t.slice(0, TEXT_CAP * 0.25)}\n\n…(middle of a very long chat omitted)…\n\n${t.slice(-TEXT_CAP * 0.75)}`);
 
+// Fetch policy before reading chat content. Fail closed, including when offline.
+let captureEnabled = false;
+try {
+  const res = await fetch(`${BASE}/api/memory/settings`, { headers: { Authorization: `Bearer ${env.HANDOFF_TOKEN}` }, signal: AbortSignal.timeout(15_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  captureEnabled = (await res.json()).enabled === true;
+} catch (e) { out(`Chat capture policy unavailable; skipping chats: ${e.message}`); }
+if (!captureEnabled) out("Automatic chat memory is off; chat content will not be read or uploaded.");
+if (captureEnabled && state.captureVersion !== 1) {
+  // Older collectors marked short/single-turn chats as skipped. Backfill those too on opt-in.
+  for (const f of Object.keys(state.files)) if (f.endsWith(".jsonl")) delete state.files[f];
+  state.captureVersion = 1;
+}
+
+
 // ---------- candidates ----------
 
-const chats = [
+const chats = captureEnabled ? [
   ...walk(CLAUDE_PROJECTS, 1, (n) => n.endsWith(".jsonl")).map((f) => ({ f, agent: "claude" })),
   ...walk(CODEX_SESSIONS, 3, (n) => n.startsWith("rollout-") && n.endsWith(".jsonl")).map((f) => ({ f, agent: "codex" })),
-];
+] : [];
 const graphs = [path.join(HOME, "Desktop"), path.join(HOME, "Documents")].flatMap((d) => walk(d, 4, (n, p) => n === "GRAPH_REPORT.md" && p.includes(`graphify-out`)));
 
 const todo = [];
@@ -303,12 +318,8 @@ for (const t of todo) {
       }
       const items = parseTranscript(raw, t.agent);
       const said = items.filter((i) => i.role === "you");
-      const userChars = said.reduce((n, i) => n + i.text.length, 0);
-      // `claude -p` / `codex exec` with a single prompt is a pipeline run (383's article editor etc.),
-      // not a conversation. Resumed ones (the Telegram bridge) have several prompts and are kept.
-      const scripted = /"entrypoint":"sdk-|"originator":"codex_exec"/.test(raw.slice(0, 20000));
-      if (userChars < 200 || !items.some((i) => i.role === "agent") || (scripted && said.length < 2)) {
-        mark(); // trivial, scripted, or a run that never answered
+      if (!said.length || !items.some((i) => i.role === "agent")) {
+        mark(); // no dialogue yet
         skipped++;
         continue;
       }
@@ -319,7 +330,7 @@ for (const t of todo) {
       const times = items.map((i) => i.at).filter(Boolean);
       item = {
         kind: "chat",
-        id,
+        id, // retain existing vault page identities for Claude/Codex
         agent: t.agent,
         title: titleOf(items),
         project: projectOf(cwds.at(-1) ?? ""),
@@ -334,6 +345,7 @@ for (const t of todo) {
       sent++;
       continue;
     }
+    item = { ...item, title: redact(item.title).text, project: redact(item.project).text, source: redact(item.source).text };
     await api("ingest", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: zlib.gzipSync(Buffer.from(JSON.stringify(item))) });
     mark();
     saveState();
@@ -344,7 +356,28 @@ for (const t of todo) {
   }
 }
 if (!flag("dry-run")) saveState();
-out(`brain-collect: ${flag("dry-run") ? "would send" : "sent"} ${sent}, skipped ${skipped} trivial/sub-agent, ${failed} failed, ${redactions} secrets redacted${todo.length - sent - skipped - failed > 0 ? `, ${todo.length - sent - skipped - failed} left for the next run` : ""}`);
+out(`brain-collect: ${flag("dry-run") ? "would send" : "sent"} ${sent}, skipped ${skipped} empty/sub-agent, ${failed} failed, ${redactions} secrets redacted${todo.length - sent - skipped - failed > 0 ? `, ${todo.length - sent - skipped - failed} left for the next run` : ""}`);
+
+// Additional local stores share the same opt-in and acknowledge only successful uploads.
+if (captureEnabled) {
+  state.databases ??= {};
+  const seen = flag("dry-run") ? { ...state.databases } : state.databases;
+  for await (const chat of databaseChats(seen, (source, message) => out(`  ✗ ${source}: ${message}`))) {
+    if (sent >= MAX_UPLOADS) break;
+    const item = { ...chat, id: `pc-${crypto.createHash("sha256").update(os.hostname() + chat.id).digest("hex").slice(0, 32)}`, text: redact(chat.text).text, title: redact(chat.title).text, project: redact(chat.project).text, source: redact(chat.source).text };
+    if (flag("dry-run")) out(`  would send ${item.agent}: ${item.title.slice(0, 80)}`);
+    else {
+      try {
+        await api("ingest", { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: zlib.gzipSync(Buffer.from(JSON.stringify(item))) });
+      } catch (e) {
+        out(`  ✗ ${item.agent} upload: ${e.message}`);
+        break; // leave this cursor untouched, retry on the next run
+      }
+    }
+    sent++;
+  }
+  if (!flag("dry-run")) saveState();
+}
 
 // ---------- skills + manifest (PLAN-v2 R21) ----------
 // Your Claude and Codex skill folders go to the VPS agents (text files only, structure kept), plus a

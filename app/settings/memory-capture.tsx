@@ -28,7 +28,7 @@ export function MemoryCapture({ enabled, blocked }: { enabled: boolean; blocked?
         <button type="button" role="switch" aria-checked={on} aria-labelledby="memory-capture-label" disabled={busy} onClick={toggle} className="min-h-11 min-w-20 rounded-lg border border-line px-4 text-sm disabled:opacity-50">{busy ? "Saving…" : on ? "On" : "Off"}</button>
       </div>
       <p className="text-sm text-muted">Summarize discussions, fixes and annoyances from Claude, Codex, OpenCode and Hermes on the VPS and PC, plus Codex cloud chats connected through Linear. Generate business and upgrade ideas as proposals with next steps.</p>
-      <p className="text-xs text-faint">Opt-in. Existing history is included. After 20 minutes of inactivity, redacted chat text is sent to NVIDIA for summaries in your synced Obsidian vault. PC capture needs the installed brain collector; other cloud-only chats need a local export. Turning this off pauses queued chats and keeps saved memories.</p>
+      <p className="text-xs text-faint">Opt-in. Existing history is included. After 20 minutes of inactivity, redacted chat text is sent to NVIDIA for summaries in your synced Obsidian vault. PC capture needs the installed brain collector; other cloud-only chats need a local export. Turning this off pauses queued chats and keeps saved memories. Model requests already sent may finish.</p>
       {blocked && <p className="text-xs text-warn">{blocked}</p>}
       {error && <p role="alert" className="text-sm text-bad">{error}</p>}
       <a href="/memory" className="inline-block text-sm text-command">View memory and collection status →</a>

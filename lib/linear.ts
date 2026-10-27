@@ -117,6 +117,22 @@ export async function agentIssues(agent: TaskAgent, first = 30): Promise<LinearI
   return data.issues?.nodes ?? [];
 }
 
+// Memory backfill follows every page rather than silently dropping older cloud chats.
+export async function* cloudMemoryIssues(): AsyncGenerator<LinearIssue> {
+  let after: string | null = null;
+  do {
+    const data: { issues: { nodes: LinearIssue[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } } } = await gql(
+      `query($label: String!, $after: String) {
+        issues(first: 50, after: $after, orderBy: updatedAt, filter: { labels: { name: { eq: $label } } }) {
+          nodes { ${ISSUE_FIELDS} } pageInfo { hasNextPage endCursor }
+        }
+      }`, { label: LABELS.agent("codex-cloud"), after },
+    );
+    for (const issue of data.issues.nodes) yield issue;
+    after = data.issues.pageInfo.hasNextPage ? data.issues.pageInfo.endCursor : null;
+  } while (after);
+}
+
 // Every recent issue, agent or not — the Memory page searches these.
 // Plain fields only: labels on 150 issues push the query over Linear's complexity limit.
 export async function recentIssues(first = 150) {

@@ -7,6 +7,10 @@ import { ago } from "@/lib/utils";
 const LABEL: Record<string, string> = {
   "claude-chats": "Claude chats",
   "codex-chats": "Codex chats",
+  "opencode-chats": "OpenCode chats",
+  "hermes-chats": "Hermes chats",
+  "vps-chats": "VPS local chats",
+  "codex-cloud": "Codex cloud",
   graphify: "Code graphs",
   github: "GitHub commits",
   dashboard: "Dashboard chats",
@@ -28,7 +32,7 @@ export function BrainStrip({ status }: { status: BrainStatus }) {
         </span>
       </div>
       {rows.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-muted">Writes every chat, commit and graph into the Obsidian vault. Starts once the PC collector sends its first chats.</p>
+        <p className="px-4 py-3 text-sm text-muted">Chat summaries go into the Obsidian vault when automatic capture is enabled in Settings. Commits and graphs have their own collection feeds.</p>
       ) : (
         <ul>
           {rows.map(([k, s]) => (
