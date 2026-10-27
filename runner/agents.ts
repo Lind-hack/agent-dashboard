@@ -205,7 +205,8 @@ function opencodeDebateConfig(): string {
 }
 function command(agent: AgentKey, prompt: string, resume?: string, readonly = false): { bin: string; args: string[]; parser: Parser } {
   if (agent === "opencode") {
-    const args = ["run", "--format", "json", ...(readonly ? [] : ["--auto"]), "-m", opencodeModel()];
+    // Some provider failures are logged only to stderr; `run` can stay alive without a JSON error.
+    const args = ["run", "--format", "json", "--print-logs", "--log-level", "ERROR", ...(readonly ? [] : ["--auto"]), "-m", opencodeModel()];
     if (resume) args.push("--session", resume);
     args.push(prompt);
     return { bin: opencodeBin(), args, parser: opencodeParser(resume) };
@@ -252,10 +253,52 @@ export function runAgent(opts: {
     opts.onChild(child);
     let buf = "";
     let stderr = "";
+    let stderrBuf = "";
+    let failure: string | undefined;
+    let forceKill: ReturnType<typeof setTimeout> | undefined;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const stop = (message: string) => {
+      if (failure) return;
+      failure = message;
+      opts.onEvent({ kind: "error", text: message });
+      killTree(child);
+      forceKill = setTimeout(() => killTree(child, "SIGKILL"), 5000);
+    };
+    const resetIdle = () => {
+      if (opts.agent !== "opencode" || failure) return;
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => stop("OpenCode produced no progress for 3 min. The provider may be unavailable or retrying; try again later."), 3 * 60_000);
+    };
+    resetIdle();
+
+    const onLine = (line: string) => {
+      if (!line.trim()) return;
+      try {
+        const event = JSON.parse(line);
+        parser.onLine(event, opts.onEvent);
+        resetIdle();
+        // OpenCode can also hang after emitting a terminal JSON error.
+        if (opts.agent === "opencode" && parser.finish()?.ok === false) {
+          stop(parser.finish()!.result);
+        }
+      } catch {
+        // not a JSON event line
+      }
+    };
+    const onStderrLine = (line: string) => {
+      if (opts.agent !== "opencode") return;
+      // Only inspect CLI provider diagnostics, never tool output or arbitrary model text.
+      if (!/\bERROR\b/.test(line) || !/\bproviderID=opencode\b/.test(line) || !/message="stream error"/.test(line)) return;
+      // Title generation is a separate request and must not fail a successful coding turn.
+      if (/\bsmall=true\b/.test(line)) return;
+      if (/Free usage limit reached/i.test(line)) {
+        stop("OpenCode's free usage limit has been reached. No paid fallback was used. Try again when the provider's quota resets, or choose another agent.");
+      }
+    };
 
     const timer = setTimeout(() => {
-      opts.onEvent({ kind: "error", text: `Timed out after ${Math.round(limit / 60_000)} min` });
-      killTree(child);
+      stop(`Timed out after ${Math.round(limit / 60_000)} min`);
     }, limit);
 
     child.stdout!.on("data", (chunk: Buffer) => {
@@ -264,19 +307,26 @@ export function runAgent(opts: {
       while ((nl = buf.indexOf("\n")) >= 0) {
         const line = buf.slice(0, nl).trim();
         buf = buf.slice(nl + 1);
-        if (!line) continue;
-        try {
-          parser.onLine(JSON.parse(line), opts.onEvent);
-        } catch {
-          // not a JSON event line
-        }
+        onLine(line);
       }
     });
     child.stderr!.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString()).slice(-4000);
+      stderrBuf += chunk.toString();
+      let nl: number;
+      while ((nl = stderrBuf.indexOf("\n")) >= 0) {
+        onStderrLine(stderrBuf.slice(0, nl));
+        stderrBuf = stderrBuf.slice(nl + 1);
+      }
+      stderrBuf = stderrBuf.slice(-8000);
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      onLine(buf);
+      onStderrLine(stderrBuf);
+      clearTimeout(idleTimer);
+      clearTimeout(forceKill);
+      if (failure) return resolve({ ok: false, sessionId: parser.sessionId(), result: failure });
       const final = parser.finish();
       // A parsed result only counts if the CLI also exited cleanly.
       if (final && code === 0) return resolve(final);
@@ -289,6 +339,8 @@ export function runAgent(opts: {
     });
     child.on("error", (err) => {
       clearTimeout(timer);
+      clearTimeout(idleTimer);
+      clearTimeout(forceKill);
       const msg = `Could not start ${opts.agent}: ${err.message}`;
       opts.onEvent({ kind: "error", text: msg }); // otherwise a failed start leaves nothing in the chat
       resolve({ ok: false, sessionId: parser.sessionId(), result: msg });

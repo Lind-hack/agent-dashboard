@@ -54,6 +54,14 @@ lands as a PR.
   `sudo -iu agent ~/.local/bin/codex login --device-auth`.
 - Codex on the VPS and Codex cloud draw from the same ChatGPT plan limits as anything else on that
   account (incl. the 383 news pipeline's Codex auth).
+- OpenCode runs the official CLI with `opencode/deepseek-v4.1-flash-free` by default, through
+  OpenCode's inference API (not a direct DeepSeek subscription). `OPENCODE_MODEL` can override it.
+  OpenCode currently lists this model as free for a limited time, with usage limits:
+  [models and pricing](https://opencode.ai/v2/docs/console/models/). The runner never selects a
+  paid fallback. A free-quota rejection stops the turn with an explicit error; it cannot be fixed
+  by waiting inside the same turn. Retry when quota is available, or choose another agent.
+  Other silent OpenCode stalls stop after three minutes without JSON progress, rather than
+  occupying the agent slot until the overall 45-minute job timeout.
 - Web listens on `127.0.0.1:3100`, public only via the Cloudflare tunnel (`agents.383ks.com`).
 
 ```bash
@@ -61,6 +69,8 @@ bash deploy/setup.sh     # once
 bash deploy/update.sh    # pull main, build, restart both services
 journalctl -u agent-dashboard-runner -f
 ```
+
+Runner regression checks: `node --import tsx --test runner/agents.test.ts` and `npm run typecheck`.
 
 ## PC hand-off
 
