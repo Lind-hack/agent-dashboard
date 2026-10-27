@@ -128,7 +128,8 @@ body {
   border-radius: 8px;
 }
 /* The palette's search field shows focus on its whole row instead (see command-palette.tsx). */
-[role="combobox"]:focus-visible {
+[role="combobox"]:focus-visible,
+.bare-field:focus-visible {
   outline: none;
 }
 
@@ -269,6 +270,140 @@ body::before {
 
 .rise {
   animation: rise 0.6s var(--ease-out-expo) both;
+}
+
+/* ---------- Chat + voice ---------- */
+
+/* A message arriving: a short rise out of a slight blur — only for messages that arrive while you watch. */
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(3px);
+  }
+}
+.msg-in {
+  animation: msg-in 260ms var(--ease-out-expo) both;
+}
+
+/* A chat takes on its agent: --agent is set on the view. Selection and caret follow it. */
+.chat-skin ::selection {
+  background: color-mix(in oklab, var(--agent), transparent 62%);
+}
+.chat-skin textarea,
+.chat-skin input {
+  caret-color: var(--agent);
+}
+
+/* Inside an agent's chat, the composer lights up in its colour while you type. */
+.chat-skin .reply-panel:focus-within {
+  border-color: color-mix(in oklab, var(--agent), transparent 55%);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--agent), transparent 88%),
+    0 -12px 32px -12px rgb(0 0 0 / 0.9);
+}
+
+/* The working line: a light travels along a hairline in the agent's colour while it works. */
+.live-trace {
+  position: relative;
+  height: 1px;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--agent), transparent 82%);
+}
+.live-trace::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, var(--agent), transparent);
+  box-shadow: 0 0 10px var(--agent);
+  animation: trace 1.6s var(--ease-out-expo) infinite;
+}
+@keyframes trace {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(270%);
+  }
+}
+
+/* Folding sections (tool steps) open by animating the grid row, not a measured height. */
+.fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 240ms var(--ease-out-expo), opacity 200ms;
+  opacity: 0;
+}
+.fold[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.fold > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The Talk Core: its rim glows with the sound it hears or makes (--lvl, 0–1). */
+.voice-core {
+  box-shadow:
+    0 0 0 1px rgb(169 228 245 / calc(0.22 + var(--lvl, 0) * 0.5)) inset,
+    0 24px 60px -22px rgb(169 228 245 / calc(0.25 + var(--lvl, 0) * 0.6));
+  transition: box-shadow 90ms linear, transform 300ms var(--ease-out-expo);
+}
+.voice-core[data-phase="listening"] {
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / calc(0.35 + var(--lvl, 0) * 0.6)) inset,
+    0 0 0 calc(var(--lvl, 0) * 10px) rgb(255 255 255 / 0.06),
+    0 24px 60px -22px rgb(255 255 255 / calc(0.2 + var(--lvl, 0) * 0.5));
+}
+
+/* A speaking reply's play button: three bars that move with the voice. */
+@keyframes talk-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.talk-bars > span {
+  display: block;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: center;
+  animation: talk-bar 900ms ease-in-out infinite;
+}
+.talk-bars > span:nth-child(2) {
+  animation-delay: -300ms;
+}
+.talk-bars > span:nth-child(3) {
+  animation-delay: -600ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-in {
+    animation: msg-in-fade 200ms linear both;
+  }
+  .live-trace::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.6;
+  }
+  .talk-bars > span {
+    animation: none;
+  }
+  .fold {
+    transition: opacity 150ms;
+  }
+}
+@keyframes msg-in-fade {
+  from {
+    opacity: 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

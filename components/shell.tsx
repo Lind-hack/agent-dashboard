@@ -8,6 +8,7 @@ import { AgentLogo } from "@/components/agent-logo";
 import { CommandPalette, openPalette } from "@/components/command-palette";
 import { Composer } from "@/components/composer";
 import { Core } from "@/components/core";
+import { VoiceMode } from "@/components/voice-mode";
 import { AGENT_HEX, AGENT_LABELS, type AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +59,7 @@ function useSystem() {
 }
 
 function TalkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [mode, setMode] = useState<"talk" | "chat">("talk");
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -71,15 +73,26 @@ function TalkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
       <div className="rise panel brackets relative max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-b-none bg-bg-raised/95 px-5 pt-4 pb-[calc(20px+env(safe-area-inset-bottom))] [overscroll-behavior:contain] lg:rounded-[var(--radius-panel)] lg:pb-6">
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15 lg:hidden" />
         <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="hud-label">Core · voice or text</p>
-            <h2 className="mt-1 text-lg font-semibold tracking-[-0.02em]">Talk to an agent</h2>
+          <h2 className="text-lg font-semibold tracking-[-0.02em]">{mode === "talk" ? "Talk to the Core" : "Start a chat"}</h2>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-[12px] border border-line p-0.5 text-[13px]" role="tablist" aria-label="Talk or start a chat">
+              {(
+                [
+                  ["talk", "Talk"],
+                  ["chat", "New chat"],
+                ] as const
+              ).map(([k, l]) => (
+                <button key={k} role="tab" aria-selected={mode === k} onClick={() => setMode(k)} className={cn("h-8 rounded-[9px] px-3 transition-colors duration-200", mode === k ? "bg-text text-bg" : "text-muted hover:text-text")}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <button onClick={onClose} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-xl text-muted hover:bg-white/5 hover:text-text">
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button onClick={onClose} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-xl text-muted hover:bg-white/5 hover:text-text">
-            <X className="h-5 w-5" />
-          </button>
         </div>
-        <Composer onStarted={onClose} />
+        {mode === "talk" ? <VoiceMode onDone={onClose} /> : <Composer onStarted={onClose} />}
       </div>
     </div>
   );
