@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, GitBranch, LoaderCircle, Mic, SendHorizontal, Square } from "lucide-react";
+import { Check, GitBranch, LoaderCircle, Mic, NotebookPen, SendHorizontal, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
@@ -45,6 +45,8 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [remember, setRemember] = useState<"" | "saving" | "saved">("");
+  const [rememberMsg, setRememberMsg] = useState("");
 
   useEffect(() => {
     fetch("/api/repos")
@@ -91,6 +93,23 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
     }
     onStarted?.();
     router.push(body.href);
+  }
+
+  // Keep a thought in the vault without starting a chat: 100 - Me/memory/inbox, indexed by Memory.
+  async function rememberThis() {
+    if (!text.trim()) return;
+    setRemember("saving");
+    setRememberMsg("");
+    try {
+      const res = await fetch("/api/memory/capture", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
+      setRemember("saved");
+      setRememberMsg(`Saved to memory · ${body.file}`);
+    } catch (e) {
+      setRemember("");
+      setRememberMsg(e instanceof Error ? e.message : String(e));
+    }
   }
 
   const mic = useRecorder((audio) => void send(audio));
@@ -199,6 +218,15 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
           className="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-faint"
         />
         <button
+          onClick={rememberThis}
+          disabled={busy || remember === "saving" || !text.trim()}
+          aria-label="Remember this in memory"
+          title="Remember this — save to the vault memory inbox instead of starting a chat"
+          className="grid h-10 w-10 place-items-center rounded-[12px] text-muted transition-colors hover:bg-white/5 hover:text-text disabled:opacity-25"
+        >
+          {remember === "saving" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <NotebookPen className="h-4 w-4" strokeWidth={1.75} />}
+        </button>
+        <button
           onClick={() => send()}
           disabled={busy || mic.recording || (!text.trim() && !picker.chips.length) || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label="Send"
@@ -211,6 +239,11 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
       </div>
       <p className="-mt-2 px-1 text-xs text-faint">{AGENTS.find((a) => a.key === agent)?.hint}{tracked ? " · creates a Linear issue" : ""}</p>
 
+      {rememberMsg && (
+        <p className={cn("-mt-2 px-1 text-xs", remember === "saved" ? "text-ok" : "text-bad")} aria-live="polite">
+          {rememberMsg}
+        </p>
+      )}
       {(error || mic.error) && <p className="rounded-xl border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{error || mic.error}</p>}
     </div>
   );

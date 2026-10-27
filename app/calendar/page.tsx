@@ -1,9 +1,12 @@
-import { ArrowUpRight, MapPin } from "lucide-react";
+import { ArrowUpRight, MapPin, Target } from "lucide-react";
 import { headers } from "next/headers";
+import Link from "next/link";
 import { Empty, PageHeader, Panel, SectionTitle, StatusPill } from "@/components/kit";
 import { CaptureBar, PlanDay, TaskList, TickTickConnect } from "@/components/today";
+import { TodayPlan } from "@/components/today-plan";
 import { calendarConnected, type CalEvent } from "@/lib/calendar";
-import { today } from "@/lib/planner";
+import { activeBlocks, planStats, readPlan } from "@/lib/plan-store";
+import { freeSlots, today } from "@/lib/planner";
 import { ticktickConnected } from "@/lib/ticktick";
 import { cn } from "@/lib/utils";
 
@@ -21,10 +24,30 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: t.tz, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
   const dayTitle = (d: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...opts }).format(new Date(`${d}T12:00:00Z`));
   const now = Date.now();
-  const timed = t.events.filter((e) => !e.allDay);
+  // Plan blocks have their own section with Start / Done / Move; the Schedule shows fixed events only.
+  const schedule = t.events.filter((e) => !e.planned);
+  const timed = schedule.filter((e) => !e.allDay);
   const next = timed.find((e) => new Date(e.end).getTime() > now);
   const open = (t.tasks?.overdue.length ?? 0) + (t.tasks?.today.length ?? 0);
   const planned = t.events.filter((e) => e.planned && new Date(e.end).getTime() > now).length;
+
+  // The authoritative plan store. Planned vs free time and what can't fit are read from it, not from
+  // the calendar mirror.
+  const blocks = activeBlocks(readPlan(t.today));
+  const stats = planStats(t.today);
+  const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+  const freeMin = freeSlots(t).reduce((sum, s) => sum + (s.end - s.start), 0);
+  const nowClock = new Intl.DateTimeFormat("en-GB", { timeZone: t.tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+  const ahead = blocks.filter((x) => (x.status === "planned" || x.status === "running") && x.end > nowClock).sort((a, z) => a.start.localeCompare(z.start));
+  const leftMin = ahead.reduce((sum, b) => sum + Math.max(0, minutes(b.end) - minutes(b.start)), 0);
+  let capacity = freeMin;
+  const overflow: string[] = [];
+  for (const b of ahead) {
+    const d = Math.max(0, minutes(b.end) - minutes(b.start));
+    if (capacity >= d) capacity -= d;
+    else overflow.push(`${b.start}–${b.end} ${b.title}`);
+  }
+  const dayEnd = process.env.PLAN_DAY_END ?? "23:00";
 
   const sub = [
     next ? `${new Date(next.start).getTime() <= now ? "Now" : `Next at ${time(next.start)}`}: ${next.title}` : google ? (timed.length ? "Calendar's done for today" : "Nothing on the calendar") : null,
@@ -36,12 +59,30 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <PageHeader
         title={dayTitle(t.today, { weekday: "long", day: "numeric", month: "long" })}
         sub={sub.length ? `${sub.join(" · ")}.` : "Your day, in one place."}
-        readout={[google ? `${timed.length} on the calendar` : "calendar not connected", planned > 0 && `${planned} planned blocks ahead`, t.tasks ? `${open} tasks open` : "ticktick not connected", t.tz]}
+        readout={[
+          google ? `${timed.length} on the calendar` : "calendar not connected",
+          planned > 0 && `${planned} planned blocks ahead`,
+          t.tasks ? `${open} tasks open` : "ticktick not connected",
+          stats.todayTotal > 0 && `${stats.todayDone}/${stats.todayTotal} blocks done`,
+          stats.streak > 0 && `${stats.streak}-day streak`,
+          t.tz,
+        ]}
       />
 
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
       <PlanDay canWrite={google} planned={planned} />
+
+      <TodayPlan
+        day={t.today}
+        blocks={blocks}
+        stats={stats}
+        leftMin={leftMin}
+        freeMin={freeMin}
+        overflow={overflow}
+        goals={t.goals.map((g) => ({ id: g.id, title: g.title }))}
+        dayEnd={dayEnd}
+      />
 
       {t.priorities.length > 0 && (
         <section className="mt-8">
@@ -60,10 +101,44 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       )}
 
       <section className="mt-8">
+        <SectionTitle right={<Link href="/goals" className="hover:text-text">All goals</Link>}>Goals</SectionTitle>
+        {t.goals.length === 0 ? (
+          <Panel className="p-5 text-sm leading-relaxed text-muted">
+            <p className="text-text">No active goals yet.</p>
+            <p className="mt-1">Write down what you&apos;re actually chasing — the planner puts each goal&apos;s next action into a focus block before anything else.</p>
+            <Link href="/goals" className="mt-3 inline-flex h-9 items-center gap-2 rounded-[10px] bg-text px-4 text-sm font-medium text-bg">
+              <Target className="h-4 w-4" /> Set your goals
+            </Link>
+          </Panel>
+        ) : (
+          <Panel className="overflow-hidden">
+            {t.goals.map((g) => (
+              <div key={g.id} className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-0">
+                <Target className="mt-1 h-4 w-4 shrink-0 text-hermes" aria-hidden />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] leading-snug">{g.title}</span>
+                  <span className="mt-0.5 block text-[12px] text-muted">{g.next ? `Next: ${g.next}` : "Next action not set"}</span>
+                  {g.why && <span className="mt-0.5 block text-[11px] text-faint">{g.why}</span>}
+                </span>
+                <span className="shrink-0 text-right font-mono text-[10.5px] text-faint">
+                  <span className="block uppercase">{g.horizon}</span>
+                  {g.due && <span className="block">{g.due}</span>}
+                </span>
+              </div>
+            ))}
+          </Panel>
+        )}
+      </section>
+
+      <section className="mt-8">
         <SectionTitle>Schedule</SectionTitle>
         {google ? (
           <Panel className="overflow-hidden">
-            {t.events.length === 0 ? <Empty>A clear day. Plan it above, or add something below.</Empty> : <Day events={t.events} time={time} now={now} />}
+            {schedule.length === 0 ? (
+              <Empty>{blocks.length ? "No fixed events — your plan is above." : "A clear day. Plan it above, or add something below."}</Empty>
+            ) : (
+              <Day events={schedule} time={time} now={now} />
+            )}
           </Panel>
         ) : (
           <Panel className="p-5 text-sm leading-relaxed text-muted">

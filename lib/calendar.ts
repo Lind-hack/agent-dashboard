@@ -144,7 +144,17 @@ export async function agenda(days = 2): Promise<{ tz: string; today: string; eve
 
 // Plan blocks are ordinary events on the primary calendar, tagged so a re-plan can replace them.
 export const PLAN_KEY = "agentDashPlan";
-export type PlanBlock = { start: string; end: string; title: string; kind: "task" | "focus" | "break" | "routine"; taskId?: string; projectId?: string };
+// blockId is stable across replans (day + start + title); goalId links a focus block to 100 - Me/Goals.md.
+export type PlanBlock = {
+  blockId: string;
+  start: string;
+  end: string;
+  title: string;
+  kind: "task" | "focus" | "break" | "routine";
+  taskId?: string;
+  projectId?: string;
+  goalId?: string;
+};
 const PLAN_COLOR: Record<PlanBlock["kind"], string> = { task: "9", focus: "3", break: "2", routine: "8" }; // blueberry, grape, sage, graphite
 
 // Removes this day's earlier plan (only the blocks still in the future) and writes the new one.
