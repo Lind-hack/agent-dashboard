@@ -10,8 +10,12 @@ function commitSha(): string {
 }
 
 const nextConfig: NextConfig = {
-  // Voice notes are posted as multipart bodies; a minute of opus/mp4 stays well under this.
-  experimental: { serverActions: { bodySizeLimit: "25mb" } },
+  // Proxy clones request bodies before route handlers see them. Match the upload cap so videos
+  // are not silently truncated at Next's default 10 MiB. Rebuild when raising this env setting.
+  experimental: {
+    serverActions: { bodySizeLimit: "25mb" },
+    proxyClientMaxBodySize: Number(process.env.ATTACHMENT_MAX_BYTES) > 0 ? Number(process.env.ATTACHMENT_MAX_BYTES) : 100 * 1024 * 1024,
+  },
   // Kokoro (text-to-speech) runs ONNX natively; keep it and its runtime out of the bundle.
   serverExternalPackages: ["kokoro-js", "@huggingface/transformers", "onnxruntime-node", "phonemizer"],
   // Baked in at build time so the UI can show what's deployed without a runtime lookup.

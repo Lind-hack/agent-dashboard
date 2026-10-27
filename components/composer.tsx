@@ -3,6 +3,7 @@
 import { Check, GitBranch, LoaderCircle, Mic, NotebookPen, SendHorizontal, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { AttachmentPicker, useAttachments } from "@/components/attachments";
 import { AgentLogo } from "@/components/agent-logo";
 import { Core } from "@/components/core";
 import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "@/components/skill-picker";
@@ -38,6 +39,7 @@ function useRemembered<T extends string>(key: string, fallback: T): [T, (v: T) =
 // inside the global Talk sheet.
 export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?: boolean; onStarted?: () => void }) {
   const router = useRouter();
+  const attachments = useAttachments();
   const [agent, setAgent] = useRemembered<TaskAgent>("ad.agent", "claude");
   const [repo, setRepo] = useRemembered<string>("ad.repo", "");
   const [linear, setLinear] = useRemembered<"1" | "0">("ad.linear", "0");
@@ -71,6 +73,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
   };
 
   async function send(audio?: Blob) {
+    if (busy || attachments.uploading || remember === "saving") return;
     setBusy(true);
     setError("");
     const form = new FormData();
@@ -78,6 +81,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
     form.set("repo", selectedRepo);
     form.set("linear", tracked ? "1" : "0");
     form.set("text", text);
+    form.set("attachments", JSON.stringify(attachments.ids));
     form.set("skills", picker.chips.join(","));
     if (audio) form.set("audio", audio, audioFilename(audio));
     const res = await fetch("/api/tasks", { method: "POST", body: form }).catch(() => null);
@@ -97,11 +101,11 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
 
   // Keep a thought in the vault without starting a chat: 100 - Me/memory/inbox, indexed by Memory.
   async function rememberThis() {
-    if (!text.trim()) return;
+    if (!text.trim() && !attachments.files.length) return;
     setRemember("saving");
     setRememberMsg("");
     try {
-      const res = await fetch("/api/memory/capture", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const res = await fetch("/api/memory/capture", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, attachments: attachments.ids }) });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
       setRemember("saved");
@@ -174,7 +178,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
       <div className="flex flex-col items-center gap-3 py-2">
         <button
           onClick={mic.toggle}
-          disabled={busy || (AGENT_META[agent].repo && !selectedRepo)}
+          disabled={busy || attachments.uploading || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label={mic.recording ? "Stop and send" : "Tap to talk"}
           className="group relative grid h-36 w-36 place-items-center overflow-hidden rounded-[36px] bg-black shadow-[0_0_0_1px_rgb(169_228_245/0.25)_inset] transition-transform duration-300 ease-[var(--ease-out-expo)] hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40"
           style={{ boxShadow: `0 0 0 1px rgb(169 228 245 / 0.25) inset, 0 20px 50px -18px ${AGENT_HEX[agent]}` }}
@@ -193,10 +197,12 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
       <SkillMenu picker={picker} onPick={apply} id="composer-skills" />
       <div className="rounded-[18px] border border-line bg-white/[0.02] p-2 focus-within:border-line-hi">
         <SkillChips picker={picker} />
+        <AttachmentPicker state={attachments} disabled={busy || remember === "saving" || mic.recording} />
         <div className="flex items-end gap-2">
         <textarea
           ref={box}
           value={text}
+          disabled={busy || remember === "saving"}
           autoFocus={autoFocusText}
           onChange={(e) => {
             setText(e.target.value);
@@ -204,7 +210,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
           }}
           onKeyDown={(e) => {
             if (picker.onKey(e, apply)) return;
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && (text.trim() || picker.chips.length)) void send();
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !busy && !attachments.uploading && (text.trim() || picker.chips.length || attachments.files.length)) void send();
           }}
           onBlur={() => picker.onText("", 0)}
           rows={2}
@@ -219,7 +225,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
         />
         <button
           onClick={rememberThis}
-          disabled={busy || remember === "saving" || !text.trim()}
+          disabled={busy || attachments.uploading || remember === "saving" || (!text.trim() && !attachments.files.length)}
           aria-label="Remember this in memory"
           title="Remember this — save to the vault memory inbox instead of starting a chat"
           className="grid h-10 w-10 place-items-center rounded-[12px] text-muted transition-colors hover:bg-white/5 hover:text-text disabled:opacity-25"
@@ -228,7 +234,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
         </button>
         <button
           onClick={() => send()}
-          disabled={busy || mic.recording || (!text.trim() && !picker.chips.length) || (AGENT_META[agent].repo && !selectedRepo)}
+          disabled={busy || remember === "saving" || attachments.uploading || mic.recording || (!text.trim() && !picker.chips.length && !attachments.files.length) || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label="Send"
           className="grid h-10 w-10 place-items-center rounded-[12px] bg-text text-bg transition-opacity disabled:opacity-25"
         >
@@ -237,6 +243,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
         </div>
       </div>
       </div>
+      {agent === "codex-cloud" && <p className="text-xs text-muted">Files stay private. Cloud Codex cannot open dashboard links; use a VPS agent to analyze files.</p>}
       <p className="-mt-2 px-1 text-xs text-faint">{AGENTS.find((a) => a.key === agent)?.hint}{tracked ? " · creates a Linear issue" : ""}</p>
 
       {rememberMsg && (

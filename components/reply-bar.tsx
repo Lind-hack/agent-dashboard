@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import type { AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "./skill-picker";
+import { AttachmentPicker, useAttachments } from "./attachments";
 import { audioFilename, useRecorder } from "./use-recorder";
 
 // Chat composer pinned above the phone tab bar (beside the sidebar on desktop). The mic transcribes
@@ -18,9 +19,10 @@ export function ReplyBar({
 }: {
   placeholder: string;
   disabled?: boolean;
-  onSend: (text: string, skills: string[]) => Promise<string | void>; // resolves to a notice to show; throws on failure
+  onSend: (text: string, skills: string[], attachments: string[]) => Promise<string | void>; // resolves to a notice to show; throws on failure
   agent?: AgentKey;
 }) {
+  const attachments = useAttachments();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
@@ -41,12 +43,13 @@ export function ReplyBar({
   });
 
   async function send() {
-    if (!text.trim() && !picker.chips.length) return;
+    if (busy || disabled || attachments.uploading || mic.recording || (!text.trim() && !picker.chips.length && !attachments.files.length)) return;
     setBusy(true);
     setNotice("");
     try {
-      const result = await onSend(text.trim(), picker.chips);
+      const result = await onSend(text.trim(), picker.chips, attachments.ids);
       setText("");
+      attachments.setFiles([]);
       picker.setChips([]);
       setNotice(result ?? "");
     } catch (e) {
@@ -73,6 +76,7 @@ export function ReplyBar({
         )}
         <div className="reply-panel panel rounded-[26px] bg-bg-raised/[0.97] p-1.5 shadow-[0_-12px_32px_-12px_rgb(0_0_0/0.9)] transition-[border-color,box-shadow] duration-200">
           <SkillChips picker={picker} />
+          <AttachmentPicker state={attachments} disabled={disabled || busy || mic.recording} />
           <div className="flex items-end gap-1.5">
             <button
               onClick={mic.toggle}
@@ -99,7 +103,7 @@ export function ReplyBar({
               onBlur={() => picker.onText("", 0)}
               rows={1}
               placeholder={mic.recording ? `Listening · ${mic.seconds}s` : agent ? `${placeholder.replace(/…$/, "")} — / for skills` : placeholder}
-              disabled={disabled}
+              disabled={disabled || busy}
               role={agent ? "combobox" : undefined}
               aria-autocomplete={agent ? "list" : undefined}
               aria-expanded={agent ? picker.open : undefined}
@@ -110,7 +114,7 @@ export function ReplyBar({
             />
             <button
               onClick={send}
-              disabled={disabled || busy || mic.recording || (!text.trim() && !picker.chips.length)}
+              disabled={disabled || busy || attachments.uploading || mic.recording || (!text.trim() && !picker.chips.length && !attachments.files.length)}
               aria-label="Send"
               className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-text text-bg transition-opacity disabled:opacity-20"
             >

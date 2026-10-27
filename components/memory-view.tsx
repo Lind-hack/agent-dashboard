@@ -1,12 +1,13 @@
 "use client";
 
 import { ArrowUpRight } from "lucide-react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { MemoryAnswer, MemoryStats, SourceKind } from "@/lib/memory";
 import { ago, cn } from "@/lib/utils";
 import { Panel, SectionTitle } from "./kit";
 import { Md } from "./md";
+import { MemoryCapture } from "./memory-capture";
 import { ReplyBar } from "./reply-bar";
 
 const KINDS: { kind: SourceKind; label: string; color: string; text: string }[] = [
@@ -20,6 +21,7 @@ const META = Object.fromEntries(KINDS.map((k) => [k.kind, k])) as Record<SourceK
 type Asked = MemoryAnswer & { q: string };
 
 export function MemoryView({ stats }: { stats: MemoryStats }) {
+  const router = useRouter();
   const [asked, setAsked] = useState<Asked | null>(null);
   const [thinking, setThinking] = useState("");
   const answer = useRef<HTMLDivElement>(null);
@@ -44,13 +46,14 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
   }
 
   // "/remember …" keeps the text instead of asking about it; the reply bar shows where it landed.
-  async function send(q: string): Promise<string | void> {
-    if (/^\/remember\b/i.test(q)) {
+  async function send(q: string, _skills: string[], attachments: string[]): Promise<string | void> {
+    if (attachments.length || /^\/remember\b/i.test(q)) {
       const text = q.replace(/^\/remember\s*/i, "").trim();
-      if (!text) throw new Error("Write what to remember after /remember.");
-      const res = await fetch("/api/memory/capture", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      if (!text && !attachments.length) throw new Error("Write what to remember after /remember.");
+      const res = await fetch("/api/memory/capture", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, attachments }) });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
+      router.refresh();
       return `Remembered · ${body.file}`;
     }
     return ask(q);
@@ -66,6 +69,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
 
   return (
     <>
+      <MemoryCapture />
       <div className="grid gap-4 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <Panel className="flex flex-col items-center p-5">
           <Ring stats={stats} lit={lit} busy={!!thinking} />
@@ -151,7 +155,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
       </div>
 
       <div className="h-28" aria-hidden />
-      <ReplyBar placeholder="Ask your memory — or /remember … to keep it" onSend={send} />
+      <ReplyBar placeholder="Ask memory — /remember or attach files to save" onSend={send} />
     </>
   );
 }

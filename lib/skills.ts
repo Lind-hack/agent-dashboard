@@ -75,13 +75,12 @@ export function skillsFor(agent: AgentKey): Skill[] {
 }
 
 const INLINE_CAP = 12_000;
-export const MAX_SKILLS = 4; // per message — the picker, the API and the runner all use this
 
-// Keeps only skills this agent really has (exact names), deduped, at most MAX_SKILLS.
+// Keeps only skills this agent really has (exact names), deduped.
 export function validSkills(agent: AgentKey, picked: unknown): string[] {
   if (!Array.isArray(picked)) return [];
   const known = new Set(skillsFor(agent).map((s) => s.invoke));
-  return [...new Set(picked.filter((x): x is string => typeof x === "string" && known.has(x)))].slice(0, MAX_SKILLS);
+  return [...new Set(picked.filter((x): x is string => typeof x === "string" && known.has(x)))];
 }
 
 // What Lind sees in the chat for a turn: the skill tokens, then his words.

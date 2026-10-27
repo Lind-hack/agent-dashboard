@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 export type SkillInfo = { invoke: string; name: string; description: string; source: "you" | "account" | "plugin" | "codex" };
 
 // Per-agent list, refreshed after a minute so newly synced skills show up without a reload.
-const MAX_CHIPS = 4; // same limit as the server (lib/skills.ts MAX_SKILLS)
 const TTL = 60_000;
 const cache = new Map<AgentKey, { at: number; list: Promise<SkillInfo[]> }>();
 function loadSkills(agent: AgentKey, fresh = false): Promise<SkillInfo[]> {
@@ -103,7 +102,7 @@ export function useSkillPicker(agent: AgentKey | undefined, box?: React.RefObjec
   // Picks a skill: removes the typed "/word" from the text and adds the chip.
   const pick = useCallback((s: SkillInfo, text: string, caret: number): { text: string; caret: number } => {
     const before = text.slice(0, caret).replace(TRIGGER, (_m, sp: string) => sp);
-    setChips((c) => (c.includes(s.invoke) || c.length >= MAX_CHIPS ? c : [...c, s.invoke]));
+    setChips((c) => (c.includes(s.invoke) ? c : [...c, s.invoke]));
     setQuery(null);
     caretAfter.current = before.length;
     setCaretTick((t) => t + 1);
@@ -138,7 +137,7 @@ export function useSkillPicker(agent: AgentKey | undefined, box?: React.RefObjec
   );
 
   const safeActive = Math.min(active, Math.max(0, matches.length - 1));
-  return { skills, chips, setChips, query, matches, active: safeActive, setActive, onText, pick, onKey, open: query !== null, sigil: SIGIL(agent), full: chips.length >= MAX_CHIPS };
+  return { skills, chips, setChips, query, matches, active: safeActive, setActive, onText, pick, onKey, open: query !== null, sigil: SIGIL(agent) };
 }
 
 export type Picker = ReturnType<typeof useSkillPicker>;
@@ -181,11 +180,10 @@ export function SkillMenu({ picker, onPick, id }: { picker: Picker; onPick: (s: 
         <Puzzle className="h-3 w-3 text-command" aria-hidden /> Skills {picker.skills ? `· ${picker.skills.length} on the VPS` : "· loading…"}
       </p>
       <ul ref={list} id={id} role="listbox" aria-label="Skills" className="max-h-[min(40dvh,320px)] overflow-y-auto p-1">
-        {picker.full && <li className="px-3 py-2 text-xs text-warn">Up to 4 skills per message — remove one to add another.</li>}
-        {!picker.full && picker.skills && picker.matches.length === 0 && (
+        {picker.skills && picker.matches.length === 0 && (
           <li className="px-3 py-3 text-sm text-muted">{picker.skills.length ? `No skill matches “${picker.query}”.` : "No skills for this agent on the VPS yet — they sync from your PC."}</li>
         )}
-        {!picker.full && picker.matches.map((s, i) => (
+        {picker.matches.map((s, i) => (
           <li
             key={s.invoke}
             id={`${id}-${i}`}

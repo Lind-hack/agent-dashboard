@@ -1,3 +1,4 @@
+import { memoryContext } from "../lib/memory";
 import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -526,7 +527,7 @@ async function runTurn(job: Job) {
     const res = await runAgent({
       agent,
       cwd: wt,
-      prompt: turn.prompt,
+      prompt: turn.prompt + memoryContext(shown || job.description),
       resume: job.sessionId,
       onEvent: (e) => (e.kind === "usage" ? recordClaudeUsage(e.info as never) : appendLog(job.id, e)),
       onChild: (child) => {

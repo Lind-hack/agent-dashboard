@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { attachmentPrompt } from "@/lib/attachments";
 import { AGENT_META, VPS_AGENTS, type AgentKey, type TaskAgent } from "@/lib/agents";
 import { draftTask, transcribe } from "@/lib/groq";
 import { listRepos } from "@/lib/github";
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
       const name = audio instanceof File && audio.name ? audio.name : "note.webm";
       text = [text, await transcribe(audio, name)].filter(Boolean).join("\n\n");
     }
+    const attachmentText = attachmentPrompt(JSON.parse(String(form.get("attachments") ?? "[]")));
+    text += attachmentText;
     // Skills picked with "/" travel as their own field; each agent keeps only the ones it really has.
     const picked = String(form.get("skills") ?? "")
       .split(",")
@@ -38,7 +41,7 @@ export async function POST(request: Request) {
     const skillsFor = (a: AgentKey) => validSkills(a, picked);
     if (!text && !(picked.length && agent && agent !== "codex-cloud" && skillsFor(agent).length)) return NextResponse.json({ error: "Nothing was said or typed" }, { status: 400 });
     const fallbackRepo = repo ?? repos[0] ?? "";
-    const title = (text.split("\n")[0] || picked.map((s) => `/${s}`).join(" ")).slice(0, 80);
+    const title = (text.trim().split("\n")[0] || picked.map((s) => `/${s}`).join(" ")).slice(0, 80);
 
     if (mode === "ask" || mode === "relay") {
       const picked = String(form.get("agents") ?? "")
@@ -87,6 +90,8 @@ export async function POST(request: Request) {
     if (tracked) {
       if (!fallbackRepo) return NextResponse.json({ error: "The GitHub token can't see any repos" }, { status: 400 });
       const draft = await draftTask(text, { agent, repo, repos, fallbackRepo });
+      // Keep original attachment references: task drafting must not summarize them away.
+      draft.description += attachmentText;
       const { issue, note } = await createAgentIssue(draft);
       if (draft.agent !== "codex-cloud") pushInbox({ kind: "sync" });
       return NextResponse.json({

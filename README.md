@@ -122,3 +122,37 @@ PC run, use `node ~/.agent-dashboard/brain-collect.mjs --dry-run` or `--status`.
 
 Feature checks: `node --import tsx --test tests/*.test.ts` and
 `node --import tsx handoff/test-redact.mjs`, plus `npm run typecheck` and `npm run build`.
+
+## Files and daily memory
+
+- **Add files, images or videos** in New chat, Solo/Team/Roast, or any chat reply. Uploads are
+  private, streamed to `DATA_DIR/attachments`, and survive reloads and queued turns. Images have
+  previews; audio/video have playback controls with seeking; other formats download. VPS agents
+  receive the actual local file path and can inspect it with their available tools. Hermes uses
+  the Docker bridge: re-run `deploy/hermes-bridge.sh` once after upgrading to copy uploads into
+  its container and remove the old silent 20,000-character prompt cutoff. PDFs, archives
+  and other binary formats are preserved, not automatically converted or indexed.
+- The default upload limit is **100 MiB per file**, configurable with `ATTACHMENT_MAX_BYTES` (rebuild after changing it so the Next.js proxy cap matches).
+  This is a storage/request safeguard, not a skill limit. Cloudflare or another proxy may enforce
+  its own request limit. Files are retained; include `DATA_DIR/attachments` in VPS backups.
+- Cloud Codex gets private dashboard references, but cannot authenticate to open them. Use a VPS
+  chat for file analysis. Roast debaters run without file tools: describe media in the task;
+  attachments carry through to the VPS agent when you choose **Run it**.
+- **Memory → What did you learn today?** automatically saves after a 1.5-second pause. Dictation
+  transcribes into the same note and saves automatically. Wait for **Saved**, then **New memory**
+  to start another note. A local draft survives refreshes and failed saves have a retry button.
+  `/remember …` and the notebook button in New chat also save to the vault.
+- Captures write directly into `MEMORY_VAULT_DIR/100 - Me/memory/inbox`; attached originals are
+  copied into its `attachments/` folder and linked/embedded in Markdown, so the existing Syncthing
+  setup brings notes and media into Obsidian together. Plain-text/code attachments up to 1 MiB
+  contribute up to 20,000 characters to search. Describe images/videos to make them searchable;
+  automatic OCR or video transcription is not performed. Voice capture uses the existing Groq
+  transcription service. No additional external integration is needed.
+- Each VPS turn retrieves relevant fresh local notes as context. Memory questions search the same
+  vault immediately after capture. Existing Obsidian/Syncthing configuration and write permissions
+  are required; re-run `deploy/vault-access.sh` if the memory inbox is not writable. The UI reports
+  save failures instead of claiming success.
+- VPS skill selection has **no dashboard count cap**. Only installed skills are accepted and
+  duplicates are removed. Provider context windows, CLI request sizes and account quotas still apply.
+
+Verification: `npm test`, `npm run typecheck`, `npm run build`. No lint script is configured.

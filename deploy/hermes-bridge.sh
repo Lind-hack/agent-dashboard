@@ -22,7 +22,21 @@ sudo tee /usr/local/bin/ask-hermes >/dev/null <<'EOF'
 #!/bin/bash
 # agent-dashboard -> Hermes bridge. Question on stdin; optional $1 = Hermes session id to resume.
 set -euo pipefail
-PROMPT=$(head -c 20000)
+# Do not silently truncate selected skills or attachments.
+PROMPT=$(cat)
+# Hermes runs inside Docker, so host upload paths need a copy into its own filesystem.
+# Read as the unprivileged dashboard user; never give this root helper arbitrary host-file access.
+UPLOAD_DIR=$(sed -n 's/^DATA_DIR=//p' /etc/agent-dashboard.env | tail -1)
+UPLOAD_DIR="${UPLOAD_DIR:-/var/lib/agent-dashboard}/attachments"
+while IFS= read -r HOST_FILE; do
+  FILE_ID=${HOST_FILE##*/}
+  [[ "$FILE_ID" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$ ]] || continue
+  [ "$HOST_FILE" = "$UPLOAD_DIR/$FILE_ID" ] || continue
+  CONTAINER_FILE="/tmp/agent-dashboard-attachments/$FILE_ID"
+  # The only shell interpolation below is a validated UUID in a fixed container directory.
+  runuser -u agent -- cat -- "$HOST_FILE" | docker exec -i --user hermes hermes sh -c "mkdir -p /tmp/agent-dashboard-attachments && cat > '$CONTAINER_FILE'"
+  PROMPT=${PROMPT//"$HOST_FILE"/"$CONTAINER_FILE"}
+done < <(printf '%s\n' "$PROMPT" | sed -nE 's|^VPS file: (/.*/attachments/[a-f0-9-]{36})$|\1|p')
 [ -n "$PROMPT" ] || { echo "empty prompt" >&2; exit 2; }
 ARGS=(chat -Q --source tool -q "$PROMPT")
 HERMES_PROVIDER=$(sed -n 's/^HERMES_PROVIDER=//p' /etc/agent-dashboard-hermes.conf 2>/dev/null | tail -1)

@@ -5,6 +5,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
 import { Md } from "@/components/md";
 import { StatusPill } from "@/components/kit";
+import { MessageAttachments } from "@/components/attachment-preview";
+import { hideAttachmentPaths } from "@/lib/attachment-types";
 import { ReplyBar } from "@/components/reply-bar";
 import { HighlightSkills } from "@/components/skill-picker";
 import { speak, stopSpeaking, unlockAudio, useVoiceState } from "@/components/voice-engine";
@@ -253,7 +255,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
   }
 
   const running = job.status === "running" || job.status === "queued";
@@ -356,6 +358,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
       {job.imported && tab === "context" && <ContextPanel jobId={job.id} dossierState={job.imported.dossier} />}
       {job.imported && tab === "earlier" && <EarlierOnPc jobId={job.id} Tools={Tools} />}
 
+      <MessageAttachments text={job.description} />
       <div className={cn("flex flex-col gap-4 text-[15px] leading-relaxed", job.imported && tab !== "chat" && "hidden")}>
         {blocks.length === 0 && !running && !preparing && <p className="text-sm text-muted">{AGENT_PERSONA[agent].idle}</p>}
         {blocks.map((b, i) => {
@@ -375,7 +378,8 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
           if (b.kind === "you")
             return (
               <div key={dropped + b.at} className={cn("max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08] px-4 py-2.5 whitespace-pre-wrap shadow-[0_1px_0_rgb(255_255_255/0.05)_inset]", fresh)}>
-                <HighlightSkills text={b.text} />
+                <HighlightSkills text={hideAttachmentPaths(b.text)} />
+                <MessageAttachments text={b.text} />
               </div>
             );
           if (b.kind === "error")
@@ -437,8 +441,8 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
         }
         disabled={job.status === "closed" || job.owner === "returning" || job.owner === "pc"}
         agent={job.agent === "claude" || job.agent === "codex" || job.agent === "opencode" || job.agent === "hermes" ? job.agent : undefined}
-        onSend={async (prompt, skills) => {
-          await post({ action: "reply", prompt, skills });
+        onSend={async (prompt, skills, attachments) => {
+          await post({ action: "reply", prompt, skills, attachments });
           return job.status === "running" ? `Queued — ${agentName} gets it when this turn ends.` : `Sent — ${agentName} is picking it up.`;
         }}
       />

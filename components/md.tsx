@@ -1,3 +1,5 @@
+import { MessageAttachments } from "./attachment-preview";
+import { hideAttachmentPaths } from "@/lib/attachment-types";
 import { Fragment } from "react";
 
 // Just enough markdown for agent answers: headings, lists, **bold**, `code`, [links](url), fenced code.
@@ -30,9 +32,10 @@ function inline(text: string, key: string): React.ReactNode[] {
 }
 
 export function Md({ text }: { text: string }) {
-  const blocks = text.replace(/\r/g, "").split(/\n{2,}/);
+  const blocks = hideAttachmentPaths(text).replace(/\r/g, "").split(/\n{2,}/);
   return (
     <div className="flex flex-col gap-3">
+      <MessageAttachments text={text} />
       {blocks.map((b, bi) => {
         if (b.startsWith("```")) {
           return (
