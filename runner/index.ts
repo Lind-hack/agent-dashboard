@@ -448,7 +448,8 @@ ${job.description || "(no description)"}
 - You are in ${where}.
 - Read the project's CLAUDE.md / AGENTS.md / README first and follow them.
 - If this is a question rather than a change, just answer it — no commit needed.
-- For changes: make them, run the relevant checks (typecheck, lint, tests) where the project has them, and commit with messages starting "${job.id}: ". Do not push, merge or deploy — the runner pushes the branch and opens the PR.
+- For changes: make them, run the relevant checks (typecheck, lint, tests) where the project has them, and commit with messages starting "${job.id}: ".
+- Lind's standing delivery preference (2026-10-27): a feature request authorizes verification, committing, pushing, merging the verified change as needed, and deploying through the repo's documented production workflow without asking him to repeat the request. Complete the delivery and verify the live result. Preserve unrelated work and running jobs. If credentials, permissions, failing checks, or an unknown deployment target prevent delivery, report the concrete blocker; never claim deployment succeeded without evidence. A newer task-specific instruction overrides this default. The runner can still push the branch and open a PR if delivery is blocked; report any PR already merged.
 - Lind replies between turns, not during one. If something is ambiguous, pick the safest reasonable option and say so.
 - End with a short summary: what you changed, what you verified, anything left open.${relayNote(job)}`;
 }
