@@ -141,7 +141,7 @@ function installInstructions(ctx: HandoffContext) {
   if (home) {
     fs.writeFileSync(
       path.join(claudeHome, "CLAUDE.md"),
-      `${home.text.trim()}\n\n## On the VPS (agent-dashboard runner)\n\nWhen this runs on Lind's VPS (Linux, user agent): Windows paths above describe his PC; here the shell is bash, repos are git worktrees under ${WORK_DIR}/wt/<job>, and you are already on the VPS (no ssh needed). Not available: Chrome/DevTools MCP, the PC D: drive, Windows tools. Never push, merge or deploy yourself — the runner pushes your branch and opens a PR. A handed-off chat has a .handoff/ folder next to the code: read .handoff/DOSSIER.md first.\n`,
+      `${home.text.trim()}\n\n## On the VPS (agent-dashboard runner)\n\nWhen this runs on Lind's VPS (Linux, user agent): Windows paths above describe his PC; here the shell is bash, repos are git worktrees under ${WORK_DIR}/wt/<job>, and you are already on the VPS (no ssh needed). Not available: Chrome/DevTools MCP, the PC D: drive, Windows tools. Follow Lind’s standing delivery preference in the task brief: verify, commit, push and deploy feature changes without a repeated request, preserving running jobs and unrelated work; report concrete blockers. A handed-off chat has a .handoff/ folder next to the code: read .handoff/DOSSIER.md first.\n`,
     );
   }
   const rules = ctx.instructions.filter((i) => /[\\/]rules[\\/][^\\/]+\.md$/i.test(i.path));
@@ -461,7 +461,7 @@ export function handoffPreamble(job: Job): string {
       : "This chat had no repo; your current directory is a scratch folder.",
     `Project context is in .handoff/ next to you:${dossier ? " .handoff/DOSSIER.md (read it first — it covers the whole project, not just this chat)," : ""} .handoff/chats/ (this chat and related chats in full, condensed — grep them before guessing about anything older), .handoff/memory/ (Lind's memory notes), .handoff/project/ (repo docs, commits, PRs, vault pages), .handoff/instructions/ (his CLAUDE.md files and rules).`,
     "Not available here: Chrome/DevTools MCP, the PC's D: drive and scratchpad, Windows tools. You are already on the VPS, so run commands locally instead of over ssh.",
-    "The runner pushes your branch and opens a PR after each turn; never push, merge or deploy yourself.",
+    "Lind’s standing delivery preference: verify, commit, push and deploy feature changes without a repeated request, following the repo’s production workflow and preserving running jobs and unrelated work. Report concrete blockers and verify the live result. Newer task-specific instructions take precedence.",
   ];
   if (imp.mode === "summary") {
     lines.push("This is a summary hand-off: you don't have the original session, so rely on .handoff/ for history.");
