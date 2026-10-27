@@ -17,6 +17,7 @@ fi
 cd "$APP"
 sudo -u agent npm ci --no-audit --no-fund
 sudo -u agent npm run build
+sudo node deploy/add-learning-repo.mjs /etc/agent-dashboard.env
 sudo systemctl enable agent-dashboard-web agent-dashboard-runner >/dev/null
 sudo systemctl restart agent-dashboard-web agent-dashboard-runner
 echo "Live at $(sudo -u agent git -C "$APP" rev-parse --short HEAD)"
