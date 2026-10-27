@@ -2,7 +2,7 @@
 
 import { use, useEffect, useRef, useState } from "react";
 import { ArrowUpRight } from "lucide-react";
-import { AgentLogo } from "@/components/agent-logo";
+import { ChatIdentity } from "@/components/chat-identity";
 import { ChatEmpty } from "@/components/chat-empty";
 import { ReplyBar } from "@/components/reply-bar";
 import { ago, cn } from "@/lib/utils";
@@ -61,12 +61,10 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
   const lastRole = messages.at(-1)?.role;
 
   return (
-    <div className="chat-skin chat-page mx-auto max-w-3xl pb-44" data-agent="codex-cloud">
+    <div className="chat-skin chat-page mx-auto max-w-3xl pb-56" data-agent="codex-cloud">
       <header className="chat-header pt-2 pb-5 lg:pt-6">
+        <ChatIdentity agent="codex-cloud" state={lastRole === "you" ? "working" : "ready"} />
         <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-          <span className="flex items-center gap-1.5 text-text">
-            <AgentLogo agent="codex-cloud" size="sm" state={lastRole === "you" ? "working" : "ready"} /> Codex cloud
-          </span>
           {issue && (
             <a href={issue.url} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 hover:text-text">
               {issue.identifier} <ArrowUpRight className="h-3 w-3" />
@@ -91,7 +89,7 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
               key={i}
               className={cn(
                 "min-w-0 whitespace-pre-wrap px-4 py-2.5",
-                m.role === "you" ? "chat-user max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08]" : "chat-answer panel w-full self-start",
+                m.role === "you" ? "chat-user max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08]" : "chat-agent-turn chat-answer panel w-full self-start",
               )}
             >
               <Text text={m.text} />
@@ -100,10 +98,11 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
           ),
         )}
         {lastRole === "you" && <p role="status" className="text-xs text-muted">Waiting for Codex…</p>}
-        <div ref={bottom} className="scroll-mb-[calc(170px+env(safe-area-inset-bottom))] lg:scroll-mb-32" />
+        <div ref={bottom} className="scroll-mb-[calc(240px+env(safe-area-inset-bottom))] lg:scroll-mb-48" />
       </div>
 
       <ReplyBar
+        identity="codex-cloud"
         placeholder="Message Codex…"
         onSend={async (text) => {
           const res = await fetch(`/api/codex/${id}`, {

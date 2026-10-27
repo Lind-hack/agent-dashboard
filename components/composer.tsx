@@ -4,7 +4,7 @@ import { ArrowUp, Check, GitBranch, LoaderCircle, Mic, Square } from "lucide-rea
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
-import { Core } from "@/components/core";
+import { ChatIdentity, ChatSignature } from "@/components/chat-identity";
 import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "@/components/skill-picker";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
 import { AGENT_HEX, AGENT_LABELS, AGENT_META, type AgentKey, type TaskAgent } from "@/lib/agents";
@@ -152,27 +152,27 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
         </button>
       </div>
 
-      <div className="flex flex-col items-center gap-3 py-2">
-        <button
-          onClick={mic.toggle}
-          disabled={busy || (AGENT_META[agent].repo && !selectedRepo)}
-          aria-label={mic.recording ? "Stop and send" : "Tap to talk"}
-          className="group relative grid h-36 w-36 place-items-center overflow-hidden rounded-[36px] bg-black shadow-[0_0_0_1px_rgb(169_228_245/0.25)_inset] transition-transform duration-300 ease-[var(--ease-out-expo)] hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40"
-          style={{ boxShadow: `0 0 0 1px rgb(169 228 245 / 0.25) inset, 0 20px 50px -18px ${AGENT_HEX[agent]}` }}
-        >
-          <Core className="absolute inset-0 h-full w-full" density={0.8} energy={mic.recording ? 1 : 0.45} tints={[AGENT_HEX[agent]]} />
-          <span className="relative grid place-items-center text-white drop-shadow-[0_0_8px_rgb(0_0_0)]">
-            {busy ? <LoaderCircle className="h-8 w-8 animate-spin" /> : mic.recording ? <Square className="h-7 w-7 fill-current" /> : <Mic className="h-9 w-9" />}
-          </span>
-        </button>
-        <p className="tnum text-sm text-muted" aria-live="polite">
-          {busy ? "Starting the chat…" : mic.recording ? `Listening · ${mic.seconds}s — tap to send` : `Tap to talk to ${AGENT_LABELS[agent]}`}
+      <div className="chat-start">
+        <ChatIdentity agent={agent} state={busy ? "working" : "ready"}>
+          <button
+            onClick={mic.toggle}
+            disabled={busy || (AGENT_META[agent].repo && !selectedRepo)}
+            aria-label={mic.recording ? "Stop and send" : "Tap to talk"}
+            className={cn("chat-dictate grid h-12 w-12 shrink-0 place-items-center rounded-full border border-line-hi transition-colors hover:bg-white/10 disabled:opacity-40", mic.recording && "bg-bad/20 text-bad")}
+          >
+            {busy ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden /> : mic.recording ? <Square className="h-4 w-4 fill-current" aria-hidden /> : <Mic className="h-5 w-5" aria-hidden />}
+          </button>
+        </ChatIdentity>
+        <h2 className="chat-start-title">{agent === "claude" ? "What are we working on?" : agent === "codex" || agent === "codex-cloud" ? "What are we building?" : `What can ${AGENT_LABELS[agent]} help with?`}</h2>
+        <p className="mt-3 text-sm leading-relaxed text-muted" aria-live="polite">
+          {busy ? "Starting the chat…" : mic.recording ? `Listening · ${mic.seconds}s — tap to send` : "Describe a task below, or tap the microphone to dictate."}
         </p>
       </div>
 
       <div className="relative">
       <SkillMenu picker={picker} onPick={apply} id="composer-skills" />
       <div className="reply-panel rounded-[18px] border border-line bg-white/[0.02] p-2 focus-within:border-line-hi">
+        <ChatSignature agent={agent} />
         <SkillChips picker={picker} />
         <div className="flex items-end gap-2">
         <textarea

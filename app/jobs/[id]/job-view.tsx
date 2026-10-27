@@ -2,6 +2,7 @@
 
 import { Archive, ArrowDown, ArrowUpRight, Check, ChevronDown, Copy, FilePen, FileText, GitBranch, Globe, Play, Plug, Search, Square, SquareTerminal, Volume2, VolumeX, Wrench } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ChatIdentity } from "@/components/chat-identity";
 import { ChatEmpty } from "@/components/chat-empty";
 import { AgentLogo } from "@/components/agent-logo";
 import { Md } from "@/components/md";
@@ -9,7 +10,7 @@ import { StatusPill } from "@/components/kit";
 import { ReplyBar } from "@/components/reply-bar";
 import { HighlightSkills } from "@/components/skill-picker";
 import { speak, stopSpeaking, unlockAudio, useVoiceState } from "@/components/voice-engine";
-import { AGENT_HEX, AGENT_LABELS, AGENT_META, AGENT_PERSONA, type TaskAgent } from "@/lib/agents";
+import { AGENT_HEX, AGENT_LABELS, AGENT_PERSONA, type TaskAgent } from "@/lib/agents";
 import type { Job } from "@/lib/store";
 import { ago, cn } from "@/lib/utils";
 import { ContextPanel, EarlierOnPc, HandoffStrip } from "./handoff-panels";
@@ -265,14 +266,9 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
   const lastStep = [...log].reverse().find((e) => e.kind === "tool")?.text;
 
   return (
-    <div className="chat-skin chat-page mx-auto max-w-3xl pb-44" data-agent={agent} style={{ ["--agent" as string]: `var(--chat-accent, ${AGENT_HEX[agent]})` }}>
+    <div className="chat-skin chat-page mx-auto max-w-3xl pb-56" data-agent={agent} style={{ ["--agent" as string]: `var(--chat-accent, ${AGENT_HEX[agent]})` }}>
       <header className="chat-header pt-2 pb-5 lg:pt-6">
-        <div className="mb-4 flex items-center gap-3">
-          <AgentLogo agent={agent} size="md" state={job.status === "running" ? "working" : job.status === "closed" ? "idle" : "ready"} />
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="text-[15px] font-medium">{agentName}</p>
-            <p className="truncate font-mono text-[11px] text-faint">{AGENT_META[agent].hint}</p>
-          </div>
+        <ChatIdentity agent={agent} state={job.status === "running" ? "working" : job.status === "closed" ? "idle" : "ready"}>
           <button
             onClick={() => {
               unlockAudio();
@@ -284,16 +280,17 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
               } catch {}
             }}
             role="switch"
+            aria-label="Read aloud"
             aria-checked={readAloud}
             className={cn(
-              "flex h-9 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors",
+              "chat-read-aloud flex h-11 shrink-0 items-center gap-2 rounded-[10px] border px-3 text-xs transition-colors",
               readAloud ? "border-[color-mix(in_oklab,var(--agent),transparent_55%)] text-text" : "border-line text-muted hover:text-text",
             )}
           >
             {readAloud ? <Volume2 className="h-4 w-4" style={{ color: "var(--agent)" }} aria-hidden /> : <VolumeX className="h-4 w-4" aria-hidden />}
-            Read aloud
+            <span className="hidden sm:inline">Read aloud</span>
           </button>
-        </div>
+        </ChatIdentity>
         <h1 className="text-[1.7rem] leading-tight font-semibold tracking-[-0.03em] text-balance">{job.title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted">
           {job.repo && (
@@ -370,7 +367,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
           const head = opensTurn ? <Speaker agent={agent} /> : null;
           if (b.kind === "tools")
             return (
-              <div key={dropped + b.at} className={cn("flex flex-col gap-3", fresh)}>
+              <div key={dropped + b.at} className={cn("chat-agent-turn flex flex-col gap-3", fresh)}>
                 {head}
                 <Tools items={b.items} />
               </div>
@@ -390,7 +387,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             );
           if (b.kind === "result")
             return (
-              <div key={dropped + b.at} className={cn("flex flex-col gap-3", fresh)}>
+              <div key={dropped + b.at} className={cn("chat-agent-turn flex flex-col gap-3", fresh)}>
                 {head}
                 <div className="chat-answer panel relative px-4 pt-3.5 pb-1.5">
                   <span className="chat-answer-rule absolute inset-x-0 top-0 h-px" style={{ background: "linear-gradient(90deg, transparent, color-mix(in oklab, var(--agent), transparent 30%), transparent)" }} aria-hidden />
@@ -404,7 +401,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
               </div>
             );
           return (
-            <div key={dropped + b.at} className={cn("chat-prose flex flex-col gap-3 text-text/90", fresh)}>
+            <div key={dropped + b.at} className={cn("chat-agent-turn chat-prose flex flex-col gap-3 text-text/90", fresh)}>
               {head}
               <Md text={b.text} />
             </div>
@@ -423,19 +420,20 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
           </div>
         )}
         {/* Scrolling to it keeps the newest message clear of the composer and the tab bar. */}
-        <div ref={bottom} className="scroll-mb-[calc(170px+env(safe-area-inset-bottom))] lg:scroll-mb-32" />
+        <div ref={bottom} className="scroll-mb-[calc(240px+env(safe-area-inset-bottom))] lg:scroll-mb-48" />
       </div>
 
       {below > 0 && (
         <button
           onClick={() => bottom.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "end" })}
-          className="msg-in fixed bottom-[calc(140px+env(safe-area-inset-bottom))] left-1/2 z-20 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full border border-[color-mix(in_oklab,var(--agent),transparent_55%)] bg-bg-raised/95 px-3.5 text-xs shadow-[0_10px_30px_-12px_rgb(0_0_0/0.9)] backdrop-blur lg:bottom-28 lg:left-[calc(50%+124px)]"
+          className="msg-in fixed bottom-[calc(208px+env(safe-area-inset-bottom))] left-1/2 z-20 flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full border border-[color-mix(in_oklab,var(--agent),transparent_55%)] bg-bg-raised/95 px-3.5 text-xs shadow-[0_10px_30px_-12px_rgb(0_0_0/0.9)] backdrop-blur lg:bottom-40 lg:left-[calc(50%+124px)]"
         >
           <ArrowDown className="h-3.5 w-3.5" style={{ color: "var(--agent)" }} aria-hidden /> New from {agentName}
         </button>
       )}
 
       <ReplyBar
+        identity={agent}
         placeholder={
           job.owner === "pc" ? "Back on the PC" : job.owner === "returning" ? "Returning to the PC" : job.status === "closed" ? (job.issueId ? "Issue is closed in Linear" : "Chat archived") : `Message ${agentName}…`
         }
