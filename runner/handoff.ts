@@ -147,7 +147,9 @@ function installInstructions(ctx: HandoffContext) {
   const rules = ctx.instructions.filter((i) => /[\\/]rules[\\/][^\\/]+\.md$/i.test(i.path));
   if (rules.length) writeFiles(path.join(claudeHome, "rules"), Object.fromEntries(rules.map((r) => [path.basename(r.path.replace(/\\/g, "/")), r.text])));
   for (const [name, files] of Object.entries(ctx.skills ?? {})) {
-    if (/^[\w-]+$/.test(name)) writeFiles(path.join(claudeHome, "skills", name), files);
+    // A skill the PC sync or the GitHub mirror installed (full folder structure) beats the hand-off's flattened copy.
+    const synced = [".synced-from-pc", ".synced-from-github"].some((m) => fs.existsSync(path.join(claudeHome, "skills", name, m)));
+    if (/^[\w-]+$/.test(name) && !synced) writeFiles(path.join(claudeHome, "skills", name), files);
   }
 }
 

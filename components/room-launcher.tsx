@@ -2,8 +2,9 @@
 
 import { Check, GitBranch, LoaderCircle, Mic, SendHorizontal, Square, TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
+import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "@/components/skill-picker";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
 import { AGENT_LABELS, AGENT_META, type AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
@@ -58,13 +59,22 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
   const chosen = mode === "solo" ? picked.slice(0, 1) : picked;
   const sharedModel = mode === "roast" ? chosen.find((a, i) => chosen.some((b, j) => j > i && byKey[a]?.model === byKey[b]?.model)) : undefined;
   const calls = chosen.length * 6 + 8; // same budget the runner enforces (debaters, repairs, judge, verdict)
-  const valid = text.trim() && (mode === "solo" ? chosen.length === 1 : mode === "team" && teamKind === "relay" ? true : chosen.length >= 2 && chosen.length <= 4);
+  // Skills work in Solo (one known agent); debaters are tool-free and a team mixes agents.
+  const box = useRef<HTMLTextAreaElement>(null);
+  const picker = useSkillPicker(mode === "solo" ? chosen[0] : undefined, box);
+  const apply = (s: SkillInfo) => {
+    const caret = box.current?.selectionStart ?? text.length;
+    const next = picker.pick(s, text, caret);
+    setText(next.text);
+  };
+  const valid = (text.trim() || (mode === "solo" && picker.chips.length)) && (mode === "solo" ? chosen.length === 1 : mode === "team" && teamKind === "relay" ? true : chosen.length >= 2 && chosen.length <= 4);
 
   async function start(audio?: Blob) {
     setBusy(true);
     setError("");
     const form = new FormData();
     form.set("text", text);
+    if (mode === "solo") form.set("skills", picker.chips.join(","));
     form.set("repo", repo);
     if (audio) form.set("audio", audio, audioFilename(audio));
     try {
@@ -214,7 +224,11 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
         </select>
       </label>
 
-      <div className="panel flex items-end gap-1.5 !rounded-[20px] p-1.5">
+      <div className="relative">
+      <SkillMenu picker={picker} onPick={apply} id="room-skills" />
+      <div className="panel !rounded-[20px] p-1.5">
+      <SkillChips picker={picker} />
+      <div className="flex items-end gap-1.5">
         <button
           onClick={mic.toggle}
           disabled={busy || (!mic.recording && mode !== "solo" && !(mode === "team" && teamKind === "relay") && chosen.length < 2)}
@@ -224,10 +238,24 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
           {mic.recording ? <Square className="h-4 w-4 fill-current" /> : <Mic className="h-5 w-5" strokeWidth={1.75} />}
         </button>
         <textarea
+          ref={box}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value);
+            picker.onText(e.target.value, e.target.selectionStart ?? e.target.value.length);
+          }}
+          onKeyDown={(e) => {
+            picker.onKey(e, apply);
+          }}
+          onBlur={() => picker.onText("", 0)}
           rows={1}
-          placeholder={mic.recording ? `Listening · ${mic.seconds}s — tap to send` : mode === "roast" ? "What should they debate?" : "What should they work on?"}
+          aria-label="Task"
+          role={mode === "solo" ? "combobox" : undefined}
+          aria-autocomplete={mode === "solo" ? "list" : undefined}
+          aria-expanded={mode === "solo" ? picker.open : undefined}
+          aria-controls={mode === "solo" && picker.open ? "room-skills" : undefined}
+          aria-activedescendant={mode === "solo" && picker.open && picker.matches.length ? `room-skills-${picker.active}` : undefined}
+          placeholder={mic.recording ? `Listening · ${mic.seconds}s — tap to send` : mode === "roast" ? "What should they debate?" : mode === "solo" ? "What should it work on? — / for skills" : "What should they work on?"}
           className="max-h-48 min-h-11 min-w-0 flex-1 resize-none bg-transparent py-2.5 text-[15px] outline-none [field-sizing:content] placeholder:text-faint"
         />
         <button
@@ -239,6 +267,8 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
           {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
           <span className="hidden sm:inline">{mode === "roast" ? "Start debate" : "Send"}</span>
         </button>
+      </div>
+      </div>
       </div>
 
       <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">

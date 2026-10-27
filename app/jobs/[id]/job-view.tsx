@@ -6,6 +6,7 @@ import { AgentLogo } from "@/components/agent-logo";
 import { Md } from "@/components/md";
 import { StatusPill } from "@/components/kit";
 import { ReplyBar } from "@/components/reply-bar";
+import { HighlightSkills } from "@/components/skill-picker";
 import { AGENT_LABELS } from "@/lib/agents";
 import type { Job } from "@/lib/store";
 import { ago, cn } from "@/lib/utils";
@@ -93,7 +94,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
     };
   }, [initialJob.id]);
 
-  async function post(payload: Record<string, string>) {
+  async function post(payload: Record<string, unknown>) {
     const res = await fetch(`/api/jobs/${job.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -184,7 +185,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
           if (b.kind === "you")
             return (
               <div key={i} className="max-w-[85%] self-end rounded-[20px] rounded-br-md bg-white/[0.08] px-4 py-2.5 whitespace-pre-wrap">
-                {b.text}
+                <HighlightSkills text={b.text} />
               </div>
             );
           if (b.kind === "error")
@@ -215,8 +216,9 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
           job.owner === "pc" ? "Back on the PC" : job.owner === "returning" ? "Returning to the PC" : job.status === "closed" ? (job.issueId ? "Issue is closed in Linear" : "Chat archived") : `Message ${agentName}…`
         }
         disabled={job.status === "closed" || job.owner === "returning" || job.owner === "pc"}
-        onSend={async (prompt) => {
-          await post({ action: "reply", prompt });
+        agent={job.agent === "claude" || job.agent === "codex" || job.agent === "opencode" || job.agent === "hermes" ? job.agent : undefined}
+        onSend={async (prompt, skills) => {
+          await post({ action: "reply", prompt, skills });
           return job.status === "running" ? `Queued — ${agentName} gets it when this turn ends.` : `Sent — ${agentName} is picking it up.`;
         }}
       />

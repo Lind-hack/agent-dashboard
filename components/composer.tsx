@@ -2,9 +2,12 @@
 
 import { Check, GitBranch, LoaderCircle, Mic, SendHorizontal, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { AgentLogo } from "@/components/agent-logo";
+import { Core } from "@/components/core";
+import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "@/components/skill-picker";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
-import { AGENT_LABELS, AGENT_META, type TaskAgent } from "@/lib/agents";
+import { AGENT_HEX, AGENT_LABELS, AGENT_META, type AgentKey, type TaskAgent } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
 type Repo = { name: string; base: string; private: boolean };
@@ -56,7 +59,14 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
   // Fall back to the first repo when nothing (or a repo the token lost) is remembered.
   const selectedRepo = repos.some((r) => r.name === repo) ? repo : (repos[0]?.name ?? "");
   const tracked = agent === "codex-cloud" || linear === "1";
-  const color = AGENTS.find((a) => a.key === agent)?.color ?? "var(--color-claude)";
+  // Skills run in VPS chats; a Linear issue is drafted from the words instead.
+  const box = useRef<HTMLTextAreaElement>(null);
+  const picker = useSkillPicker(tracked ? undefined : (agent as AgentKey), box);
+  const apply = (s: SkillInfo) => {
+    const caret = box.current?.selectionStart ?? text.length;
+    const next = picker.pick(s, text, caret);
+    setText(next.text);
+  };
 
   async function send(audio?: Blob) {
     setBusy(true);
@@ -66,6 +76,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
     form.set("repo", selectedRepo);
     form.set("linear", tracked ? "1" : "0");
     form.set("text", text);
+    form.set("skills", picker.chips.join(","));
     if (audio) form.set("audio", audio, audioFilename(audio));
     const res = await fetch("/api/tasks", { method: "POST", body: form }).catch(() => null);
     const body = await res?.json().catch(() => null);
@@ -86,7 +97,7 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
 
   return (
     <div className="flex flex-col gap-5">
-      <div role="radiogroup" aria-label="Agent" className="-mx-1 flex gap-1.5 overflow-x-auto rounded-2xl border border-line bg-white/[0.02] p-1.5">
+      <div role="radiogroup" aria-label="Agent" className="-mx-1 flex gap-1.5 overflow-x-auto rounded-[16px] border border-line bg-white/[0.02] p-1.5">
         {AGENTS.map((a) => {
           const on = agent === a.key;
           return (
@@ -96,11 +107,11 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
               aria-checked={on}
               onClick={() => setAgent(a.key)}
               className={cn(
-                "flex shrink-0 items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-colors duration-200",
+                "flex shrink-0 items-center justify-center gap-2 rounded-[12px] px-3 py-2 text-sm transition-colors duration-200",
                 on ? "bg-white/[0.08] text-text" : "text-muted hover:text-text",
               )}
             >
-              <span className="h-2 w-2 rounded-full" style={{ background: a.color, opacity: on ? 1 : 0.5 }} />
+              <AgentLogo agent={a.key} size="xs" state={on ? "ready" : "idle"} />
               {AGENT_LABELS[a.key]}
             </button>
           );
@@ -146,17 +157,11 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
           onClick={mic.toggle}
           disabled={busy || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label={mic.recording ? "Stop and send" : "Tap to talk"}
-          className="group relative grid h-36 w-36 place-items-center rounded-full disabled:opacity-40"
+          className="group relative grid h-36 w-36 place-items-center overflow-hidden rounded-[36px] bg-black shadow-[0_0_0_1px_rgb(169_228_245/0.25)_inset] transition-transform duration-300 ease-[var(--ease-out-expo)] hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40"
+          style={{ boxShadow: `0 0 0 1px rgb(169 228 245 / 0.25) inset, 0 20px 50px -18px ${AGENT_HEX[agent]}` }}
         >
-          <span
-            className={cn("absolute inset-0 rounded-full transition-transform duration-500 ease-[var(--ease-out-expo)]", mic.recording ? "scale-110" : "group-hover:scale-105")}
-            style={{
-              background: `radial-gradient(circle at 35% 30%, color-mix(in oklab, ${color}, white 55%), ${color} 38%, color-mix(in oklab, ${color}, black 65%) 78%)`,
-              boxShadow: `0 0 0 1px rgb(255 255 255 / 0.08) inset, 0 20px 60px -10px color-mix(in oklab, ${color}, transparent 30%)`,
-            }}
-          />
-          {mic.recording && <span className="absolute inset-0 animate-ping rounded-full opacity-30" style={{ background: color }} />}
-          <span className="relative grid place-items-center text-bg">
+          <Core className="absolute inset-0 h-full w-full" density={0.8} energy={mic.recording ? 1 : 0.45} tints={[AGENT_HEX[agent]]} />
+          <span className="relative grid place-items-center text-white drop-shadow-[0_0_8px_rgb(0_0_0)]">
             {busy ? <LoaderCircle className="h-8 w-8 animate-spin" /> : mic.recording ? <Square className="h-7 w-7 fill-current" /> : <Mic className="h-9 w-9" />}
           </span>
         </button>
@@ -165,26 +170,44 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
         </p>
       </div>
 
-      <div className="flex items-end gap-2 rounded-2xl border border-line bg-white/[0.02] p-2 focus-within:border-line-hi">
+      <div className="relative">
+      <SkillMenu picker={picker} onPick={apply} id="composer-skills" />
+      <div className="rounded-[18px] border border-line bg-white/[0.02] p-2 focus-within:border-line-hi">
+        <SkillChips picker={picker} />
+        <div className="flex items-end gap-2">
         <textarea
+          ref={box}
           value={text}
           autoFocus={autoFocusText}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim()) void send();
+          onChange={(e) => {
+            setText(e.target.value);
+            picker.onText(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
+          onKeyDown={(e) => {
+            if (picker.onKey(e, apply)) return;
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && (text.trim() || picker.chips.length)) void send();
+          }}
+          onBlur={() => picker.onText("", 0)}
           rows={2}
-          placeholder={`Or type to ${AGENT_LABELS[agent]}…`}
+          aria-label="Message"
+          role={tracked ? undefined : "combobox"}
+          aria-autocomplete={tracked ? undefined : "list"}
+          aria-expanded={tracked ? undefined : picker.open}
+          aria-controls={!tracked && picker.open ? "composer-skills" : undefined}
+          aria-activedescendant={!tracked && picker.open && picker.matches.length ? `composer-skills-${picker.active}` : undefined}
+          placeholder={tracked ? `Or type to ${AGENT_LABELS[agent]}…` : `Or type to ${AGENT_LABELS[agent]} — / for skills`}
           className="min-w-0 flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-faint"
         />
         <button
           onClick={() => send()}
-          disabled={busy || mic.recording || !text.trim() || (AGENT_META[agent].repo && !selectedRepo)}
+          disabled={busy || mic.recording || (!text.trim() && !picker.chips.length) || (AGENT_META[agent].repo && !selectedRepo)}
           aria-label="Send"
-          className="grid h-10 w-10 place-items-center rounded-xl bg-text text-bg transition-opacity disabled:opacity-25"
+          className="grid h-10 w-10 place-items-center rounded-[12px] bg-text text-bg transition-opacity disabled:opacity-25"
         >
           <SendHorizontal className="h-4 w-4" />
         </button>
+        </div>
+      </div>
       </div>
       <p className="-mt-2 px-1 text-xs text-faint">{AGENTS.find((a) => a.key === agent)?.hint}{tracked ? " · creates a Linear issue" : ""}</p>
 

@@ -11,6 +11,9 @@ import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, ty
 import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
 import { cancelRoom, createRoom, roomTick } from "./room";
+import { syncSkillsTick } from "./skills-sync";
+import { installSkillsFromGithub } from "./skills-github";
+import { applySkills, skillDisplay } from "../lib/skills";
 import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
@@ -209,7 +212,7 @@ async function createChat(chat: NewChat) {
     fromBranch: chat.fromBranch,
     group: chat.group,
     status: "queued",
-    pending: { prompt: chat.prompt, source: chat.source },
+    pending: { prompt: chat.prompt, source: chat.source, skills: chat.skills },
     turns: [],
     seenCommentIds: [],
     createdAt: now,
@@ -219,10 +222,18 @@ async function createChat(chat: NewChat) {
   log("new chat", job.id, job.agent, job.repo);
 }
 
+let skillInstalls: Promise<void> = Promise.resolve();
+
 async function handleInbox() {
   for (const { item, ack } of claimInbox()) {
     if (item.kind === "sync") {
       forceSync = true;
+      ack();
+      continue;
+    }
+    if (item.kind === "skill-install") {
+      // In the background, one at a time — a big pack takes a while and mustn't hold up chat turns.
+      skillInstalls = skillInstalls.then(() => installSkillsFromGithub(item.url));
       ack();
       continue;
     }
@@ -295,15 +306,18 @@ async function handleInbox() {
       appendLog(job.id, { kind: "turn", text: "Back on the PC — continue there with claude --resume." });
       if (job.repo) await removeWorktree(job.repo, job.id).catch((e) => log("worktree cleanup", job.id, e.message));
     }
-    if (item.kind === "reply" && item.prompt.trim() && job.owner && job.owner !== "vps") {
+    const hasReply = item.kind === "reply" && (!!item.prompt.trim() || !!item.skills?.length);
+    if (hasReply && job.owner && job.owner !== "vps") {
       appendLog(job.id, { kind: "error", text: job.owner === "pc" ? "This chat is back on the PC — continue it there." : "This chat is being returned to the PC. Tap “Keep on VPS” to continue here instead." });
       seen(job);
       save(job);
-    } else if (item.kind === "reply" && item.prompt.trim()) {
+    } else if (hasReply && item.kind === "reply") {
       // A reply to a running turn waits until that turn ends; a hand-off still preparing gets it after.
+      const skills = [...new Set([...(job.pending?.skills ?? []), ...(item.skills ?? [])])];
       job.pending = {
         prompt: [job.pending?.prompt, item.prompt.trim()].filter(Boolean).join("\n\n"),
         source: "dashboard",
+        ...(skills.length ? { skills } : {}),
       };
       if (!isActive(job) && job.status !== "preparing") job.status = "queued";
       seen(job);
@@ -479,6 +493,9 @@ async function runTurn(job: Job) {
     const extra = turn.source === "dashboard" && job.turns.length ? turn.prompt : "";
     turn.prompt = brief(job) + (extra ? `\n\n## Additional instructions from Lind\n${extra}` : "");
   }
+  // Skills Lind picked with "/" (structured on the turn — never parsed from his words) become this
+  // agent's own invocation, in front of any brief or hand-off preamble.
+  turn.prompt = applySkills(agent, turn.skills, turn.prompt);
   job.pending = undefined;
   job.status = "running";
   job.error = undefined;
@@ -490,7 +507,7 @@ async function runTurn(job: Job) {
     text:
       job.turns.length === 1 && !job.imported
         ? `Started (${[AGENT_LABELS[agent], job.repo, job.group?.kind === "relay" ? `relay ${RELAY_STEPS[job.group.step] ?? ""}` : ""].filter(Boolean).join(" · ")})`
-        : `You: ${shown}`,
+        : `You: ${skillDisplay(agent, turn.skills, shown)}`,
   });
 
   try {
@@ -587,6 +604,11 @@ async function tick() {
   await handleInbox();
   await importHandoffs().catch((e) => log("handoff import", e instanceof Error ? e.message : e));
   await exportReturns().catch((e) => log("handoff export", e instanceof Error ? e.message : e));
+  try {
+    syncSkillsTick();
+  } catch (e) {
+    log("skills sync", e instanceof Error ? e.message : e);
+  }
   // Roast debaters run on the same per-agent slots as chat turns: a chat and a debate never share an agent.
   roomTick({
     take: (a, id) => !active.has(a) && !!active.set(a, { id: `room:${id}` }),

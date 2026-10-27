@@ -3,6 +3,7 @@ import { AGENT_META, VPS_AGENTS, type AgentKey, type TaskAgent } from "@/lib/age
 import { draftTask, transcribe } from "@/lib/groq";
 import { listRepos } from "@/lib/github";
 import { createAgentIssue } from "@/lib/linear";
+import { validSkills } from "@/lib/skills";
 import { pushInbox } from "@/lib/store";
 
 const TASK_AGENTS: TaskAgent[] = [...VPS_AGENTS, "codex-cloud"];
@@ -29,9 +30,15 @@ export async function POST(request: Request) {
       const name = audio instanceof File && audio.name ? audio.name : "note.webm";
       text = [text, await transcribe(audio, name)].filter(Boolean).join("\n\n");
     }
-    if (!text) return NextResponse.json({ error: "Nothing was said or typed" }, { status: 400 });
+    // Skills picked with "/" travel as their own field; each agent keeps only the ones it really has.
+    const picked = String(form.get("skills") ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const skillsFor = (a: AgentKey) => validSkills(a, picked);
+    if (!text && !(picked.length && agent && agent !== "codex-cloud" && skillsFor(agent).length)) return NextResponse.json({ error: "Nothing was said or typed" }, { status: 400 });
     const fallbackRepo = repo ?? repos[0] ?? "";
-    const title = text.split("\n")[0].slice(0, 80);
+    const title = (text.split("\n")[0] || picked.map((s) => `/${s}`).join(" ")).slice(0, 80);
 
     if (mode === "ask" || mode === "relay") {
       const picked = String(form.get("agents") ?? "")
@@ -49,6 +56,7 @@ export async function POST(request: Request) {
               repo: AGENT_META[a].repo ? fallbackRepo : "",
               title,
               prompt: text,
+              skills: skillsFor(a),
               source: "dashboard",
               group: { id: gid, kind: "ask", step: 0, steps: picked, task: text },
             },
@@ -67,6 +75,7 @@ export async function POST(request: Request) {
             repo: fallbackRepo,
             title: `Plan: ${title.slice(0, 70)}`,
             prompt: text,
+            skills: skillsFor(steps[0]),
             source: "dashboard",
             group: { id: gid, kind: "relay", step: 0, steps, task: text },
           },
@@ -97,7 +106,7 @@ export async function POST(request: Request) {
     const chatRepo = AGENT_META[chatAgent].repo ? fallbackRepo : "";
     if (AGENT_META[chatAgent].repo && !chatRepo) return NextResponse.json({ error: "The GitHub token can't see any repos" }, { status: 400 });
     const id = newId("C");
-    pushInbox({ kind: "create", chat: { id, agent: chatAgent, repo: chatRepo, title, prompt: text, source: "dashboard" } });
+    pushInbox({ kind: "create", chat: { id, agent: chatAgent, repo: chatRepo, title, prompt: text, skills: skillsFor(chatAgent), source: "dashboard" } });
     return NextResponse.json({ id, agent: chatAgent, repo: chatRepo, title, transcript: text, href: `/jobs/${id}` });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
