@@ -5,6 +5,8 @@ import { readSkillsStatus, skillsFor } from "@/lib/skills";
 import { readHeartbeat } from "@/lib/store";
 import { ago } from "@/lib/utils";
 import { LogoutButton } from "./logout";
+import { readMemorySettings } from "@/lib/memory-settings";
+import { MemoryCapture } from "./memory-capture";
 import { SkillFromGithub } from "./skill-from-github";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +139,9 @@ export default async function SettingsPage() {
           </ul>
         )}
       </Panel>
+
+      <SectionTitle>Memory</SectionTitle>
+      <MemoryCapture enabled={readMemorySettings().enabled} blocked={process.env.BRAIN_ENABLED === "0" ? "Collection is disabled by BRAIN_ENABLED=0 on the VPS." : !process.env.MEMORY_VAULT_DIR || !process.env.NVIDIA_API_KEY ? "Set MEMORY_VAULT_DIR and NVIDIA_API_KEY on the VPS to process summaries." : undefined} />
 
       <SectionTitle>Keyboard</SectionTitle>
       <Panel className="mb-8 flex flex-col gap-2 px-4 py-4 text-sm text-muted">

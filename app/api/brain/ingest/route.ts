@@ -1,3 +1,5 @@
+import { readMemorySettings } from "@/lib/memory-settings";
+import { redact } from "@/lib/redact";
 import { gunzipSync } from "node:zlib";
 import { NextResponse } from "next/server";
 import { queueBrainItem, validBrainItem, type BrainItem } from "@/lib/brain";
@@ -17,6 +19,7 @@ export async function POST(request: Request) {
   }
   const bad = validBrainItem(item);
   if (bad) return NextResponse.json({ error: bad }, { status: 400 });
+  if (item!.kind === "chat" && !readMemorySettings().enabled) return NextResponse.json({ error: "Automatic memory capture is off" }, { status: 409 });
   queueBrainItem({
     kind: item!.kind!,
     id: item!.id!,
@@ -25,7 +28,7 @@ export async function POST(request: Request) {
     project: String(item!.project ?? "").slice(0, 80),
     firstAt: String(item!.firstAt ?? ""),
     lastAt: String(item!.lastAt ?? ""),
-    text: item!.text!,
+    text: redact(item!.text!).text,
     source: String(item!.source ?? "").slice(0, 300),
   });
   return NextResponse.json({ ok: true });

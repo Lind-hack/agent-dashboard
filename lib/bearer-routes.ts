@@ -11,6 +11,7 @@ export const BEARER_ROUTES = [
   "/api/handoff/v2/complete",
   "/api/calendar/token",
   "/api/memory/notes",
+  "/api/memory/settings",
   "/api/brain/ingest",
   "/api/brain/status",
   "/api/brain/collector",
