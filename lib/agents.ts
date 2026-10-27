@@ -40,6 +40,16 @@ export const AGENT_TONE: Record<TaskAgent, string> = {
   hermes: "hermes",
 };
 
+// How each agent shows up in its own chat: what it's doing while it works, and the one-line voice of
+// its empty state. (Voices live in lib/voices.ts.)
+export const AGENT_PERSONA: Record<TaskAgent, { verb: string; idle: string }> = {
+  claude: { verb: "thinking", idle: "Claude reads the repo first, then edits — ask for a plan if you want one before code." },
+  codex: { verb: "working", idle: "Codex runs commands and tests as it goes — say what done looks like." },
+  "codex-cloud": { verb: "working in the cloud", idle: "Codex cloud picks this up from Linear and opens a PR." },
+  opencode: { verb: "coding", idle: "OpenCode on free DeepSeek — quick fixes and small features." },
+  hermes: { verb: "running", idle: "Hermes works in its own container: pipelines, scraping, skills." },
+};
+
 export type GroupKind = "ask" | "relay";
 // Relay = plan → build → review across agents on one branch.
 export const RELAY_STEPS = ["Plan", "Build", "Review"] as const;

@@ -71,7 +71,7 @@ export function ReplyBar({
             {mic.error || notice}
           </p>
         )}
-        <div className="panel rounded-[26px] bg-bg-raised/[0.97] p-1.5 shadow-[0_-12px_32px_-12px_rgb(0_0_0/0.9)]">
+        <div className="reply-panel panel rounded-[26px] bg-bg-raised/[0.97] p-1.5 shadow-[0_-12px_32px_-12px_rgb(0_0_0/0.9)] transition-[border-color,box-shadow] duration-200">
           <SkillChips picker={picker} />
           <div className="flex items-end gap-1.5">
             <button
