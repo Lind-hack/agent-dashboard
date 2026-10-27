@@ -26,6 +26,42 @@ const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syn
 // Obsidian knows the vault by its folder name on the PC ("Lind Brain"), not the VPS path.
 const vaultName = () => process.env.MEMORY_VAULT_NAME ?? "Lind Brain";
 export const notesDir = () => path.join(DATA_DIR, "notes");
+export const memoryInboxDir = () => path.join(vaultDir(), "100 - Me", "memory", "inbox");
+
+const slug = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "note";
+
+// "Remember this" from the dashboard: one markdown file in the Syncthing vault inbox. Never write to
+// data/notes — the PC sync replaces that folder wholesale on every upload, so anything added there
+// would vanish. Returns the file name so the UI can be honest about where it went.
+export function captureMemory(text: string): { ok: true; file: string } | { ok: false; error: string } {
+  const body = text.trim();
+  if (!body) return { ok: false, error: "Nothing to remember." };
+  const tz = process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
+  const now = new Date();
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((x) => [x.type, x.value]));
+  const stamp = `${p.year}-${p.month}-${p.day}-${p.hour}${p.minute}`;
+  const name = body.split("\n")[0].replace(/[#*_`>[\]]/g, "").trim().slice(0, 90) || "Memory";
+  const dir = memoryInboxDir();
+  let file = path.join(dir, `${stamp}-${slug(name)}.md`);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    let n = 2;
+    while (fs.existsSync(file)) file = path.join(dir, `${stamp}-${slug(name)}-${n++}.md`);
+    const md = ["---", `name: ${JSON.stringify(name)}`, `modified: ${now.toISOString()}`, "tags: [me, inbox]", "---", "", body, ""].join("\n");
+    fs.writeFileSync(file, md);
+    invalidateMemory();
+    return { ok: true, file: path.basename(file) };
+  } catch (err) {
+    return { ok: false, error: `The vault isn't writable: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
 
 const STOP = new Set(
   "the a an and or of to in on for is are was were be it this that with as at by from i you we my me what when where who how why did do does not no yes can could should would will about into than then there their them they have has had our your just also but if so all any some one two dhe e te të në per për me se si qe që nje një ka ishte jane janë nuk po do".split(" "),
@@ -110,7 +146,7 @@ function noteDocs(): Doc[] {
   return walk(notesDir()).flatMap((p) => {
     const f = read(p);
     if (!f || path.basename(p) === "MEMORY.md") return []; // the index only points at the notes
-    const name = f.text.match(/^name:\s*(.+)$/m)?.[1]?.trim();
+    const name = f.text.match(/^name:\s*(.+)$/m)?.[1]?.trim()?.replace(/^"(.*)"$/, "$1");
     const modified = f.text.match(/^\s*modified:\s*(\S+)/m)?.[1];
     return [
       {

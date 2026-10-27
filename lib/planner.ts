@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agenda, calendarConnected, type CalEvent, type PlanBlock } from "./calendar";
+import { activeGoals, type Goal } from "./goals";
 import { groqJSON } from "./groq";
+import { blockId } from "./plan-store";
 import { openTasks, ticktickConnected, type Task } from "./ticktick";
 
 // "Plan my day": fixed calendar events + open TickTick tasks + the vault's Daily Agenda priorities +
@@ -19,6 +21,7 @@ export type Today = {
   tomorrow: CalEvent[];
   tasks: { overdue: Task[]; today: Task[]; inbox: Task[] } | null;
   priorities: string[];
+  goals: Goal[];
   errors: string[];
 };
 
@@ -68,7 +71,7 @@ export async function today(): Promise<Today> {
       errors.push(err instanceof Error ? err.message : String(err));
     }
   }
-  return { tz, today: day, events, tomorrow, tasks, priorities: vaultPriorities(), errors };
+  return { tz, today: day, events, tomorrow, tasks, priorities: vaultPriorities(), goals: activeGoals(), errors };
 }
 
 // Gaps between now (or the start of the day) and the end of the day, around timed events.
@@ -76,8 +79,10 @@ export function freeSlots(t: Today, now = new Date()): { start: number; end: num
   const nowMin = Math.ceil(toMin(clock(t.tz, now)) / 15) * 15;
   let from = Math.max(nowMin, toMin(DAY_START()));
   const end = toMin(DAY_END());
+  // A previous plan is a mirror to replace, not a fixed appointment: its tagged blocks must not eat
+  // the free slots a re-plan is supposed to use.
   const busy = t.events
-    .filter((e) => !e.allDay)
+    .filter((e) => !e.allDay && !e.planned)
     .map((e) => ({ s: toMin(clock(t.tz, new Date(e.start))), e: Math.min(toMin(clock(t.tz, new Date(e.end))) || 24 * 60, 24 * 60) }))
     .sort((a, b) => a.s - b.s);
   const slots: { start: number; end: number }[] = [];
@@ -98,19 +103,21 @@ export async function planDay(note: string): Promise<{ blocks: PlanBlock[]; summ
   const context = [
     `Today: ${t.today} (${t.tz}). Now: ${clock(t.tz, new Date())}.`,
     `Free slots (only schedule inside these): ${slots.map((s) => `${toHHMM(s.start)}-${toHHMM(s.end)}`).join(", ")}`,
-    `Fixed events: ${t.events.filter((e) => !e.allDay).map((e) => `${clock(t.tz, new Date(e.start))}-${clock(t.tz, new Date(e.end))} ${e.title}`).join("; ") || "none"}`,
+    `Fixed events: ${t.events.filter((e) => !e.allDay && !e.planned).map((e) => `${clock(t.tz, new Date(e.start))}-${clock(t.tz, new Date(e.end))} ${e.title}`).join("; ") || "none"}`,
     `All-day: ${t.events.filter((e) => e.allDay).map((e) => e.title).join("; ") || "none"}`,
     `Open tasks (id | priority | due | title):\n${taskList.map((x) => `${x.id} | ${pri[x.priority]} | ${x.due ? (x.due < t.today ? "overdue" : "today") : "no date"} | ${x.title}`).join("\n") || "none"}`,
     `Standing priorities from the vault: ${t.priorities.join(" / ") || "none"}`,
+    `Active goals from the vault (id | horizon | next action | why | due):\n${t.goals.map((g) => `${g.id} | ${g.horizon} | ${g.title} → ${g.next || "choose the next action"} | ${g.why || "—"} | ${g.due ?? "no date"}`).join("\n") || "none"}`,
     `What Lind says about today: ${note || "(nothing — plan from the list)"}`,
   ].join("\n\n");
-  const out = await groqJSON<{ blocks: { start: string; end: string; title: string; kind: string; taskId?: string | null }[]; summary: string }>(
+  const out = await groqJSON<{ blocks: { start: string; end: string; title: string; kind: string; taskId?: string | null; goalId?: string | null }[]; summary: string }>(
     `You plan Lind's day into time blocks. He's a CS student building AI products and running a news site.
-Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "title": string, "kind": "task"|"focus"|"break"|"routine", "taskId": string|null}]}.
+Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "title": string, "kind": "task"|"focus"|"break"|"routine", "taskId": string|null, "goalId": string|null}]}.
 - Only inside the free slots, never overlapping each other. Blocks in 15-minute steps.
-- What Lind says wins. Then overdue and high-priority tasks, then the standing priorities as deep "focus" blocks (60–120 min).
+- Goals first: each active goal's next action gets a "focus" block long enough to make real progress (45–120 min) before generic tasks, unless Lind's note says otherwise.
+- Then overdue and high-priority tasks, then the standing priorities as deep "focus" blocks (60–120 min).
 - Group small tasks into one block ("Admin: x, y, z"). A 10–15 min break after ~2h of work, and a meal around 13:00 and 19:30 if free.
-- taskId: the id from the list when a block is for one task, else null. Never invent ids.
+- taskId: the id from the list when a block is for one task, else null. goalId: the id of the active goal when the block serves it, else null. Never invent ids.
 - Leave some slack; do not fill every minute. Titles short, in Lind's language.
 - summary: one sentence on the shape of the day.`,
     context,
@@ -131,13 +138,17 @@ Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "
     s = Math.max(s, blocks.length ? toMin(blocks[blocks.length - 1].end) : 0);
     if (e - s < 10) continue;
     const task = b.taskId ? ids.get(b.taskId) : undefined;
+    const goal = b.goalId ? t.goals.find((g) => g.id === b.goalId) : undefined;
+    const title = String(b.title).slice(0, 100);
     blocks.push({
+      blockId: blockId(t.today, toHHMM(s), title),
       start: toHHMM(s),
       end: toHHMM(e),
-      title: String(b.title).slice(0, 100),
+      title,
       kind: (kinds.includes(b.kind) ? b.kind : "task") as PlanBlock["kind"],
       taskId: task?.id,
       projectId: task?.projectId,
+      goalId: goal?.id,
     });
   }
   return {
@@ -163,10 +174,11 @@ export function writePlanNote(day: string, blocks: PlanBlock[], summary: string,
     "",
     ...(summary ? [`> ${summary}`, ""] : []),
     ...(note ? [`**What I said:** ${note}`, ""] : []),
-    ...blocks.map((b) => `- [ ] ${b.start}–${b.end} ${b.title}${b.kind === "break" ? " _(break)_" : ""}`),
+    ...blocks.map((b) => `- [ ] ${b.start}–${b.end} ${b.title}${b.kind === "break" ? " _(break)_" : ""} #${b.blockId}${b.goalId ? ` #${b.goalId}` : ""}`),
     "",
   ].join("\n");
   try {
+    fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `${day}.md`), md);
     return true;
   } catch {

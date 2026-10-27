@@ -54,10 +54,28 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
     setBusy("apply");
     setMsg("");
     try {
-      const r = await post<{ vault: boolean }>("/api/plan/apply", { ...plan, note });
+      const res = await fetch("/api/plan/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...plan, note }) });
+      const r = (await res.json().catch(() => null)) as { ok?: boolean; vault?: boolean; calendar?: boolean; error?: string; stored?: boolean } | null;
+      if (!res.ok || !r?.ok) {
+        setMsg(`${r?.error ?? `error ${res.status}`}${r?.stored ? " The plan itself is saved on Today." : ""}`);
+        if (r?.stored) {
+          setPlan(null);
+          setNote("");
+          router.refresh();
+        }
+        return;
+      }
       setPlan(null);
       setNote("");
-      setMsg(r.vault ? "On your calendar and saved to Obsidian (100 - Me/plans)." : "On your calendar. The Obsidian note was skipped — the vault isn't writable yet.");
+      setMsg(
+        r.calendar
+          ? r.vault
+            ? "On your calendar and saved to Obsidian (100 - Me/plans)."
+            : "On your calendar. The Obsidian note was skipped — the vault isn't writable yet."
+          : r.vault
+            ? "Saved to Today and Obsidian. Connect Google Calendar to put it on the calendar too."
+            : "Saved to Today. Connect Google Calendar and the vault to mirror it.",
+      );
       router.refresh();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -123,10 +141,10 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               onClick={apply}
-              disabled={!!busy || !plan.blocks.length || !canWrite}
+              disabled={!!busy || !plan.blocks.length}
               className="flex items-center gap-2 h-10 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
             >
-              {busy === "apply" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} Put on my calendar
+              {busy === "apply" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} {canWrite ? "Put on my calendar" : "Keep this plan"}
             </button>
             <button onClick={make} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
               {busy === "plan" ? "Planning…" : "Try again"}
@@ -135,7 +153,7 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
               Discard
             </button>
           </div>
-          {!canWrite && <p className="mt-2 text-xs text-faint">Connect Google Calendar to put the plan on it.</p>}
+          {!canWrite && <p className="mt-2 text-xs text-faint">Google Calendar isn&apos;t connected — the plan is still saved on Today and in Obsidian.</p>}
         </div>
       )}
       {msg && (

@@ -43,6 +43,19 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
     }
   }
 
+  // "/remember …" keeps the text instead of asking about it; the reply bar shows where it landed.
+  async function send(q: string): Promise<string | void> {
+    if (/^\/remember\b/i.test(q)) {
+      const text = q.replace(/^\/remember\s*/i, "").trim();
+      if (!text) throw new Error("Write what to remember after /remember.");
+      const res = await fetch("/api/memory/capture", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      const body = await res.json().catch(() => null);
+      if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
+      return `Remembered · ${body.file}`;
+    }
+    return ask(q);
+  }
+
   // /memory?q=… (from the command palette) asks straight away — also when already on this page.
   const urlQ = useSearchParams().get("q")?.trim() ?? "";
   useEffect(() => {
@@ -138,7 +151,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
       </div>
 
       <div className="h-28" aria-hidden />
-      <ReplyBar placeholder="Ask your memory — “what did we decide about the Bota index?”" onSend={ask} />
+      <ReplyBar placeholder="Ask your memory — or /remember … to keep it" onSend={send} />
     </>
   );
 }

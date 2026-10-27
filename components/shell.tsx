@@ -23,6 +23,7 @@ export const WORKSPACE: NavItem[] = [
   { href: "/room", label: "Room", icon: Swords },
   { href: "/chat", label: "Chats", icon: MessageSquare },
   { href: "/calendar", label: "Today", icon: CalendarDays },
+  { href: "/goals", label: "Goals", icon: Sparkles },
   { href: "/memory", label: "Memory", icon: Sparkles },
 ];
 export const TOOLS: NavItem[] = [
@@ -30,7 +31,7 @@ export const TOOLS: NavItem[] = [
   { href: "/website", label: "Website", icon: Globe },
 ];
 // Sections still being built in this release stay out of the nav until they exist.
-const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/memory", "/website", "/agents", "/settings", "/more"]);
+const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/goals", "/memory", "/website", "/agents", "/settings", "/more"]);
 
 const isActive = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 
@@ -266,7 +267,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </nav>
 
       <TalkSheet open={talk} onClose={() => setTalk(false)} />
-      <CommandPalette nav={[...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }, { href: "/goals", label: "Goals", icon: Sparkles }].filter((i) => LIVE.has(i.href))} onTalk={() => setTalk(true)} />
+      <CommandPalette nav={[...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter((i) => LIVE.has(i.href))} onTalk={() => setTalk(true)} />
     </div>
   );
 }
