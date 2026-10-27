@@ -10,13 +10,14 @@ set -euo pipefail
 VAULT=/home/ubuntu/.hermes/syncthing-sync/lind-brain
 MNT=/var/lib/agent-dashboard/vault
 PLANS="$VAULT/100 - Me/plans"
+MEMORY="$VAULT/100 - Me/memory/inbox"
 UNIT=$(systemd-escape -p --suffix=mount "$MNT")
 
 command -v setfacl >/dev/null || sudo apt-get install -y acl
 sudo setfacl -x u:agent /home/ubuntu/.hermes 2>/dev/null || true # the earlier pass-through attempt
 
-sudo mkdir -p "$PLANS"
-sudo chown --reference="$VAULT/100 - Me" "$PLANS"
+sudo mkdir -p "$PLANS" "$MEMORY/attachments"
+sudo chown --reference="$VAULT/100 - Me" "$PLANS" "$VAULT/100 - Me/memory" "$MEMORY" "$MEMORY/attachments"
 sudo setfacl -m u:agent:rwx -m d:u:agent:rwx -m d:u::rwx "$PLANS"
 
 sudo install -d -o agent -g agent "$MNT"
@@ -40,6 +41,7 @@ sudo systemctl enable --now "$UNIT"
 # that working for files Syncthing replaces later, and let the vault owner (Syncthing) edit the
 # files agent creates.
 OWNER=$(sudo stat -c %U "$VAULT")
+sudo setfacl -R -m u:agent:rwX -m d:u:agent:rwX -m d:u:"$OWNER":rwX "$VAULT/100 - Me/memory"
 sudo mkdir -p "$VAULT/wiki/sources/chats" "$VAULT/wiki/sources/commits" "$VAULT/wiki/sources/graphs"
 sudo chown -R --reference="$VAULT/wiki" "$VAULT/wiki/sources"
 sudo setfacl -R -m u:agent:rwX -m d:u:agent:rwX -m d:u:"$OWNER":rwX "$VAULT/wiki"
@@ -52,3 +54,5 @@ sudo systemctl restart agent-dashboard-web
 sudo -u agent test -r "$MNT/100 - Me/Daily Agenda.md" && echo "agent can read the vault"
 sudo -u agent touch "$MNT/100 - Me/plans/.write-test" && sudo rm -f "$MNT/100 - Me/plans/.write-test" && echo "agent can write plans"
 sudo -u agent touch "$MNT/wiki/sources/chats/.write-test" && sudo rm -f "$MNT/wiki/sources/chats/.write-test" && sudo -u agent test -w "$MNT/log.md" && echo "agent can write the brain's wiki pages"
+
+sudo -u agent touch "$MNT/100 - Me/memory/inbox/.write-test" && sudo rm -f "$MNT/100 - Me/memory/inbox/.write-test" && echo "agent can capture memory and media"

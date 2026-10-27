@@ -37,6 +37,8 @@ export async function saveAttachment(request: Request, rawName: string): Promise
       },
     }), fs.createWriteStream(`${file}.part`, { flags: 'wx' }));
     if (!size) throw new Error('Empty upload.');
+    const expected = request.headers.get('content-length');
+    if (expected !== null && Number(expected) !== size) throw new Error('Incomplete upload. Please retry.');
     fs.renameSync(`${file}.part`, file);
     const attachment: Attachment = { id, name, size, type: mediaType(name), url: attachmentUrl(id) };
     fs.writeFileSync(`${file}.json`, JSON.stringify(attachment), { flag: 'wx' });
@@ -69,4 +71,11 @@ export function resolveAttachments(ids: unknown): (Attachment & { file: string }
 
 export function attachmentPrompt(ids: unknown): string {
   return resolveAttachments(ids).map(a => `\n\n[Attachment: ${a.name.replace(/[\[\]`\n]/g, '')}](${a.url})\nVPS file: ${a.file}\nUse your file/image tools to inspect this attachment. Media interpretation depends on your tools; do not assume its contents.`).join('');
+}
+
+// Searchable plain-text context only; binary files stay intact for the agent's file tools.
+export function attachmentText(a: Attachment & { file: string }): string {
+  if (!/\.(txt|md|csv|json|log|ya?ml|ts|tsx|js|py|css|html|xml)$/i.test(a.name) || a.size > 1024 * 1024) return '';
+  const text = fs.readFileSync(a.file, 'utf8');
+  return text.includes('\0') ? '' : text.slice(0, 20_000);
 }

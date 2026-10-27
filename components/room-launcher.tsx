@@ -3,6 +3,7 @@
 import { Check, GitBranch, LoaderCircle, Mic, SendHorizontal, Square, TriangleAlert } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AttachmentPicker, useAttachments } from "@/components/attachments";
 import { AgentLogo } from "@/components/agent-logo";
 import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "@/components/skill-picker";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
@@ -31,6 +32,7 @@ const SUGGESTIONS: Record<Mode, string[]> = {
 
 export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", initialMode = "roast" }: { agents: LauncherAgent[]; repos: string[]; judgeModel: string; initialTask?: string; initialMode?: Mode }) {
   const router = useRouter();
+  const attachments = useAttachments();
   const byKey = useMemo(() => Object.fromEntries(agents.map((a) => [a.agent, a])) as Record<AgentKey, LauncherAgent>, [agents]);
   const claudeHot = (byKey.claude?.weeklyPct ?? 0) > 70;
   const [mode, setMode] = useState<Mode>(initialMode);
@@ -67,13 +69,15 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
     const next = picker.pick(s, text, caret);
     setText(next.text);
   };
-  const valid = (text.trim() || (mode === "solo" && picker.chips.length)) && (mode === "solo" ? chosen.length === 1 : mode === "team" && teamKind === "relay" ? true : chosen.length >= 2 && chosen.length <= 4);
+  const valid = (text.trim() || attachments.files.length || (mode === "solo" && picker.chips.length)) && (mode === "solo" ? chosen.length === 1 : mode === "team" && teamKind === "relay" ? true : chosen.length >= 2 && chosen.length <= 4);
 
   async function start(audio?: Blob) {
+    if (busy || attachments.uploading) return;
     setBusy(true);
     setError("");
     const form = new FormData();
     form.set("text", text);
+    form.set("attachments", JSON.stringify(attachments.ids));
     if (mode === "solo") form.set("skills", picker.chips.join(","));
     form.set("repo", repo);
     if (audio) form.set("audio", audio, audioFilename(audio));
@@ -228,10 +232,12 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
       <SkillMenu picker={picker} onPick={apply} id="room-skills" />
       <div className="panel !rounded-[20px] p-1.5">
       <SkillChips picker={picker} />
+      <AttachmentPicker state={attachments} disabled={busy || attachments.uploading || mic.recording} />
+      {mode === "roast" && <p className="px-2 text-xs text-muted">Debaters cannot open media. Describe its contents in the task; attachments are kept for the agent that runs the verdict.</p>}
       <div className="flex items-end gap-1.5">
         <button
           onClick={mic.toggle}
-          disabled={busy || (!mic.recording && mode !== "solo" && !(mode === "team" && teamKind === "relay") && chosen.length < 2)}
+          disabled={busy || attachments.uploading || (!mic.recording && mode !== "solo" && !(mode === "team" && teamKind === "relay") && chosen.length < 2)}
           aria-label={mic.recording ? "Stop and send" : "Talk"}
           className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[14px]", mic.recording ? "bg-bad/20 text-bad" : "text-muted hover:bg-white/5 hover:text-text")}
         >
@@ -240,6 +246,7 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
         <textarea
           ref={box}
           value={text}
+          disabled={busy}
           onChange={(e) => {
             setText(e.target.value);
             picker.onText(e.target.value, e.target.selectionStart ?? e.target.value.length);
@@ -260,7 +267,7 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
         />
         <button
           onClick={() => start()}
-          disabled={busy || mic.recording || !valid}
+          disabled={busy || attachments.uploading || mic.recording || !valid}
           aria-label={mode === "roast" ? "Start the debate" : "Send"}
           className="flex h-11 shrink-0 items-center gap-2 rounded-[14px] bg-text px-4 text-sm font-medium text-bg disabled:opacity-20"
         >

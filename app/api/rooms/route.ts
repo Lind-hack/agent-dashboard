@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { attachmentPrompt } from "@/lib/attachments";
 import { VPS_AGENTS, type AgentKey } from "@/lib/agents";
 import { listRepos } from "@/lib/github";
 import { transcribe } from "@/lib/groq";
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
       const name = audio instanceof File && audio.name ? audio.name : "note.webm";
       task = [task, await transcribe(audio, name)].filter(Boolean).join("\n\n");
     }
+    task += attachmentPrompt(JSON.parse(String(form.get("attachments") ?? "[]")));
     if (!task) return NextResponse.json({ error: "Say or type what they should debate" }, { status: 400 });
     if (task.length > 8000) return NextResponse.json({ error: "Keep the task under 8,000 characters" }, { status: 400 });
     const agents = [...new Set(String(form.get("agents") ?? "").split(","))].filter((a): a is AgentKey => VPS_AGENTS.includes(a as AgentKey));

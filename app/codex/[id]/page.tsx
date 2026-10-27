@@ -101,16 +101,16 @@ export default function CodexChat({ params }: { params: Promise<{ id: string }> 
       </div>
 
       <ReplyBar
-        placeholder="Message Codex…"
-        onSend={async (text) => {
+        placeholder="Message Codex (files are private dashboard links)…"
+        onSend={async (text, _skills, attachments) => {
           const res = await fetch(`/api/codex/${id}`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({ text, attachments }),
           });
           if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `HTTP ${res.status}`);
           setMessages((m) => [...m, { at: new Date().toISOString(), role: "you", text }]);
-          return "Sent — Codex replies here in a minute or two.";
+          return attachments.length ? "Sent. Files stay private; cloud Codex cannot open dashboard links. Use a VPS chat for file analysis." : "Sent — Codex replies here in a minute or two.";
         }}
       />
     </div>
