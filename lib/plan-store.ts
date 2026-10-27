@@ -150,6 +150,15 @@ export function savePlan(day: string, blocks: PlanBlock[], meta: { tz?: string; 
   return plan;
 }
 
+// Save the user's words independently of generated time blocks. Never replan or reset progress.
+export function savePlanNote(day: string, note: string): DayPlan {
+  const at = new Date().toISOString();
+  const plan = readPlan(day) ?? { day, createdAt: at, updatedAt: at, blocks: [] };
+  plan.note = note;
+  writePlan(plan);
+  return plan;
+}
+
 export type BlockAction = "start" | "done" | "blocked" | "planned" | "move";
 
 // Start / Done / Blocked / Move. Move carries the block to tomorrow at the same time and leaves a

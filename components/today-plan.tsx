@@ -24,6 +24,7 @@ const span = (n: number) => (n >= 60 ? `${Math.floor(n / 60)}h${n % 60 ? ` ${n %
 
 export function TodayPlan({
   day,
+  note,
   blocks,
   stats,
   leftMin,
@@ -33,6 +34,7 @@ export function TodayPlan({
   dayEnd,
 }: {
   day: string;
+  note?: string;
   blocks: StoredBlock[];
   stats: PlanStats;
   leftMin: number;
@@ -70,6 +72,8 @@ export function TodayPlan({
   return (
     <section className="mt-8">
       <SectionTitle right={blocks.length ? `${stats.todayDone}/${stats.todayTotal} done` : undefined}>The plan</SectionTitle>
+
+      {note && <Panel className="mb-3 p-4"><p className="hud-label">Your plan note</p><p className="mt-2 whitespace-pre-wrap text-sm text-muted">{note}</p></Panel>}
 
       <div className="mb-2.5 grid grid-cols-3 gap-2">
         <Stat label="this week" value={`${stats.weekDays} day${stats.weekDays === 1 ? "" : "s"}`} hint="with a plan" />

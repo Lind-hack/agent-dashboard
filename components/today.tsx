@@ -8,6 +8,7 @@ import type { Capture } from "@/lib/capture";
 import type { Task, TaskDraft } from "@/lib/ticktick";
 import { cn } from "@/lib/utils";
 import { Panel } from "./kit";
+import { DictateButton } from "./dictate-button";
 import { ReplyBar } from "./reply-bar";
 
 // Client pieces of the Today page: plan-my-day, the TickTick list, capture, and the TickTick connect form.
@@ -30,12 +31,27 @@ export const KIND_STYLE: Record<PlanBlock["kind"], { label: string; bar: string;
 
 type Plan = { blocks: PlanBlock[]; summary: string; day: string; tz: string };
 
-export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: number }) {
+export function PlanDay({ canWrite, planned, day, initialNote = "" }: { canWrite: boolean; planned: number; day: string; initialNote?: string }) {
   const router = useRouter();
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initialNote);
+  const [dictating, setDictating] = useState(false);
   const [plan, setPlan] = useState<Plan | null>(null);
-  const [busy, setBusy] = useState<"" | "plan" | "apply">("");
+  const [busy, setBusy] = useState<"" | "plan" | "apply" | "note">("");
   const [msg, setMsg] = useState("");
+
+  async function saveNote() {
+    setBusy("note");
+    setMsg("");
+    try {
+      await post("/api/plan/note", { day, note });
+      setMsg("Today's note saved. Plan my day uses it when you're ready.");
+      router.refresh();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy("");
+    }
+  }
 
   async function make() {
     setBusy("plan");
@@ -92,15 +108,24 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
       {!plan ? (
         <>
           <textarea
+            aria-label="Today’s plan note"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
             placeholder="Anything about today? “Gym at 6, finish the Bota PR, light evening.”"
             className={`${field} mt-3 w-full resize-none [field-sizing:content]`}
           />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <DictateButton label="Dictate today’s plan" disabled={!!busy} onBusy={setDictating}
+              onText={(text) => setNote((n) => [n, text].filter(Boolean).join("\n"))} />
+            <button onClick={saveNote} disabled={!!busy || dictating} className="h-10 rounded-[12px] border border-line px-3 text-sm text-muted disabled:opacity-40">
+              {busy === "note" ? "Saving…" : "Save note"}
+            </button>
+          </div>
+          <p className="mt-2 text-xs text-faint">Review the transcript, then save your note or make a plan.</p>
           <button
             onClick={make}
-            disabled={!!busy}
+            disabled={!!busy || dictating}
             className="mt-3 flex items-center gap-2 h-10 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
           >
             {busy === "plan" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
@@ -146,10 +171,10 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
             >
               {busy === "apply" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} {canWrite ? "Put on my calendar" : "Keep this plan"}
             </button>
-            <button onClick={make} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
+            <button onClick={make} disabled={!!busy || dictating} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
               {busy === "plan" ? "Planning…" : "Try again"}
             </button>
-            <button onClick={() => setPlan(null)} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
+            <button onClick={() => setPlan(null)} disabled={!!busy || dictating} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
               Discard
             </button>
           </div>

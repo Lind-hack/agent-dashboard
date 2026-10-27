@@ -12,6 +12,7 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
     method: "POST",
     headers: { Authorization: `Bearer ${groqKey()}` },
     body: form,
+    signal: AbortSignal.timeout(60_000),
   });
   const body = (await res.json().catch(() => null)) as { text?: string; error?: { message?: string } } | null;
   if (!res.ok) throw new Error(`Whisper: ${body?.error?.message ?? res.status}`);
@@ -27,6 +28,7 @@ export async function groqJSON<T>(system: string, user: string, temperature = 0.
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${groqKey()}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
         model,
         temperature,
@@ -70,6 +72,7 @@ Return JSON: {"title": string, "description": string, "agent": "claude"|"codex"|
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${groqKey()}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
         model,
         temperature: 0.2,

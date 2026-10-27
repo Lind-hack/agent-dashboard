@@ -73,3 +73,20 @@ journalctl -u agent-dashboard-runner -f
 - No Claude/Codex login inside the web app — the dashboard drives the official CLIs on our own
   server, and Codex cloud through Linear.
 - Chats that live only on the PC can't be joined; hand them off, or use Claude Code Remote Control.
+
+## Voice and dictation
+
+The Core listens for a spoken command and narrates the response. Recording requires HTTPS (or
+localhost) and microphone permission. `GROQ_API_KEY` powers Whisper transcription and the Core's
+answers. Narration uses server speech first and falls back to the browser's speech voice if the
+server engine fails or audio playback stalls.
+
+On **Today** (`/calendar`), tap **Dictate today’s plan**, then **Finish**. Review the transcript and
+**Save note** to keep it in `data/plans/<day>.json` without changing scheduled blocks. **Plan my day**
+uses those words; applying the plan also mirrors the note to Obsidian as before.
+
+On **Goals**, select **Now**, **Short term**, or **Long term**, then **Dictate goal**. Each recording
+adds one editable goal. **Save goals** writes the reviewed list to `100 - Me/Goals.md`, which the
+planner already reads. Record another session for another goal or category.
+
+Checks: `npm test`, `npm run typecheck`, and `npm run build`.

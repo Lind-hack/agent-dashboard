@@ -123,7 +123,10 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     setPhase("listening");
     const blob = await micRef.current.listen();
     if (g !== gen.current) return;
-    if (!blob) return setPhase("idle");
+    if (!blob) {
+      setNote("No speech recorded — tap again, speak, then tap to finish.");
+      return setPhase("idle");
+    }
     await ask({ audio: blob }, g);
   }
 
@@ -137,10 +140,13 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     const form = new FormData();
     form.set("audio", blob, blob.type.includes("mp4") ? "note.mp4" : "note.webm");
     form.set("confirm", "1");
-    const body = (await fetch("/api/voice", { method: "POST", body: form })
-      .then((r) => r.json())
-      .catch(() => null)) as { heard?: string } | null;
+    const res = await fetch("/api/voice", { method: "POST", body: form }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { heard?: string; error?: string } | null;
     if (g !== gen.current) return;
+    if (!res?.ok || !body?.heard) {
+      setPhase("idle");
+      return setNote(body?.error ?? "Couldn't hear the confirmation — tap Run or try again.");
+    }
     const heard = (body?.heard ?? "").toLowerCase().replace(/[^\p{L}\s]/gu, "").trim();
     setTurns((t) => [...t, { role: "you" as const, text: body?.heard || "…" }].slice(-12));
     if (YES.test(heard)) return void run(a);
@@ -303,6 +309,7 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
           <button
             onClick={() => {
               if (voiceOn) stopSpeaking();
+              else unlockAudio();
               setVoiceOn(!voiceOn);
             }}
             aria-pressed={voiceOn}

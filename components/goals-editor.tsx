@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Goal, GoalHorizon } from "@/lib/goals";
 import { cn } from "@/lib/utils";
+import { DictateButton } from "./dictate-button";
 import { Panel } from "./kit";
 
 // Edit 100 - Me/Goals.md from the phone. The file stays the source of truth, so Obsidian can edit it
@@ -23,6 +24,8 @@ type Row = Goal & { key: string };
 export function GoalsEditor({ initial }: { initial: Goal[] }) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(initial.map((g, i) => ({ ...g, key: `${g.id}-${i}` })));
+  const [dictating, setDictating] = useState(false);
+  const [horizon, setHorizon] = useState<GoalHorizon>("now");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -34,6 +37,10 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
   }
 
   async function save() {
+    if (rows.some((g) => g.title.trim().length > 200)) {
+      setMsg("Keep each goal under 200 characters — shorten the transcript or split it into separate goals before saving.");
+      return;
+    }
     setBusy(true);
     setMsg("");
     try {
@@ -56,6 +63,18 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <Panel className="flex flex-col gap-2 p-4">
+        <p className="text-sm text-muted">Dictate one goal, review it below, then Save goals.</p>
+        <div className="flex flex-wrap gap-2">
+          <select value={horizon} disabled={dictating} onChange={(e) => setHorizon(e.target.value as GoalHorizon)} aria-label="Dictated goal category" className={field}>
+            {HORIZONS.map((h) => <option key={h.value} value={h.value}>{h.label}</option>)}
+          </select>
+          <DictateButton label="Dictate goal" disabled={busy} onBusy={setDictating} onText={(text) => {
+            setRows((r) => [...r, { key: `voice-${Date.now()}-${r.length}`, id: "", horizon, title: text, next: "", why: "", done: false }]);
+            setMsg("");
+          }} />
+        </div>
+      </Panel>
       {rows.length === 0 && (
         <Panel className="p-5 text-sm leading-relaxed text-muted">
           <p className="text-text">Nothing written down yet.</p>
@@ -100,6 +119,7 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
                   className={cn(field, "min-w-0 flex-1 font-medium")}
                 />
               </div>
+              {g.title.length > 200 && <p className="text-xs text-warn">{g.title.length}/200 characters — shorten or split this goal before saving.</p>}
               <input
                 value={g.next}
                 onChange={(e) => set(g.key, { next: e.target.value })}
@@ -153,7 +173,7 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
       )}
 
       <div className="mt-1 flex flex-wrap items-center gap-3">
-        <button onClick={save} disabled={busy} className="flex h-10 items-center gap-2 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40">
+        <button onClick={save} disabled={busy || dictating} className="flex h-10 items-center gap-2 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40">
           {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save goals
         </button>
         <p className="flex items-center gap-1.5 text-xs text-faint">

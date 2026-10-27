@@ -23,7 +23,7 @@ const set = (s: Partial<State>) => {
 };
 
 function audio(): AudioContext {
-  if (!ctx) {
+  if (!ctx || ctx.state === "closed") {
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx = new AC();
     outAnalyser = ctx.createAnalyser();
@@ -38,17 +38,31 @@ function audio(): AudioContext {
 // state gets a resume attempt.
 async function resumeAudio() {
   const c = audio();
-  if (c.state !== "running") await c.resume().catch(() => {});
+  if (c.state !== "running") {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([c.resume(), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Audio is paused — tap to enable sound.")), 2000);
+      })]);
+      if ((c.state as AudioContextState) !== "running") throw new Error("Audio is paused — tap to enable sound.");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 export function unlockAudio() {
-  const c = audio();
-  void resumeAudio();
-  const b = c.createBuffer(1, 1, 22050);
-  const s = c.createBufferSource();
-  s.buffer = b;
-  s.connect(c.destination);
-  s.start();
+  try {
+    const c = audio();
+    void resumeAudio().catch(() => {});
+    const b = c.createBuffer(1, 1, 22050);
+    const s = c.createBufferSource();
+    s.buffer = b;
+    s.connect(c.destination);
+    s.start();
+  } catch {
+    // Recording and browser narration can still work without Web Audio.
+  }
 }
 
 function rms(a: AnalyserNode | null): number {
@@ -69,7 +83,7 @@ export function stopSpeaking() {
 }
 
 async function fetchPiece(text: string, who: Speaker, signal: AbortSignal): Promise<AudioBuffer> {
-  const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, who }), signal });
+  const res = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, who }), signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]) });
   if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `voice HTTP ${res.status}`);
   return audio().decodeAudioData(await res.arrayBuffer());
 }
@@ -80,17 +94,17 @@ export function speak(text: string, who: Speaker, key = ""): Promise<void> {
   stopSpeaking();
   const parts = sentences(speakable(text));
   if (!parts.length) return Promise.resolve();
-  const c = audio();
-  void resumeAudio();
   const ac = new AbortController();
   let source: AudioBufferSourceNode | null = null;
   let stopped = false;
+  let utterance: SpeechSynthesisUtterance | null = null;
   let finish: () => void = () => {};
   const done = new Promise<void>((r) => (finish = r));
   const me = {
     stop: () => {
       stopped = true;
       ac.abort();
+      if (utterance) window.speechSynthesis.cancel();
       try {
         source?.stop();
       } catch {}
@@ -109,27 +123,58 @@ export function speak(text: string, who: Speaker, key = ""): Promise<void> {
     return pending[i];
   };
   (async () => {
+    let index = 0;
     try {
+      await resumeAudio();
+      const c = audio();
       for (let i = 0; i < parts.length && !stopped; i++) {
+        index = i;
+        const piece = get(i)!; // enqueue the current sentence before rendering ahead
         get(i + 1);
         get(i + 2); // render ahead so the next sentence is ready when this one ends
-        const buf = await get(i)!;
+        const buf = await piece;
         if (stopped) break;
         source = c.createBufferSource();
         source.buffer = buf;
         source.connect(outAnalyser!);
         // If the context is stuck (Safari interrupted it), don't hang forever on a source that never plays.
-        await new Promise<void>((r) => {
-          const guard = setTimeout(r, (buf.duration + 5) * 1000);
+        await new Promise<void>((r, reject) => {
+          const guard = setTimeout(() => {
+            reject(new Error("Audio playback stalled."));
+            try { source?.stop(); } catch {}
+          }, (buf.duration + 5) * 1000);
           source!.onended = () => {
             clearTimeout(guard);
             r();
           };
-          source!.start();
+          try { source!.start(); } catch (error) { clearTimeout(guard); reject(error); }
         });
       }
     } catch (e) {
-      if (!stopped) set({ error: e instanceof Error ? e.message : String(e) });
+      ac.abort();
+      if (!stopped) {
+        // Keep narration available if the VPS model, quota or Web Audio fails.
+        try {
+          if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") throw e;
+          utterance = new SpeechSynthesisUtterance(parts.slice(index).join(" "));
+          utterance.lang = "en-US";
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(() => {
+              window.speechSynthesis.cancel();
+              reject(new Error("Narration timed out — tap to try again."));
+            }, 90_000);
+            const complete = () => { clearTimeout(timer); resolve(); };
+            utterance!.onend = complete;
+            utterance!.onerror = () => { clearTimeout(timer); reject(new Error("Couldn't play narration — tap to try again.")); };
+            // Cancelling must settle even on browsers that omit the end event.
+            const previousStop = me.stop;
+            me.stop = () => { previousStop(); complete(); };
+            try { window.speechSynthesis.speak(utterance!); } catch (error) { clearTimeout(timer); reject(error); }
+          });
+        } catch (fallbackError) {
+          if (!stopped) set({ error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError) });
+        }
+      }
     } finally {
       if (current === me) {
         current = null;
@@ -202,7 +247,8 @@ export function useListener() {
     };
     session.current = me;
     setError("");
-    await resumeAudio();
+    // Microphone permission must not wait on Safari resuming an interrupted output context.
+    void resumeAudio().catch(() => {});
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -243,7 +289,6 @@ export function useListener() {
       let raf = 0;
       let settled = false;
       const t0 = performance.now();
-      let floor = 0.01;
       let heard = false;
       let quietSince = 0;
       const cleanup = () => {
@@ -274,7 +319,7 @@ export function useListener() {
       document.addEventListener("visibilitychange", onHide);
       const deadline = setTimeout(() => end(true), 45_000); // holds even when animation frames pause
       rec.onstop = () => settle(keep && (heard || forced) && chunks.length ? new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" }) : null);
-      rec.onerror = () => settle(null);
+      rec.onerror = () => { setError("Recording failed — try again or type instead."); settle(null); };
       try {
         rec.start(250);
       } catch {
@@ -284,8 +329,9 @@ export function useListener() {
       const loop = (now: number) => {
         const v = rms(an);
         const elapsed = now - t0;
-        if (elapsed < 350) floor = Math.max(floor, v); // room noise in the first moment
-        const threshold = Math.max(0.02, floor * 2.2);
+        // Do not calibrate against the first spoken word: that made normal speech
+        // become the noise floor and silently discarded the entire command.
+        const threshold = 0.015;
         if (v > threshold) {
           heard ||= elapsed > 150;
           quietSince = 0;
@@ -296,6 +342,8 @@ export function useListener() {
       raf = requestAnimationFrame(loop);
     });
   }
+
+  useEffect(() => () => session.current?.end(false), []);
 
   return {
     listening,

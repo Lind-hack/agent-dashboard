@@ -33,7 +33,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
   // The authoritative plan store. Planned vs free time and what can't fit are read from it, not from
   // the calendar mirror.
-  const blocks = activeBlocks(readPlan(t.today));
+  const savedPlan = readPlan(t.today);
+  const blocks = activeBlocks(savedPlan);
   const stats = planStats(t.today);
   const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
   const freeMin = freeSlots(t).reduce((sum, s) => sum + (s.end - s.start), 0);
@@ -71,10 +72,11 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
-      <PlanDay canWrite={google} planned={planned} />
+      <PlanDay key={t.today} canWrite={google} planned={planned} day={t.today} initialNote={savedPlan?.note} />
 
       <TodayPlan
         day={t.today}
+        note={savedPlan?.note}
         blocks={blocks}
         stats={stats}
         leftMin={leftMin}
