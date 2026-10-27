@@ -3,6 +3,7 @@ import path from "node:path";
 import { DATA_DIR } from "./config";
 import { groqJSON } from "./groq";
 import { recentIssues } from "./linear";
+import { listMemories } from "./memories";
 import { listJobs } from "./store";
 
 // Memory: one searchable index over everything Lind's agents and notes know, answered with sources.
@@ -10,10 +11,11 @@ import { listJobs } from "./store";
 // - linear:   recent Linear issues
 // - obsidian: the lind-brain vault Syncthing keeps on the VPS (MEMORY_VAULT_DIR)
 // - notes:    Claude Code memory notes pushed up from the PC (handoff/sync-notes.mjs → data/notes)
+// - mine:     memories Lind typed in on the Memory page (lib/memories.ts → data/memories.json)
 // Retrieval is plain BM25 (no embeddings to host); Groq writes the answer from the top chunks only.
 
-export type SourceKind = "chat" | "linear" | "obsidian" | "notes";
-export const SOURCE_KINDS: SourceKind[] = ["chat", "linear", "obsidian", "notes"];
+export type SourceKind = "mine" | "chat" | "linear" | "obsidian" | "notes";
+export const SOURCE_KINDS: SourceKind[] = ["mine", "chat", "linear", "obsidian", "notes"];
 
 type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string };
 type Chunk = { doc: Doc; text: string; tf: Map<string, number>; len: number };
@@ -75,15 +77,32 @@ function chatDocs(): Doc[] {
   }));
 }
 
+// Linear is the one slow source, so it keeps its own 10-minute cache: adding a memory rebuilds the
+// index without another round trip.
+let linearCache: { at: number; docs: Doc[] } | null = null;
 async function linearDocs(): Promise<Doc[]> {
+  if (linearCache && Date.now() - linearCache.at < 10 * 60_000) return linearCache.docs;
   const issues = await recentIssues(150).catch(() => []);
-  return issues.map((i) => ({
+  const docs = issues.map((i) => ({
     id: `linear:${i.identifier}`,
     kind: "linear" as const,
     title: `${i.identifier} ${i.title}`,
     href: i.url,
     at: i.updatedAt,
     text: `${i.title}\n${i.state?.name ? `Status: ${i.state.name}\n` : ""}${i.description ?? ""}`,
+  }));
+  linearCache = { at: Date.now(), docs };
+  return docs;
+}
+
+function mineDocs(): Doc[] {
+  return listMemories().map((m) => ({
+    id: `mine:${m.id}`,
+    kind: "mine" as const,
+    title: m.text.length > 80 ? `${m.text.slice(0, 79)}…` : m.text,
+    href: `/memory?m=${encodeURIComponent(m.id)}`,
+    at: m.updatedAt,
+    text: [m.text, m.detail, `Skill: ${m.skill} · ${m.type}${m.pinned ? " · pinned" : ""}`, m.tags.length ? m.tags.map((t) => `#${t}`).join(" ") : ""].filter(Boolean).join("\n\n"),
   }));
 }
 
@@ -152,7 +171,7 @@ let building: Promise<Index> | null = null;
 async function index(): Promise<Index> {
   if (cache && Date.now() - cache.at < 10 * 60_000) return cache;
   building ??= (async () => {
-    const docs = [...chatDocs(), ...(await linearDocs()), ...vaultDocs(), ...noteDocs()];
+    const docs = [...mineDocs(), ...chatDocs(), ...(await linearDocs()), ...vaultDocs(), ...noteDocs()];
     const chunks = docs.flatMap(chunk);
     const df = new Map<string, number>();
     for (const c of chunks) for (const t of c.tf.keys()) df.set(t, (df.get(t) ?? 0) + 1);
@@ -210,11 +229,11 @@ export async function askMemory(q: string): Promise<MemoryAnswer> {
   }));
   const context = hits.map((h, i) => `[${i + 1}] (${h.doc.kind}, ${h.doc.at.slice(0, 10)}) ${h.doc.title}\n${h.text.slice(0, 1800)}`).join("\n\n---\n\n");
   const out = await groqJSON<{ answer: string; used: number[] }>(
-    `You answer Lind's question from his own notes, chats and tickets — only from the numbered sources given.
+    `You answer Lind's question from his own notes, chats, tickets and the memories he wrote down — only from the numbered sources given.
 Return JSON: {"answer": string, "used": number[]}.
 - answer: short markdown, in the question's language. Cite sources inline like [2] after the claim they support.
 - If the sources don't answer it, say so plainly and mention what they do cover. Never invent facts.
-- Prefer newer sources when they disagree, and say they disagree.
+- Prefer newer sources when they disagree, and say they disagree. Sources marked "mine" are memories Lind wrote himself: trust them most.
 - used: the source numbers you cited.`,
     `Question: ${q}\n\nSources:\n\n${context}`,
   );
@@ -227,7 +246,7 @@ Return JSON: {"answer": string, "used": number[]}.
 
 export async function memoryStats(): Promise<MemoryStats> {
   const ix = await index();
-  const zero = (): Record<SourceKind, number> => ({ chat: 0, linear: 0, obsidian: 0, notes: 0 });
+  const zero = (): Record<SourceKind, number> => ({ mine: 0, chat: 0, linear: 0, obsidian: 0, notes: 0 });
   const counts = zero();
   for (const d of ix.docs) counts[d.kind]++;
   // Twelve weeks of activity: what was written or changed when, by source.

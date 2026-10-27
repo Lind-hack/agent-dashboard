@@ -14,6 +14,7 @@ import { cancelRoom, createRoom, roomTick } from "./room";
 import { syncSkillsTick } from "./skills-sync";
 import { installSkillsFromGithub } from "./skills-github";
 import { applySkills, skillDisplay } from "../lib/skills";
+import { pinnedForBrief } from "../lib/memories";
 import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
@@ -436,13 +437,15 @@ function brief(job: Job): string {
     ? `a git worktree on branch \`${job.branch}\`, which continues work handed off from Lind's PC`
     : `a git worktree on branch \`${job.branch}\`, created from \`origin/${job.base}\``;
   const head = job.issueId ? `You are working unattended on Linear issue ${job.id}: "${job.title}".` : `You are working unattended on: "${job.title}".`;
+  // Memories Lind pinned on the Memory page: context he wants every agent to start with.
+  const pinned = pinnedForBrief();
   return `${head}
 
 Repository: ${job.repo}. ${repoNotes(job.repo)}
 
 ## Task
 ${job.description || "(no description)"}
-
+${pinned ? `\n## What Lind asked every agent to remember\n${pinned}\n` : ""}
 ## How to work
 - You are in ${where}.
 - Read the project's CLAUDE.md / AGENTS.md / README first and follow them.

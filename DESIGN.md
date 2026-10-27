@@ -252,6 +252,15 @@ Each chat takes on its agent: `--agent` (the agent colour) is set on the view an
 ### Voice (Talk to the Core)
 The Talk sheet opens on Talk; New chat is the second tab. The Core is the button: a 30%-radius squircle whose rim glow follows the sound (`--lvl`) — white while it listens, HUD cyan while it speaks — and whose point sphere speeds up while it thinks. One HUD label says the state (Tap to talk · Listening · Thinking · Speaking — tap to cut in), with the last line of the conversation under it and earlier turns in a short list. Listening stops by itself after ~1.2 s of quiet; tapping always works (send, cut in). Real work comes back as an action card (agent tile, what will run, Cancel / Run) announced to screen readers; nothing runs until Lind taps Run or, hands-free, answers the Core's "Shall I go ahead?" with a yes. Hands-free, type-instead and mute live in a quiet row at the bottom. Voices: every agent has its own (lib/voices.ts) — Groq Orpheus when available, Kokoro on the VPS otherwise.
 
+### Your Memory (memory skills)
+Under the Ask answer on /memory: a composer and a hairline-divided list of memories Lind wrote himself (data/memories.json). Every memory belongs to a **skill**, and each skill has its own colour (`--skill`) and look. These colours belong to memory skills only, never to agents or signals:
+- **Build** (#b5e36a lime): Terminal. Mono text, faint scanlines, terminal icon.
+- **Create** (#f08bb8 rose): Studio. Larger, tighter medium text with a soft top-left wash.
+- **Business** (#dcbf94 sand): Ledger. Tabular figures over faint ruled lines.
+- **Life** (#e8e2d4 paper): Notebook. Plain paper, relaxed text.
+
+The skill tile is a 10px-radius square, not an agent squircle. The composer takes on the picked skill: `--skill` is a registered `@property` colour, so the wash, caret, focus glow, kind chips and weight bars all fade over 450ms. Each memory has a kind chip (Fact · Preference · Decision · Goal · Person · How-to), a 3-segment weight scale, #tags, optional detail (folds open) and a pin ("Every agent knows this", HUD cyan), which puts it in every new agent brief. Motion: new rows open their own space (grid-row fold) and settle out of a 5px blur, then pulse once in the skill colour. Saved or focused (`?m=`) rows pulse too. Deletes fold shut in 240ms and need a second tap. Lists stagger in at 40ms a row. The ring draws its arcs in and morphs when counts change, timeline bars grow from the baseline, and changed numbers tick up into place. Under reduced motion only the colour pulse stays.
+
 ### HUD Label
 Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout labels only (DIRECTIVES, PLAN USAGE, CORE · IDLE), never body copy and never a kicker above a heading.
 

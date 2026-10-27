@@ -419,6 +419,172 @@ body::before {
   }
 }
 
+/* ---------- Memory ---------- */
+
+/* Memory skills: each lane has its own colour (--skill) and its own look. Not agent colours, not signals.
+   --skill is a registered colour so the composer fades from one skill to the next instead of snapping. */
+@property --skill {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #ededf0;
+}
+.skill-build {
+  --skill: #b5e36a;
+}
+.skill-create {
+  --skill: #f08bb8;
+}
+.skill-business {
+  --skill: #dcbf94;
+}
+.skill-life {
+  --skill: #e8e2d4;
+}
+.skill-tile {
+  background:
+    radial-gradient(120% 90% at 30% 15%, color-mix(in oklab, var(--skill), transparent 72%), transparent 70%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0.01)),
+    #0d0d11;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--skill), transparent 65%) inset,
+    0 1px 0 rgb(255 255 255 / 0.1) inset;
+}
+
+/* The composer becomes the skill you pick: caret, focus glow and wash all follow --skill. */
+.mem-composer {
+  transition:
+    --skill 450ms var(--ease-out-expo),
+    border-color 300ms,
+    box-shadow 300ms;
+  caret-color: var(--skill);
+}
+.mem-composer.panel {
+  background:
+    radial-gradient(120% 80% at 0% 0%, color-mix(in oklab, var(--skill), transparent 93%), transparent 60%),
+    linear-gradient(180deg, rgb(255 255 255 / 0.04), rgb(255 255 255 / 0.015));
+}
+.mem-composer.panel:focus-within {
+  border-color: color-mix(in oklab, var(--skill), transparent 60%);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--skill), transparent 90%),
+    0 18px 40px -24px rgb(0 0 0 / 0.8);
+}
+.mem-composer ::selection,
+.mem-row ::selection {
+  background: color-mix(in oklab, var(--skill), transparent 62%);
+}
+
+/* Row textures: Terminal scanlines, a Studio wash, Ledger rules; the Notebook stays plain paper. */
+.mem-row[data-skill="build"] {
+  background-image: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.016) 0 1px, transparent 1px 4px);
+}
+.mem-row[data-skill="create"] {
+  background-image: radial-gradient(90% 160% at 0% 0%, color-mix(in oklab, var(--skill), transparent 91%), transparent 62%);
+}
+.mem-row[data-skill="business"] {
+  background-image: repeating-linear-gradient(180deg, transparent 0 25px, color-mix(in oklab, var(--skill), transparent 93%) 25px 26px);
+  background-position: 0 13px;
+}
+.mem-row {
+  transition: background-color 200ms;
+}
+.mem-row:hover {
+  background-color: rgb(255 255 255 / 0.015);
+}
+
+/* A new memory settles in from above out of a blur, lit once in its skill's colour. */
+@keyframes mem-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.985);
+    filter: blur(5px);
+  }
+}
+.mem-in {
+  animation: mem-in 560ms var(--ease-out-expo) both;
+}
+/* Saved / focused: one soft pulse of the skill colour over the row (a colour fade, so it stays under reduced motion). */
+@keyframes mem-flash {
+  from {
+    background: color-mix(in oklab, var(--skill), transparent 86%);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--skill), transparent 45%);
+  }
+  to {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+.mem-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: mem-flash 1.5s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+/* Lists that load in: rows rise one after another (--i, capped by the caller). */
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.stagger-in {
+  animation: stagger-in 480ms var(--ease-out-expo) backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+
+/* The memory ring draws its arcs in on load and morphs when the counts change. */
+@keyframes arc-draw {
+  from {
+    stroke-dasharray: 0 var(--C);
+  }
+}
+.ring-arc {
+  animation: arc-draw 1.2s var(--ease-out-expo) backwards;
+  animation-delay: calc(var(--i, 0) * 110ms);
+  transition:
+    stroke-dasharray 700ms var(--ease-out-expo),
+    stroke-dashoffset 700ms var(--ease-out-expo),
+    opacity 500ms;
+}
+/* Timeline bars grow up from the baseline. */
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+    opacity: 0;
+  }
+}
+.bar-grow {
+  transform-origin: bottom;
+  animation: bar-grow 800ms var(--ease-out-expo) backwards;
+  animation-delay: calc(var(--i, 0) * 35ms);
+  transition: height 600ms var(--ease-out-expo);
+}
+/* A number that changed ticks up into place. */
+@keyframes count-tick {
+  from {
+    opacity: 0;
+    transform: translateY(35%);
+    filter: blur(3px);
+  }
+}
+.count-tick {
+  animation: count-tick 420ms var(--ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mem-in,
+  .stagger-in,
+  .ring-arc,
+  .bar-grow,
+  .count-tick {
+    animation: none;
+  }
+  .mem-composer {
+    transition: none;
+  }
+}
+
 /* Room for the phone tab bar and the home indicator. */
 .pb-tabbar {
   padding-bottom: calc(96px + env(safe-area-inset-bottom));

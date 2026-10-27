@@ -10,6 +10,7 @@ import { Md } from "./md";
 import { ReplyBar } from "./reply-bar";
 
 const KINDS: { kind: SourceKind; label: string; color: string; text: string }[] = [
+  { kind: "mine", label: "Yours", color: "var(--color-text)", text: "text-text" },
   { kind: "chat", label: "Agent chats", color: "var(--color-claude)", text: "text-claude" },
   { kind: "linear", label: "Linear", color: "var(--color-codex)", text: "text-codex" },
   { kind: "obsidian", label: "Obsidian", color: "var(--color-hermes)", text: "text-hermes" },
@@ -19,7 +20,8 @@ const META = Object.fromEntries(KINDS.map((k) => [k.kind, k])) as Record<SourceK
 
 type Asked = MemoryAnswer & { q: string };
 
-export function MemoryView({ stats }: { stats: MemoryStats }) {
+// `children` (Your memory) sits under the answer, above the composer's clearance.
+export function MemoryView({ stats, children }: { stats: MemoryStats; children?: React.ReactNode }) {
   const [asked, setAsked] = useState<Asked | null>(null);
   const [thinking, setThinking] = useState("");
   const answer = useRef<HTMLDivElement>(null);
@@ -57,11 +59,13 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
         <Panel className="flex flex-col items-center p-5">
           <Ring stats={stats} lit={lit} busy={!!thinking} />
           <ul className="mt-5 grid w-full grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            {KINDS.map((k) => (
-              <li key={k.kind} className={cn("flex items-center gap-2 transition-opacity duration-500", lit && !lit.has(k.kind) && "opacity-35")}>
+            {KINDS.map((k, i) => (
+              <li key={k.kind} className={cn("stagger-in flex items-center gap-2 transition-opacity duration-500", lit && !lit.has(k.kind) && "opacity-35")} style={{ "--i": i + 3 } as React.CSSProperties}>
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: k.color }} />
                 <span className="truncate text-muted">{k.label}</span>
-                <span className="tnum ml-auto text-text">{stats.counts[k.kind]}</span>
+                <span key={stats.counts[k.kind]} className="count-tick tnum ml-auto text-text">
+                  {stats.counts[k.kind]}
+                </span>
               </li>
             ))}
           </ul>
@@ -83,7 +87,8 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
         {thinking && (
           <Panel className="rise mt-8 p-5">
             <p className="text-sm text-muted">{thinking}</p>
-            <p className="mt-2 text-xs text-faint">Searching chats, Linear, Obsidian and notes…</p>
+            <p className="mt-2 text-xs text-faint">Searching your memories, chats, Linear, Obsidian and notes…</p>
+            <div className="live-trace mt-4" style={{ "--agent": "var(--color-hud)" } as React.CSSProperties} aria-hidden />
           </Panel>
         )}
         {asked && !thinking && (
@@ -99,7 +104,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
                 <SectionTitle right={`${asked.sources.length} found`}>Sources</SectionTitle>
                 <Panel className="overflow-hidden">
                   <ol>
-                    {asked.sources.map((s) => {
+                    {asked.sources.map((s, i) => {
                       const m = META[s.kind];
                       const inner = (
                         <>
@@ -118,7 +123,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
                       );
                       const row = "flex gap-3 border-b border-line px-4 py-3.5 last:border-0";
                       return (
-                        <li key={s.n}>
+                        <li key={s.n} className="stagger-in" style={{ "--i": Math.min(i, 10) } as React.CSSProperties}>
                           {s.href ? (
                             <a href={s.href} target={s.href.startsWith("/") ? undefined : "_blank"} rel="noreferrer" className={cn(row, "hover:bg-white/[0.02]")}>
                               {inner}
@@ -136,6 +141,8 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
           </section>
         )}
       </div>
+
+      {children}
 
       <div className="h-28" aria-hidden />
       <ReplyBar placeholder="Ask your memory — “what did we decide about the Bota index?”" onSend={ask} />
@@ -163,7 +170,7 @@ function Ring({ stats, lit, busy }: { stats: MemoryStats; lit: Set<SourceKind> |
       <svg viewBox="0 0 200 200" className={cn("absolute inset-0 h-full w-full -rotate-90", busy && "animate-[spin_2.4s_linear_infinite] motion-reduce:animate-none")} aria-hidden>
         <circle cx="100" cy="100" r={r} fill="none" stroke="rgb(255 255 255 / 0.05)" strokeWidth="14" />
         <circle cx="100" cy="100" r={r - 18} fill="none" stroke="rgb(255 255 255 / 0.04)" strokeWidth="1" strokeDasharray="2 5" />
-        {arcs.map((a) => (
+        {arcs.map((a, i) => (
           <circle
             key={a.kind}
             cx="100"
@@ -175,13 +182,15 @@ function Ring({ stats, lit, busy }: { stats: MemoryStats; lit: Set<SourceKind> |
             strokeLinecap="round"
             strokeDasharray={`${a.len} ${C}`}
             strokeDashoffset={-a.offset}
-            className="transition-opacity duration-500"
-            style={{ opacity: lit && !lit.has(a.kind) ? 0.18 : 1, filter: lit?.has(a.kind) ? `drop-shadow(0 0 6px ${a.color})` : undefined }}
+            className="ring-arc"
+            style={{ "--C": C, "--i": i, opacity: lit && !lit.has(a.kind) ? 0.18 : 1, filter: lit?.has(a.kind) ? `drop-shadow(0 0 6px ${a.color})` : undefined } as React.CSSProperties}
           />
         ))}
       </svg>
       <div className="text-center">
-        <p className="tnum text-4xl font-semibold tracking-[-0.04em]">{count.toLocaleString("en")}</p>
+        <p key={count} className="count-tick tnum text-4xl font-semibold tracking-[-0.04em]">
+          {count.toLocaleString("en")}
+        </p>
         <p className="mt-0.5 text-xs text-muted">{busy ? "searching…" : lit ? `${lit.size} source${lit.size === 1 ? "" : "s"} used` : "memories"}</p>
       </div>
     </div>
@@ -206,12 +215,12 @@ function Timeline({ stats, asked }: { stats: MemoryStats; asked: Asked | null })
           const hit = hitWeeks.get(i);
           return (
             <div key={w.start} className="relative flex h-full min-w-0 flex-1 flex-col justify-end" title={`Week of ${label(w.start)}: ${sum}`}>
-              {hit && <span className="absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full" style={{ background: META[hit].color, boxShadow: `0 0 8px ${META[hit].color}` }} />}
-              <div className="flex flex-col-reverse overflow-hidden rounded-md" style={{ height: `${Math.max(sum ? 6 : 2, (sum / max) * 85)}%` }}>
+              {hit && <span key={asked?.q} className="count-tick absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rounded-full" style={{ background: META[hit].color, boxShadow: `0 0 8px ${META[hit].color}` }} />}
+              <div className="bar-grow flex flex-col-reverse overflow-hidden rounded-md" style={{ height: `${Math.max(sum ? 6 : 2, (sum / max) * 85)}%`, "--i": i } as React.CSSProperties}>
                 {sum === 0 ? (
                   <span className="h-full bg-white/[0.06]" />
                 ) : (
-                  KINDS.map((k) => (w.counts[k.kind] ? <span key={k.kind} style={{ flexGrow: w.counts[k.kind], background: k.color, opacity: asked && !hitWeeks.has(i) ? 0.35 : 0.85 }} /> : null))
+                  KINDS.map((k) => (w.counts[k.kind] ? <span key={k.kind} className="transition-opacity duration-500" style={{ flexGrow: w.counts[k.kind], background: k.color, opacity: asked && !hitWeeks.has(i) ? 0.35 : 0.85 }} /> : null))
                 )}
               </div>
             </div>
