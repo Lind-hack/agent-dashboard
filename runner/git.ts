@@ -52,6 +52,56 @@ export function ensureWorktree(opts: WorktreeOpts) {
   return withRepoLock(opts.repo, () => ensureWorktreeLocked(opts));
 }
 
+// The VPS's one disk also holds 383's database and pipelines. A checkout plus an `npm install` is
+// about 1 GB; on 2026-10-28 they filled the disk and `git worktree add` died half-way
+// ("No space left on device"). Below this, a new checkout is refused with a message instead.
+const MIN_FREE_BYTES = 4 * 1024 ** 3;
+
+export function freeBytes(dir = WORK_DIR): number {
+  try {
+    const s = fs.statfsSync(dir);
+    return s.bavail * s.bsize;
+  } catch {
+    return Number.POSITIVE_INFINITY; // can't tell: don't block work on it
+  }
+}
+
+// What a checkout rebuilds by itself: dropped once its chat has been idle a day. The code, its
+// commits and the branch stay, so the chat can go on (the agent installs again).
+const REBUILDABLE = ["node_modules", ".next"];
+const IDLE_MS = 24 * 60 * 60 * 1000;
+
+/** Frees the rebuildable parts of idle chats' checkouts; returns the checkouts it slimmed. */
+export function sweepWorktrees(lastActive: (jobId: string) => number | undefined, busy: Set<string>, now = Date.now()): string[] {
+  const root = path.join(WORK_DIR, "wt");
+  if (!fs.existsSync(root)) return [];
+  const slimmed: string[] = [];
+  for (const id of fs.readdirSync(root)) {
+    if (busy.has(id)) continue;
+    const dir = path.join(root, id);
+    // A checkout with no chat of its name counts as idle by its own age.
+    let seen = lastActive(id);
+    if (seen === undefined) {
+      try {
+        seen = fs.statSync(dir).mtimeMs;
+      } catch {
+        continue;
+      }
+    }
+    if (now - seen < IDLE_MS) continue;
+    let did = false;
+    for (const name of REBUILDABLE) {
+      const p = path.join(dir, name);
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { recursive: true, force: true });
+        did = true;
+      }
+    }
+    if (did) slimmed.push(id);
+  }
+  return slimmed;
+}
+
 async function ensureWorktreeLocked(opts: WorktreeOpts) {
   const dir = repoDir(opts.repo);
   if (!fs.existsSync(path.join(dir, ".git"))) {
@@ -70,6 +120,10 @@ async function ensureWorktreeLocked(opts: WorktreeOpts) {
   }
   const wt = worktreeDir(opts.jobId);
   if (!fs.existsSync(wt)) {
+    const free = freeBytes();
+    if (free < MIN_FREE_BYTES) {
+      throw new Error(`The VPS disk is nearly full (${(free / 1024 ** 3).toFixed(1)} GB free): no new checkout until space is freed.`);
+    }
     fs.mkdirSync(path.dirname(wt), { recursive: true });
     await git(dir, ["worktree", "prune"]);
     const start = opts.fromSha && /^[0-9a-f]{40}$/.test(opts.fromSha) ? opts.fromSha : `origin/${opts.fromBranch ?? opts.base}`;
