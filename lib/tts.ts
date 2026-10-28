@@ -1,15 +1,18 @@
 import path from "node:path";
 import { DATA_DIR } from "./config";
-import { VOICES, type Speaker } from "./voices";
+import { piperStatus, piperWav, warmPiper } from "./piper";
+import { VOICES, looksAlbanian, type Speaker, type VoiceLang } from "./voices";
 
-// Text → speech for one short piece (a sentence), as WAV. Two free engines, best first:
+// Text → speech for one short piece (a sentence), as WAV. Three free engines:
 //   1. Groq Orpheus (canopylabs/orpheus-v1-english) — fast and expressive. Needs the model's terms
 //      accepted once in the Groq console and has a free-tier cap; when it says no, it's skipped for a
 //      while and Kokoro takes over. https://console.groq.com/docs/text-to-speech
 //   2. Kokoro-82M on this VPS via kokoro-js (Apache-2.0) — unlimited, ~real-time on the VPS CPU, so
 //      the client asks for one sentence at a time and plays while the next one renders.
+//   3. Piper's Albanian voice on this VPS (lib/piper.ts) — used for Albanian; the other two are
+//      English-only.
 
-export type Engine = "orpheus" | "kokoro";
+export type Engine = "orpheus" | "kokoro" | "piper";
 
 let orpheusOffUntil = 0;
 let orpheusWhy = "";
@@ -60,25 +63,39 @@ let waiting = 0;
 const MAX_WAITING = 6;
 async function kokoroWav(text: string, voice: string, signal?: AbortSignal): Promise<Buffer> {
   if (waiting >= MAX_WAITING) throw new Error("voice is busy — try again in a moment");
-  const tts = await loadKokoro();
   waiting++;
-  const run = queue.then(() => {
-    waiting--;
+  const run = queue.then(async () => {
+    const tts = await loadKokoro();
     if (signal?.aborted) throw new Error("cancelled");
     return tts.generate(text, { voice });
   });
   queue = run.catch(() => {});
-  return Buffer.from((await run).toWav());
+  try { return Buffer.from((await run).toWav()); } finally { waiting--; }
 }
 
 // Recently spoken pieces, so replaying an answer is instant.
 const cache = new Map<string, { wav: Buffer; engine: Engine }>();
 
-export async function speak(text: string, who: Speaker, signal?: AbortSignal): Promise<{ wav: Buffer; engine: Engine }> {
+export async function speak(text: string, who: Speaker, signal?: AbortSignal, lang: VoiceLang | "auto" = "auto"): Promise<{ wav: Buffer; engine: Engine }> {
   const v = VOICES[who];
-  const key = `${who}\u0000${text}`;
+  const albanian = lang === "sq" || (lang === "auto" && looksAlbanian(text));
+  const key = `${who}\u0000${albanian ? "sq" : "en"}\u0000${text}`;
   const hit = cache.get(key);
   if (hit) return hit;
+
+  if (albanian) {
+    try {
+      const out: { wav: Buffer; engine: Engine } = { wav: await piperWav(text, signal), engine: "piper" };
+      cache.set(key, out);
+      if (cache.size > 80) cache.delete(cache.keys().next().value as string);
+      return out;
+    } catch (e) {
+      // An explicit Albanian request should fail (the client can fall back to the browser's voice)
+      // rather than be read with English phonemes. "auto" can still try the English engines.
+      if (lang === "sq") throw e;
+    }
+  }
+
   const o = await orpheus(text, v.orpheus, v.mood).catch(() => null);
   const out: { wav: Buffer; engine: Engine } = o ? { wav: o, engine: "orpheus" } : { wav: await kokoroWav(text, v.kokoro, signal), engine: "kokoro" };
   cache.set(key, out);
@@ -87,12 +104,21 @@ export async function speak(text: string, who: Speaker, signal?: AbortSignal): P
 }
 
 export function ttsStatus() {
-  return { orpheus: Date.now() < orpheusOffUntil ? `off: ${orpheusWhy}` : process.env.GROQ_API_KEY ? "on" : "no GROQ_API_KEY", kokoro: kokoroReady ? "ready" : kokoro ? "loading" : "loads on first use" };
+  return {
+    orpheus: Date.now() < orpheusOffUntil ? `off: ${orpheusWhy}` : process.env.GROQ_API_KEY ? "on" : "no GROQ_API_KEY",
+    kokoro: kokoroReady ? "ready" : kokoro ? "loading" : "loads on first use",
+    piper: piperStatus(),
+  };
 }
 
-// Warm Kokoro in the background (~300 MB from the local cache) as soon as the voice UI opens. Orpheus
-// is tried first when it works, but if it is unavailable this is what keeps the Core from going
-// silent for the first sentence — the load happens while Lind is still talking.
+// Warm Kokoro in the background (first download is ~300 MB) when it's the voice in use, so the first
+// spoken reply isn't slow. With Orpheus working it stays unloaded until a fallback is needed.
 export function warmKokoro() {
   void loadKokoro().catch(() => {});
+}
+
+// Start downloading/loading the Albanian voice as soon as a turn is detected as Albanian, so the
+// first spoken reply is not also waiting for 60 MB.
+export function warmAlbanian() {
+  warmPiper();
 }

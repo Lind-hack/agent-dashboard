@@ -12,8 +12,8 @@ function commitSha(): string {
 const nextConfig: NextConfig = {
   // Voice notes are posted as multipart bodies; a minute of opus/mp4 stays well under this.
   experimental: { serverActions: { bodySizeLimit: "25mb" } },
-  // Kokoro (text-to-speech) runs ONNX natively; keep it and its runtime out of the bundle.
-  serverExternalPackages: ["kokoro-js", "@huggingface/transformers", "onnxruntime-node", "phonemizer"],
+  // Kokoro and Piper (text-to-speech) run ONNX natively; keep them and their runtimes out of the bundle.
+  serverExternalPackages: ["kokoro-js", "@huggingface/transformers", "onnxruntime-node", "phonemizer", "@echogarden/espeak-ng-emscripten"],
   // Baked in at build time so the UI can show what's deployed without a runtime lookup.
   env: { COMMIT_SHA: commitSha() },
 };
