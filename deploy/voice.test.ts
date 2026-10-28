@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { confirmsVoiceAction } from "../lib/voice-confirm";
-import { phonemeIds } from "../lib/piper";
+import { albanianPhonemes, phonemeIds } from "../lib/piper";
 import { looksAlbanian, voiceLang } from "../lib/voices";
-import { level, speak, stopSpeaking } from "../components/voice-engine";
+import { level, SILENT, speak, stopSpeaking } from "../components/voice-engine";
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -67,4 +67,48 @@ test("device speech failure stops the answer instead of advancing silently", asy
 test("spoken actions require a complete affirmative in either language", () => {
   for (const text of ["yes", "Yes, please!", "Po!", "bëje", "në rregull", "vazhdo"]) assert.equal(confirmsVoiceAction(text), true);
   for (const text of ["yes but don't run it", "okay cancel", "po jo", "no", ""]) assert.equal(confirmsVoiceAction(text), false);
+});
+
+test("audio unlock contains real PCM samples, not an empty WAV", () => {
+  const wav = Buffer.from(SILENT.split(",")[1], "base64");
+  assert.equal(wav.toString("ascii", 0, 4), "RIFF");
+  assert.ok(wav.readUInt32LE(40) > 0);
+  assert.equal(wav.length, 44 + wav.readUInt32LE(40));
+});
+
+test("Albanian phonemes retain punctuation, word boundaries and Unicode decomposition", () => {
+  const words: string[] = [];
+  const phones = albanianPhonemes("Përshëndetje Lind. Si je sot?", { synthesize_ipa(text) {
+    words.push(text); return { code: 0, ipa: text === "Përshëndetje Lind" ? "(sq)p_ər ɫ_ˈi_n_d\n" : "s_i j_ˈe s_ˈɔ_t\n" };
+  } });
+  assert.deepEqual(words, ["Përshëndetje Lind", "Si je sot"]);
+  assert.equal(phones, "pər ɫˈind. si jˈe sˈɔt?");
+  assert.throws(() => albanianPhonemes("Test.", { synthesize_ipa: () => ({ code: 1, ipa: "" }) }), /eSpeak/);
+});
+
+test("browser autoplay denial keeps the answer loaded until a direct playback tap", async () => {
+  let plays = 0;
+  const media = { setAttribute() {}, style: {}, paused: true, src: "", onended: null as null | (() => void), onerror: null, pause() {}, play() {
+    plays++;
+    return plays === 1 ? Promise.reject(new DOMException("gesture required", "NotAllowedError")) : Promise.resolve();
+  } };
+  // The engine uses one element per page; isolate this test in a freshly imported module.
+  Object.assign(globalThis, {
+    window: { AudioContext: class { state = "running"; } },
+    document: { createElement: () => media, body: { appendChild() {} } },
+    fetch: async () => new Response(new Blob(["audio"])),
+  });
+  const engine = await import("../components/voice-engine.ts?autoplay" as string);
+  let settled = false;
+  const done = engine.speak("Përshëndetje.", "core", "blocked", { lang: "sq" }).then((ok: boolean) => { settled = true; return ok; });
+  await tick();
+  const source = media.src;
+  assert.ok(source.startsWith("blob:"));
+  assert.equal(settled, false);
+  engine.resumePlayback();
+  assert.equal(plays, 2, "play() must execute synchronously inside the click handler");
+  assert.equal(media.src, source, "resume must not replace or refetch the blocked audio");
+  media.onended?.();
+  assert.equal(await done, true);
+  engine.stopSpeaking();
 });

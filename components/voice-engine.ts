@@ -14,7 +14,7 @@ import { looksAlbanian, sentences, speakable, type Speaker } from "@/lib/voices"
 // still loading, the device's own speech synthesis says the same lines, so the Core always has a voice.
 // Albanian uses the server Piper voice and falls back to an installed Albanian device voice.
 
-type State = { speaking: Speaker | null; speakingKey: string | null; error: string };
+type State = { speaking: Speaker | null; speakingKey: string | null; error: string; blocked: boolean };
 
 export type SpeechLang = "en" | "sq";
 export type SpeakOptions = { lang?: SpeechLang; fallbackText?: string };
@@ -25,7 +25,7 @@ let outEl: HTMLAudioElement | null = null;
 let outPulse = 0;
 let pulseTimer: ReturnType<typeof setInterval> | null = null;
 let current: { stop: () => void } | null = null;
-let state: State = { speaking: null, speakingKey: null, error: "" };
+let state: State = { speaking: null, speakingKey: null, error: "", blocked: false };
 const subs = new Set<() => void>();
 const set = (s: Partial<State>) => {
   state = { ...state, ...s };
@@ -34,7 +34,7 @@ const set = (s: Partial<State>) => {
 
 // A silent WAV: playing it on the tap that starts the conversation unlocks the media element for
 // every later answer (the same gesture that unlocks the AudioContext above).
-const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+export const SILENT = "data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 function audio(): AudioContext {
   if (!ctx) {
@@ -75,6 +75,14 @@ export function unlockAudio() {
     el.src = SILENT;
     el.play().catch(() => {});
   }
+}
+
+// Called synchronously from the Hear reply button, with no fetch/await before play().
+export function resumePlayback() {
+  const el = element();
+  void el.play().then(() => set({ blocked: false, error: "" })).catch(() => {
+    set({ blocked: true, error: "Audio is still blocked. Check this site's sound permission and tap Hear reply." });
+  });
 }
 
 function rms(a: AnalyserNode | null): number {
@@ -119,7 +127,7 @@ export function stopSpeaking() {
     outEl?.pause();
   } catch {}
   stopPulse();
-  set({ speaking: null, speakingKey: null });
+  set({ speaking: null, speakingKey: null, blocked: false });
 }
 
 // Voices arrive asynchronously on Chrome; wait once for the list instead of racing it.
@@ -251,7 +259,14 @@ function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
     el.onended = () => finish();
     el.onerror = () => finish(new Error("audio playback failed"));
     el.src = url;
-    el.play().catch((e) => finish(e instanceof Error ? e : new Error("playback blocked")));
+    el.play().catch((e) => {
+      if (done) return;
+      if (e?.name === "NotAllowedError") {
+        // Keep this exact audio source loaded. The Hear reply button calls play() directly
+        // from a trusted tap, then onended continues the remaining sentences.
+        set({ blocked: true, error: "Your browser paused audio. Tap Hear reply." });
+      } else finish(e instanceof Error ? e : new Error("audio playback failed"));
+    });
   });
 }
 
@@ -278,7 +293,7 @@ export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions =
     },
   };
   current = me;
-  set({ speaking: who, speakingKey: key, error: "" });
+  set({ speaking: who, speakingKey: key, error: "", blocked: false });
   startPulse();
 
   const spokenLang = opts.lang ?? (looksAlbanian(text) ? "sq" : "en");
@@ -333,7 +348,7 @@ export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions =
       if (current === me) {
         stopPulse();
         current = null;
-        set({ speaking: null, speakingKey: null });
+        set({ speaking: null, speakingKey: null, blocked: false });
       }
       finish(success);
     }

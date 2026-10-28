@@ -93,11 +93,14 @@ journalctl -u agent-dashboard-runner -f
 ## Core voice conversation
 
 Open **Voice → Talk**, tap the Core, and speak. With Hands-free enabled, it listens again after
-answering; tap while it speaks to interrupt. The speaker button enables spoken answers. Actions
+answering; tap while it speaks to interrupt. Each new Talk session starts with **Voice on**; the visible speaker control can mute that session.
+If your browser blocks playback, tap **Hear reply** to start the loaded answer. Actions
 remain proposals until you tap Run or give an unambiguous spoken confirmation.
 
 English replies use Groq Orpheus, falling back to local Kokoro. Albanian replies use the local
 Piper `sq_AL-edon-medium` voice, so an Albanian voice does not need to be installed on the phone.
+Its phoneme input preserves punctuation, word boundaries and Unicode decomposition for Albanian
+pronunciation and sentence intonation.
 Whisper auto-detects English and Albanian; ask “fol shqip” or “speak English” to switch. If server
 speech fails, an installed device voice can take over; playback failures are shown in the Talk panel.
 The first Albanian request downloads about 61 MB to `DATA_DIR/models/piper`; later requests reuse it.

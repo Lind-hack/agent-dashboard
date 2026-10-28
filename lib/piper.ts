@@ -126,11 +126,22 @@ export function phonemeIds(phonemes: string, map: Record<string, number[]>): num
   return ids;
 }
 
+// Piper's phonemizer keeps clause punctuation and decomposes Unicode phonemes (NFD).
+// eSpeak's IPA trace drops punctuation, so restore it from each original clause instead
+// of flattening all sentences into one breath. Never rewrite Albanian words as English.
+export function albanianPhonemes(text: string, worker: Pick<ESpeakNGWorker, "synthesize_ipa">): string {
+  return (text.normalize("NFC").match(/[^.!?,;:]+[.!?,;:]*|[.!?,;:]+/gu) ?? []).map((clause) => {
+    const punctuation = clause.match(/[.!?,;:]+$/u)?.[0] ?? "";
+    const words = clause.slice(0, clause.length - punctuation.length).trim();
+    if (!words) return punctuation;
+    const ipa = worker.synthesize_ipa(words);
+    if (ipa.code !== 0) throw new Error(`eSpeak could not read that text (${ipa.code})`);
+    return ipa.ipa.replace(/\([^)]+\)/g, "").replace(/_/g, "").replace(/\s+/g, " ").trim().normalize("NFD") + punctuation;
+  }).join(" ");
+}
+
 async function synth(p: Piper, text: string): Promise<Buffer> {
-  const ipa = p.worker.synthesize_ipa(text);
-  if (ipa.code !== 0) throw new Error(`eSpeak could not read that text (${ipa.code})`);
-  // Remove phoneme separators and flatten sentence boundaries; word spaces are retained.
-  const phonemes = ipa.ipa.replace(/_/g, "").replace(/\n/g, " ");
+  const phonemes = albanianPhonemes(text, p.worker);
   const ids = phonemeIds(phonemes, p.config.phoneme_id_map);
 
   const { noise_scale, length_scale, noise_w } = p.config.inference;
