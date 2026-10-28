@@ -31,3 +31,25 @@ Real iOS/Android microphone, ringer/Bluetooth routing and Albanian pronunciation
 The production dependency audit reports three existing high advisories through sharp in
 Kokoro/Transformers, with no automatic dependency fix available. The restored eSpeak package adds
 no reported advisory. This work does not upgrade the existing speech dependency chain.
+
+## Follow-up: user still receives text without speech
+
+The earlier browser check used `--autoplay-policy=no-user-gesture-required` and a typed
+request, so it could not prove that phone recording followed by ordinary playback worked.
+A persisted `ad.voiceReplies=0` also suppressed synthesis with only an icon indicating mute.
+
+- Talk now starts each session with a visible Voice on state; muting applies to that session.
+- Starting a turn stops old media before priming it; previously begin() immediately paused the
+  unlock play() that had just started. Audio priming now contains real silent PCM samples. Chromium accepted the previous empty WAV,
+  so the old file is not a proven cause of the reported phone failure.
+- A browser NotAllowedError preserves the loaded answer and exposes Hear reply. That button
+  invokes play() synchronously from the user tap, then the same sentence queue continues.
+- Albanian phonemization restores original clause punctuation, keeps word boundaries and uses
+  Unicode NFD phonemes, following Piper's upstream phonemizer contract. It keeps the Albanian
+  model rather than substituting English pronunciation.
+- Regression checks cover a saved mute preference, autoplay recovery, nonempty priming audio,
+  and Albanian punctuation. Device-specific sound routing still needs the user's phone/browser.
+
+Archify was invoked to map the request sequence. The specification is retained in the deployment
+review artifacts, but the installed skill lacks its core template and standalone validators;
+its diagnostic is internal/unclassified. No validated HTML diagram is claimed.

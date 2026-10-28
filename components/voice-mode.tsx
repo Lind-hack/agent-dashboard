@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
 import { Core } from "@/components/core";
-import { primeVoices, speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
+import { primeVoices, resumePlayback, speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
 import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
 import { confirmsVoiceAction } from "@/lib/voice-confirm";
 import { cn } from "@/lib/utils";
@@ -53,7 +53,9 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
   const [typed, setTyped] = useState("");
   const [typing, setTyping] = useState(false);
   const [handsFree, setHandsFree, handsFreeRef] = useStored("ad.handsfree", true);
-  const [voiceOn, setVoiceOn, voiceOnRef] = useStored("ad.voiceReplies", true);
+  // A new Talk session speaks by default; an old mute preference must not silently suppress it.
+  const [voiceOn, setVoiceOn] = useState(true);
+  const voiceOnRef = useRef(true);
   const mic = useListener();
   const voice = useVoiceState();
   const lvl = useLevel(phase === "listening" || phase === "confirming" || phase === "speaking");
@@ -171,10 +173,11 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
   }
 
   function tap() {
-    unlockAudio();
     if (phase === "listening" || phase === "confirming") return mic.finish();
     if (phase === "thinking") return;
-    void listen(); // also cuts in while it's speaking
+    const g = begin(); // Stop old media before priming; otherwise begin() cancels the unlock play().
+    unlockAudio();
+    void listen(g); // also cuts in while it's speaking
   }
 
   async function run(a: VoiceAction) {
@@ -216,7 +219,9 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
           : "Opening the mic…"
         : phase === "thinking"
           ? "Thinking"
-          : speakingNow
+          : voice.blocked
+            ? "Tap Hear reply to enable sound"
+            : speakingNow
             ? "Speaking — tap to cut in"
             : action
               ? "Run it, or cancel"
@@ -250,6 +255,12 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
         )}
         {(note || mic.error || voice.error) && <p className="mt-2 text-xs text-bad">{note || mic.error || `Voice: ${voice.error}`}</p>}
       </div>
+
+      {voice.blocked && (
+        <button onClick={resumePlayback} className="flex h-11 items-center gap-2 rounded-xl bg-text px-4 text-sm font-medium text-bg">
+          <Volume2 className="h-4 w-4" aria-hidden /> Hear reply
+        </button>
+      )}
 
       {act && action && (
         <div role="alert" className="msg-in panel w-full px-4 py-3">
@@ -294,10 +305,11 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
           onSubmit={(e) => {
             e.preventDefault();
             if (!typed.trim() || phase === "thinking") return;
+            const g = begin();
             unlockAudio();
             const t = typed.trim();
             setTyped("");
-            void ask({ text: t }, begin());
+            void ask({ text: t }, g);
           }}
         >
           <input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus aria-label="Ask the Core" placeholder="Ask the Core…" className="bare-field min-w-0 flex-1 bg-transparent px-2 text-[15px] outline-none placeholder:text-faint" />
@@ -324,13 +336,16 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
           <button
             onClick={() => {
               if (voiceOn) stopSpeaking();
+              voiceOnRef.current = !voiceOn;
               setVoiceOn(!voiceOn);
+              if (!voiceOn) unlockAudio();
             }}
             aria-pressed={voiceOn}
             aria-label={voiceOn ? "Mute spoken answers" : "Speak answers"}
-            className="grid h-9 w-9 place-items-center rounded-[10px] text-muted transition-colors hover:bg-white/5 hover:text-text"
+            className="flex h-9 items-center gap-1.5 rounded-[10px] px-2 text-muted transition-colors hover:bg-white/5 hover:text-text"
           >
             {voiceOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            <span>{voiceOn ? "Voice on" : "Voice off"}</span>
           </button>
         </div>
       </div>
