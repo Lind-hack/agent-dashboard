@@ -89,3 +89,25 @@ journalctl -u agent-dashboard-runner -f
 - No Claude/Codex login inside the web app — the dashboard drives the official CLIs on our own
   server, and Codex cloud through Linear.
 - Chats that live only on the PC can't be joined; hand them off, or use Claude Code Remote Control.
+
+## Core voice conversation
+
+Open **Voice → Talk**, tap the Core, and speak. With Hands-free enabled, it listens again after
+answering; tap while it speaks to interrupt. The speaker button enables spoken answers. Actions
+remain proposals until you tap Run or give an unambiguous spoken confirmation.
+
+English replies use Groq Orpheus, falling back to local Kokoro. Albanian replies use the local
+Piper `sq_AL-edon-medium` voice, so an Albanian voice does not need to be installed on the phone.
+Whisper auto-detects English and Albanian; ask “fol shqip” or “speak English” to switch. If server
+speech fails, an installed device voice can take over; playback failures are shown in the Talk panel.
+The first Albanian request downloads about 61 MB to `DATA_DIR/models/piper`; later requests reuse it.
+`GET /api/tts?lang=sq` warms the voice. `GROQ_API_KEY` is required for transcription and Core replies.
+
+Piper model: [Edon voice](https://huggingface.co/edonseki/folsh.ai) (CC0). Phonemization uses
+`@echogarden/espeak-ng-emscripten` (GPL-3.0), loaded only by the server. The
+[reference Piper runtime](https://github.com/rhasspy/piper/blob/master/src/python_run/piper/voice.py)
+defines the model's phoneme padding format.
+
+Voice regression checks: `node --import tsx --test deploy/voice.test.ts deploy/*.test.mjs`,
+then `npm run typecheck` and `npm run build`. A phone check is still needed for microphone
+permissions, Bluetooth routing, iOS playback restrictions, and perceived Albanian pronunciation.

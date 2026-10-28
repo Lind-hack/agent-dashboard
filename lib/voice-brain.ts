@@ -119,14 +119,14 @@ const OL = {
   },
 } as const;
 
-export async function voiceAnswer(text: string, history: VoiceTurn[]): Promise<VoiceAnswer> {
+export async function voiceAnswer(text: string, history: VoiceTurn[], hint?: VoiceLang): Promise<VoiceAnswer> {
   const ctx = await context();
   const convo = history
     .slice(-8)
     .map((t) => `${t.role === "you" ? "Lind" : "Core"}: ${t.text}`)
     .join("\n");
-  const forced = forcedLang(text);
-  const raw = await groqJSON<Raw>(SYSTEM(JSON.stringify(ctx)), `${convo ? `Conversation so far:\n${convo}\n\n` : ""}Lind: ${text}`, 0.4);
+  const forced = forcedLang(text) ?? (hint === "sq" ? hint : null);
+  const raw = await groqJSON<Raw>(SYSTEM(JSON.stringify(ctx)), `${hint ? `Detected spoken language: ${hint}.\n` : ""}${convo ? `Conversation so far:\n${convo}\n\n` : ""}Lind: ${text}`, 0.4);
   if (!raw) {
     const lang = resolveLang(null, text, history, forced);
     return { say: OL[lang].quota, lang };

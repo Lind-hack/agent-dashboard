@@ -7,6 +7,7 @@ import { AgentLogo } from "@/components/agent-logo";
 import { Core } from "@/components/core";
 import { primeVoices, speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
 import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
+import { confirmsVoiceAction } from "@/lib/voice-confirm";
 import { cn } from "@/lib/utils";
 import type { VoiceAction, VoiceLang, VoiceTurn } from "@/lib/voice-brain";
 
@@ -17,7 +18,6 @@ import type { VoiceAction, VoiceLang, VoiceTurn } from "@/lib/voice-brain";
 type Phase = "idle" | "listening" | "thinking" | "speaking" | "confirming";
 type Turn = VoiceTurn & { sources?: { title: string; href?: string }[] };
 
-const YES = /^(yes|yeah|yep|yup|sure|ok|okay|go|go ahead|do it|run it|start it|please do|ja|confirm|po|po po|po bej|po bëj|beje|bëje|hajde|në rregull|ne rregull|patjetër|patjeter|sigurisht)\b/;
 
 function useStored(key: string, fallback: boolean) {
   const [v, setV] = useState(fallback);
@@ -90,9 +90,10 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
   }
 
   async function say(text: string, g: number, lang: VoiceLang = "en", sayEn?: string) {
-    if (!voiceOnRef.current || g !== gen.current) return;
+    if (g !== gen.current) return false;
+    if (!voiceOnRef.current) return true;
     setPhase("speaking");
-    await speak(text, "core", "core", { lang, fallbackText: sayEn });
+    return speak(text, "core", "core", { lang, fallbackText: sayEn });
   }
 
   async function ask(input: { audio?: Blob; text?: string }, g: number) {
@@ -124,7 +125,11 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     langRef.current = body.lang ?? langRef.current;
     if (body.say) {
       const ask = body.lang === "sq" ? "Ta nis?" : "Shall I go ahead?";
-      await say(body.action ? `${body.say} ${ask}` : body.say, g, body.lang, body.action && body.sayEn ? `${body.sayEn} Shall I go ahead?` : body.sayEn);
+      const spoken = await say(body.action ? `${body.say} ${ask}` : body.say, g, body.lang, body.action && body.sayEn ? `${body.sayEn} Shall I go ahead?` : body.sayEn);
+      if (!spoken) {
+        if (g === gen.current) setPhase("idle");
+        return; // Leave the reply visible; do not listen again after failed playback.
+      }
     }
     if (g !== gen.current) return;
     setPhase("idle");
@@ -159,7 +164,7 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     if (g !== gen.current) return;
     const heard = (body?.heard ?? "").toLowerCase().replace(/[^\p{L}\s]/gu, "").trim();
     setTurns((t) => [...t, { role: "you" as const, text: body?.heard || "…" }].slice(-12));
-    if (YES.test(heard)) return void run(a);
+    if (confirmsVoiceAction(heard)) return void run(a);
     setAction(null);
     await say(langRef.current === "sq" ? "Në rregull, e anulova." : "Okay, cancelled.", g, langRef.current);
     if (g === gen.current) setPhase("idle");

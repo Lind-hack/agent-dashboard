@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { sentences, speakable, type Speaker } from "@/lib/voices";
+import { looksAlbanian, sentences, speakable, type Speaker } from "@/lib/voices";
 
 // One audio engine for the whole app (one AudioContext — iOS only lets a page play sound after a tap,
 // so the first tap anywhere unlocks it for everything after).
@@ -12,8 +12,7 @@ import { sentences, speakable, type Speaker } from "@/lib/voices";
 // Playback runs through an <audio> element instead of the AudioContext graph: iOS mutes Web Audio
 // while the ringer switch is on, but a media element keeps talking. If the server voices fail or are
 // still loading, the device's own speech synthesis says the same lines, so the Core always has a voice.
-// Albanian goes to the device voice first (Kokoro/Orpheus have no Albanian) and falls back to the
-// English rendering the brain sends along.
+// Albanian uses the server Piper voice and falls back to an installed Albanian device voice.
 
 type State = { speaking: Speaker | null; speakingKey: string | null; error: string };
 
@@ -150,7 +149,7 @@ function pickVoice(vs: SpeechSynthesisVoice[], lang: SpeechLang): SpeechSynthesi
 }
 
 // Speaks with the device voice. Returns false when the language has no voice here (unless forced),
-// so the caller can use the server voice or the English rendering instead.
+// so a failed attempt is reported instead of silently counted as playback.
 async function speakDevice(parts: string[], lang: SpeechLang, signal: AbortSignal, force: boolean): Promise<boolean> {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
   const vs = await deviceVoices();
@@ -160,35 +159,36 @@ async function speakDevice(parts: string[], lang: SpeechLang, signal: AbortSigna
   const synth = window.speechSynthesis;
   for (const part of parts) {
     if (signal.aborted) return true;
-    await new Promise<void>((resolve) => {
+    const ok = await new Promise<boolean>((resolve) => {
       const u = new SpeechSynthesisUtterance(part);
       if (voice) u.voice = voice;
       u.lang = voice?.lang ?? (lang === "sq" ? "sq-AL" : "en-US");
       u.rate = 1;
       let done = false;
       let guard: ReturnType<typeof setTimeout> | undefined;
-      const finish = () => {
+      const finish = (ok: boolean) => {
         if (done) return;
         done = true;
         if (guard) clearTimeout(guard);
         signal.removeEventListener("abort", onAbort);
-        resolve();
+        resolve(ok);
       };
       const onAbort = () => {
         stopDevice();
-        finish();
+        finish(false);
       };
-      guard = setTimeout(finish, Math.max(2500, part.length * 120));
+      guard = setTimeout(() => { stopDevice(); finish(false); }, Math.max(2500, part.length * 120));
       signal.addEventListener("abort", onAbort, { once: true });
-      u.onend = finish;
-      u.onerror = finish;
+      u.onend = () => finish(true);
+      u.onerror = () => finish(false);
       try {
         synth.resume();
         synth.speak(u);
       } catch {
-        finish();
+        finish(false);
       }
     });
+    if (!ok) return false;
   }
   return true;
 }
@@ -206,7 +206,7 @@ function joinSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
   return c.signal;
 }
 
-async function fetchPiece(text: string, who: Speaker, signal: AbortSignal): Promise<Blob> {
+async function fetchPiece(text: string, who: Speaker, lang: SpeechLang, signal: AbortSignal): Promise<Blob> {
   // A cold Kokoro load can take a while; don't let one sentence stall the rest of the answer.
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(new DOMException("timeout", "TimeoutError")), 20_000);
@@ -214,7 +214,7 @@ async function fetchPiece(text: string, who: Speaker, signal: AbortSignal): Prom
     const res = await fetch("/api/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, who }),
+      body: JSON.stringify({ text, who, lang }),
       signal: joinSignals(signal, timeout.signal),
     });
     if (!res.ok) throw new Error(((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `voice HTTP ${res.status}`);
@@ -257,15 +257,15 @@ function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
 
 // Speaks `text` (markdown is fine — code and links are skipped) in `who`'s voice. Resolves when done
 // or stopped. `key` identifies what's being read, so a "play" button can show it's the one playing.
-export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions = {}): Promise<void> {
+export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions = {}): Promise<boolean> {
   stopSpeaking();
   const parts = sentences(speakable(text));
-  if (!parts.length) return Promise.resolve();
+  if (!parts.length) return Promise.resolve(true);
   void resumeAudio();
   const ac = new AbortController();
   let stopped = false;
-  let finish: () => void = () => {};
-  const done = new Promise<void>((r) => (finish = r));
+  let finish: (ok: boolean) => void = () => {};
+  const done = new Promise<boolean>((r) => (finish = r));
   const me = {
     stop: () => {
       stopped = true;
@@ -274,12 +274,14 @@ export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions =
       try {
         outEl?.pause();
       } catch {}
-      finish();
+      finish(false);
     },
   };
   current = me;
   set({ speaking: who, speakingKey: key, error: "" });
   startPulse();
+
+  const spokenLang = opts.lang ?? (looksAlbanian(text) ? "sq" : "en");
 
   // Play a list of sentences through the server voices. One bad sentence is retried once, then said
   // by the device voice — it never cuts the rest of the answer off.
@@ -287,7 +289,7 @@ export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions =
     const pending: (Promise<Blob> | undefined)[] = [];
     const get = (i: number) => {
       if (i < ps.length && !pending[i]) {
-        const p = fetchPiece(ps[i], who, ac.signal);
+        const p = fetchPiece(ps[i], who, spokenLang, ac.signal);
         p.catch(() => {}); // a piece fetched ahead may fail after we've stopped; handled if played
         pending[i] = p;
       }
@@ -295,9 +297,10 @@ export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions =
     };
     let played = 0;
     for (let i = 0; i < ps.length && !stopped; i++) {
+      const piece = get(i)!;
       get(i + 1);
       get(i + 2); // render ahead so the next sentence is ready when this one ends
-      let blob = await get(i)!.catch(() => null);
+      let blob = await piece.catch(() => null);
       if (!blob && !stopped) {
         pending[i] = undefined;
         blob = await get(i)!.catch(() => null);
@@ -312,34 +315,27 @@ export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions =
           if (ac.signal.aborted) break;
         }
       }
-      if (await speakDevice([ps[i]], "en", ac.signal, true)) played++;
+      if (await speakDevice([ps[i]], spokenLang, ac.signal, spokenLang === "en")) played++;
+      else if (!stopped) throw new Error("Speech playback failed — tap to try again.");
     }
     return played;
   }
 
   (async () => {
+    let success = false;
     try {
-      let played = 0;
-      if (opts.lang === "sq") {
-        // Albanian: the phone's own Albanian voice sounds right; the server engines are English-only.
-        if (await speakDevice(parts, "sq", ac.signal, false)) played = parts.length;
-        else {
-          const fallback = opts.fallbackText?.trim();
-          played = await playParts(fallback ? sentences(speakable(fallback)) : parts);
-        }
-      } else {
-        played = await playParts(parts);
-      }
+      const played = await playParts(parts);
       if (!played && !stopped) throw new Error("No voice came back — check the connection, then try again.");
+      success = !stopped && played > 0;
     } catch (e) {
       if (!stopped) set({ error: e instanceof Error ? e.message : String(e) });
     } finally {
-      stopPulse();
       if (current === me) {
+        stopPulse();
         current = null;
         set({ speaking: null, speakingKey: null });
       }
-      finish();
+      finish(success);
     }
   })();
   return done;
@@ -447,7 +443,7 @@ export function useListener() {
       let raf = 0;
       let settled = false;
       const t0 = performance.now();
-      let floor = 0.01;
+      let floor = 0.02;
       let heard = false;
       let quietSince = 0;
       const cleanup = () => {
@@ -488,8 +484,8 @@ export function useListener() {
       const loop = (now: number) => {
         const v = rms(an);
         const elapsed = now - t0;
-        if (elapsed < 350) floor = Math.max(floor, v); // room noise in the first moment
-        const threshold = Math.max(0.02, floor * 2.2);
+        if (elapsed < 350) floor = Math.min(floor, v); // do not calibrate immediate speech as room noise
+        const threshold = Math.max(0.025, floor * 2.2);
         if (v > threshold) {
           heard ||= elapsed > 150;
           quietSince = 0;

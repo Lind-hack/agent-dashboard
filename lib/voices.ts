@@ -6,6 +6,7 @@
 import type { TaskAgent } from "./agents";
 
 export type Speaker = TaskAgent | "core";
+export type VoiceLang = "en" | "sq";
 export const SPEAKERS: Speaker[] = ["core", "claude", "codex", "codex-cloud", "opencode", "hermes"];
 
 export const VOICES: Record<Speaker, { kokoro: string; orpheus: string; mood: string }> = {
@@ -18,6 +19,19 @@ export const VOICES: Record<Speaker, { kokoro: string; orpheus: string; mood: st
 };
 
 export const isSpeaker = (s: unknown): s is Speaker => typeof s === "string" && (SPEAKERS as string[]).includes(s);
+
+// Whisper and the Core both report a language; keep only the two the voice stack can speak.
+export function voiceLang(value: unknown): VoiceLang | undefined {
+  if (typeof value !== "string") return;
+  const v = value.trim().toLowerCase();
+  if (v === "sq" || v.startsWith("sq-") || v.startsWith("sq_") || v === "albanian" || v === "sqi" || v === "alb") return "sq";
+  if (v === "en" || v.startsWith("en-") || v.startsWith("en_") || v === "english") return "en";
+}
+
+// A cheap check for text that came from the Core (or a typed message) without a language tag.
+// Albanian's ë/ç are the strong signal; the words catch short replies that happen to have neither.
+const ALBANIAN = /[ëËçÇ]|\b(faleminderit|përshëndetje|mirëdita|mirëmëngjes|natën|nuk|është|sot|nesër|mund|një|për|dhe|por|shumë|mirë)\b/i;
+export const looksAlbanian = (text: string) => ALBANIAN.test(text);
 
 // What gets read aloud from an agent's markdown: the prose, not the code. Code blocks become "(code)",
 // links keep their label, list markers and emphasis go. Capped so a long report doesn't talk for minutes.

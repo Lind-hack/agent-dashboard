@@ -3,7 +3,9 @@ import { groqKey, groqModel, repoShort, type RepoKey, type TaskAgent } from "./c
 // Groq free tier: Whisper for speech-to-text, gpt-oss for turning a ramble into a ticket.
 // https://console.groq.com/docs/speech-to-text — OpenAI-compatible endpoints.
 
-export async function transcribe(audio: Blob, filename: string): Promise<string> {
+export type Transcription = { text: string; language: string };
+
+export async function transcribeDetailed(audio: Blob, filename: string): Promise<Transcription> {
   // Language is left on auto-detect so Albanian and English both transcribe as spoken (Whisper
   // translates nothing on this endpoint). One retry covers a dropped connection or a cold model.
   let last = "";
@@ -12,7 +14,7 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
     const form = new FormData();
     form.append("file", audio, filename);
     form.append("model", "whisper-large-v3-turbo");
-    form.append("response_format", "json");
+    form.append("response_format", "verbose_json");
     form.append("temperature", "0");
     const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
@@ -20,12 +22,16 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
       body: form,
       signal: AbortSignal.timeout(30_000),
     }).catch(() => null);
-    const body = (await res?.json().catch(() => null)) as { text?: string; error?: { message?: string } } | null;
-    if (res?.ok) return (body?.text ?? "").trim();
+    const body = (await res?.json().catch(() => null)) as { text?: string; language?: string; error?: { message?: string } } | null;
+    if (res?.ok) return { text: (body?.text ?? "").trim(), language: body?.language ?? "" };
     last = `Whisper: ${body?.error?.message ?? res?.status ?? "unreachable"}`;
     if (res && res.status < 500 && res.status !== 429) break; // a real request error won't fix itself
   }
   throw new Error(last);
+}
+
+export async function transcribe(audio: Blob, filename: string): Promise<string> {
+  return (await transcribeDetailed(audio, filename)).text;
 }
 
 // llama-3.3-70b was retired on Groq; qwen3.8 has its own daily quota.
@@ -46,6 +52,7 @@ export async function groqJSON<T>(system: string, user: string, temperature = 0.
           { role: "user", content: user },
         ],
       }),
+      signal: AbortSignal.timeout(20_000),
     }).catch(() => null);
     const body = (await res?.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
     if (!res?.ok) continue;
@@ -89,6 +96,7 @@ Return JSON: {"title": string, "description": string, "agent": "claude"|"codex"|
           { role: "user", content: text },
         ],
       }),
+      signal: AbortSignal.timeout(20_000),
     }).catch(() => null);
     const body = (await res?.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
     if (!res?.ok) continue;
