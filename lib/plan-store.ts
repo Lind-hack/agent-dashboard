@@ -43,6 +43,12 @@ export type PlanStats = {
   todayTotal: number;
 };
 
+export type GoalWeek = {
+  done: number;
+  total: number;
+  days: { day: string; done: number; total: number }[];
+};
+
 const plansDir = () => path.join(DATA_DIR, "plans");
 const dayFile = (day: string) => path.join(plansDir(), `${day}.json`);
 const active = (b: StoredBlock) => b.status !== "dropped" && b.status !== "moved";
@@ -201,6 +207,33 @@ function daysOfWeek(day: string): string[] {
   const monday = new Date(d);
   monday.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
   return Array.from({ length: 7 }, (_, i) => addDays(monday.toISOString().slice(0, 10), i));
+}
+
+export function goalMomentum(day: string, ids: string[]): Record<string, GoalWeek> {
+  const week = daysOfWeek(day);
+  const out: Record<string, GoalWeek> = {};
+  for (const id of ids) {
+    out[id] = {
+      done: 0,
+      total: 0,
+      days: week.map((d) => ({ day: d, done: 0, total: 0 })),
+    };
+  }
+  for (const d of week) {
+    const blocks = activeBlocks(readPlan(d));
+    for (const b of blocks) {
+      if (!b.goalId || !out[b.goalId]) continue;
+      const slot = out[b.goalId].days.find((x) => x.day === d);
+      if (!slot) continue;
+      slot.total++;
+      out[b.goalId].total++;
+      if (b.status === "done") {
+        slot.done++;
+        out[b.goalId].done++;
+      }
+    }
+  }
+  return out;
 }
 
 export function planStats(day: string): PlanStats {

@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, Check, CircleCheck, Flag, ListTodo, LoaderCircle, Sparkles, X } from "lucide-react";
+import { CalendarPlus, Check, ChevronDown, CircleCheck, Flag, ListTodo, LoaderCircle, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { EventDraft, PlanBlock } from "@/lib/calendar";
@@ -36,6 +36,7 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
   const [plan, setPlan] = useState<Plan | null>(null);
   const [busy, setBusy] = useState<"" | "plan" | "apply">("");
   const [msg, setMsg] = useState("");
+  const [open, setOpen] = useState(!planned);
 
   async function make() {
     setBusy("plan");
@@ -61,12 +62,14 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
         if (r?.stored) {
           setPlan(null);
           setNote("");
+          setOpen(false);
           router.refresh();
         }
         return;
       }
       setPlan(null);
       setNote("");
+      setOpen(false);
       setMsg(
         r.calendar
           ? r.vault
@@ -85,75 +88,102 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
   }
 
   return (
-    <Panel className="brackets relative p-5">
-      <p className="hud-label flex items-center gap-2">
-        <Sparkles className="h-3.5 w-3.5 text-hud" strokeWidth={1.75} aria-hidden /> {planned ? "Re-plan the rest of today" : "Plan my day"}
-      </p>
-      {!plan ? (
-        <>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={2}
-            placeholder="Anything about today? “Gym at 6, finish the Bota PR, light evening.”"
-            className={`${field} mt-3 w-full resize-none [field-sizing:content]`}
-          />
-          <button
-            onClick={make}
-            disabled={!!busy}
-            className="mt-3 flex items-center gap-2 h-10 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
-          >
-            {busy === "plan" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {busy === "plan" ? "Planning…" : planned ? "Re-plan from now" : "Plan my day"}
-          </button>
-        </>
-      ) : (
-        <div className="rise mt-3">
-          {plan.summary && <p className="text-[15px] leading-relaxed">{plan.summary}</p>}
-          {plan.blocks.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">No blocks fit. Try again with a note about what matters.</p>
-          ) : (
-            <ol className="mt-4 flex flex-col gap-1.5">
-              {plan.blocks.map((b, i) => (
-                <li key={`${b.start}-${i}`} className="flex items-center gap-3 rounded-[12px] bg-white/[0.03] py-2 pr-1 pl-3">
-                  <span className={cn("h-8 w-[3px] shrink-0 rounded-full", KIND_STYLE[b.kind].bar)} aria-hidden />
-                  <span className="tnum w-[92px] shrink-0 font-mono text-[12px] text-muted">
-                    {b.start}–{b.end}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px]">{b.title}</span>
-                    <span className={cn("text-[11px]", KIND_STYLE[b.kind].text)}>
-                      {KIND_STYLE[b.kind].label}
-                      {b.taskId && " · from TickTick"}
-                    </span>
-                  </span>
-                  <button
-                    onClick={() => setPlan({ ...plan, blocks: plan.blocks.filter((_, j) => j !== i) })}
-                    aria-label={`Remove ${b.title}`}
-                    className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-faint hover:bg-white/5 hover:text-text"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </li>
-              ))}
-            </ol>
-          )}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button
-              onClick={apply}
-              disabled={!!busy || !plan.blocks.length}
-              className="flex items-center gap-2 h-10 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
-            >
-              {busy === "apply" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} {canWrite ? "Put on my calendar" : "Keep this plan"}
-            </button>
-            <button onClick={make} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
-              {busy === "plan" ? "Planning…" : "Try again"}
-            </button>
-            <button onClick={() => setPlan(null)} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
-              Discard
-            </button>
+    <Panel id="plan" className="relative scroll-mt-24 p-4">
+      {!open ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="flex items-center gap-2 text-sm font-medium">
+              <Sparkles className="h-3.5 w-3.5 text-hud" strokeWidth={1.75} aria-hidden /> {planned ? "The plan is set" : "Plan my day"}
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-faint">Re-planning keeps your ticks and only fills the remaining time.</p>
           </div>
-          {!canWrite && <p className="mt-2 text-xs text-faint">Google Calendar isn&apos;t connected — the plan is still saved on Today and in Obsidian.</p>}
+          <button
+            onClick={() => setOpen(true)}
+            aria-controls="plan-body"
+            className="flex h-9 items-center gap-1.5 rounded-[10px] border border-line px-3 text-xs text-muted transition-colors hover:border-line-hi hover:text-text"
+          >
+            {planned ? "Re-plan" : "Plan"} <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </div>
+      ) : (
+        <div id="plan-body">
+          <div className="flex items-center justify-between gap-3">
+            <p className="hud-label flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-hud" strokeWidth={1.75} aria-hidden /> {planned ? "Re-plan the rest of today" : "Plan my day"}
+            </p>
+            {planned > 0 && (
+              <button onClick={() => setOpen(false)} aria-controls="plan-body" className="text-xs text-faint transition-colors hover:text-text">
+                Close
+              </button>
+            )}
+          </div>
+          {!plan ? (
+            <>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                placeholder="Anything about today? “Gym at 6, finish the Bota PR, light evening.”"
+                className={`${field} mt-3 w-full resize-none [field-sizing:content]`}
+              />
+              <button
+                onClick={make}
+                disabled={!!busy}
+                className="mt-3 flex h-10 items-center gap-2 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
+              >
+                {busy === "plan" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {busy === "plan" ? "Planning…" : planned ? "Re-plan from now" : "Plan my day"}
+              </button>
+            </>
+          ) : (
+            <div className="rise mt-3">
+              {plan.summary && <p className="text-[15px] leading-relaxed">{plan.summary}</p>}
+              {plan.blocks.length === 0 ? (
+                <p className="mt-2 text-sm text-muted">No blocks fit. Try again with a note about what matters.</p>
+              ) : (
+                <ol className="mt-4 flex flex-col gap-1.5">
+                  {plan.blocks.map((b, i) => (
+                    <li key={`${b.start}-${i}`} className="flex items-center gap-3 rounded-[12px] bg-white/[0.03] py-2 pr-1 pl-3">
+                      <span className={cn("h-8 w-[3px] shrink-0 rounded-full", KIND_STYLE[b.kind].bar)} aria-hidden />
+                      <span className="tnum w-[92px] shrink-0 font-mono text-[12px] text-muted">
+                        {b.start}–{b.end}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[15px]">{b.title}</span>
+                        <span className={cn("text-[11px]", KIND_STYLE[b.kind].text)}>
+                          {KIND_STYLE[b.kind].label}
+                          {b.taskId && " · from TickTick"}
+                        </span>
+                      </span>
+                      <button
+                        onClick={() => setPlan({ ...plan, blocks: plan.blocks.filter((_, j) => j !== i) })}
+                        aria-label={`Remove ${b.title}`}
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-faint hover:bg-white/5 hover:text-text"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  onClick={apply}
+                  disabled={!!busy || !plan.blocks.length}
+                  className="flex h-10 items-center gap-2 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-40"
+                >
+                  {busy === "apply" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarPlus className="h-4 w-4" />} {canWrite ? "Put on my calendar" : "Keep this plan"}
+                </button>
+                <button onClick={make} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
+                  {busy === "plan" ? "Planning…" : "Try again"}
+                </button>
+                <button onClick={() => setPlan(null)} disabled={!!busy} className="h-10 rounded-[12px] px-4 text-sm text-muted hover:bg-white/5 hover:text-text">
+                  Discard
+                </button>
+              </div>
+              {!canWrite && <p className="mt-2 text-xs text-faint">Google Calendar isn&apos;t connected — the plan is still saved on Today and in Obsidian.</p>}
+            </div>
+          )}
         </div>
       )}
       {msg && (

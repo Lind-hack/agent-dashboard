@@ -20,7 +20,7 @@ const field = "rounded-[12px] border border-line bg-black/30 px-3 py-2 text-[14p
 
 type Row = Goal & { key: string };
 
-export function GoalsEditor({ initial }: { initial: Goal[] }) {
+export function GoalsEditor({ initial, onSaved }: { initial: Goal[]; onSaved?: () => void }) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(initial.map((g, i) => ({ ...g, key: `${g.id}-${i}` })));
   const [busy, setBusy] = useState(false);
@@ -47,6 +47,7 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
       setRows(((body.goals ?? []) as Goal[]).map((g, i) => ({ ...g, key: `${g.id}-${i}` })));
       setMsg("Saved to 100 - Me/Goals.md. The next plan will use them.");
       router.refresh();
+      onSaved?.();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {
