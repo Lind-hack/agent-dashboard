@@ -14,7 +14,7 @@ import { cancelRoom, createRoom, roomTick } from "./room";
 import { syncSkillsTick } from "./skills-sync";
 import { installSkillsFromGithub } from "./skills-github";
 import { applySkills, skillDisplay } from "../lib/skills";
-import { ensurePullRequest, ensureWorktree, publishBranch, pushBranch, removeWorktree } from "./git";
+import { ensurePullRequest, ensureWorktree, freeBytes, publishBranch, pushBranch, removeWorktree, sweepWorktrees } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 
 // The runner owns every job file. It polls Linear for `agent:claude` / `agent:codex` issues, takes
@@ -89,6 +89,9 @@ const SYNC_MS = 30_000;
 const jobs = new Map<string, Job>(listJobs().map((j) => [j.id, j]));
 const active = new Map<AgentKey, { id: string; child?: ChildProcess }>();
 let lastSync = 0;
+// Idle chats' checkouts give back their node_modules/.next hourly (runner/git.ts sweepWorktrees).
+const SWEEP_MS = 60 * 60_000;
+let lastSweep = 0;
 let forceSync = true;
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), ...a);
@@ -624,6 +627,19 @@ async function tick() {
       if (active.get("codex")?.id === "brain-weekly") active.delete("codex");
     },
   });
+  if (Date.now() - lastSweep > SWEEP_MS) {
+    lastSweep = Date.now();
+    try {
+      const busy = new Set([...active.values()].map((a) => a.id));
+      const slimmed = sweepWorktrees((id) => {
+        const t = Date.parse(jobs.get(id)?.updatedAt ?? "");
+        return Number.isFinite(t) ? t : undefined;
+      }, busy);
+      if (slimmed.length) log("sweep", `freed node_modules/.next of ${slimmed.length} idle checkouts`, `${(freeBytes() / 1024 ** 3).toFixed(1)} GB free`);
+    } catch (e) {
+      log("sweep", e instanceof Error ? e.message : e);
+    }
+  }
   if (forceSync || Date.now() - lastSync > SYNC_MS) {
     forceSync = false;
     lastSync = Date.now();
