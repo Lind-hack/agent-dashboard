@@ -4,18 +4,28 @@ import { groqKey, groqModel, repoShort, type RepoKey, type TaskAgent } from "./c
 // https://console.groq.com/docs/speech-to-text — OpenAI-compatible endpoints.
 
 export async function transcribe(audio: Blob, filename: string): Promise<string> {
-  const form = new FormData();
-  form.append("file", audio, filename);
-  form.append("model", "whisper-large-v3-turbo");
-  form.append("response_format", "json");
-  const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${groqKey()}` },
-    body: form,
-  });
-  const body = (await res.json().catch(() => null)) as { text?: string; error?: { message?: string } } | null;
-  if (!res.ok) throw new Error(`Whisper: ${body?.error?.message ?? res.status}`);
-  return (body?.text ?? "").trim();
+  // Language is left on auto-detect so Albanian and English both transcribe as spoken (Whisper
+  // translates nothing on this endpoint). One retry covers a dropped connection or a cold model.
+  let last = "";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 400));
+    const form = new FormData();
+    form.append("file", audio, filename);
+    form.append("model", "whisper-large-v3-turbo");
+    form.append("response_format", "json");
+    form.append("temperature", "0");
+    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${groqKey()}` },
+      body: form,
+      signal: AbortSignal.timeout(30_000),
+    }).catch(() => null);
+    const body = (await res?.json().catch(() => null)) as { text?: string; error?: { message?: string } } | null;
+    if (res?.ok) return (body?.text ?? "").trim();
+    last = `Whisper: ${body?.error?.message ?? res?.status ?? "unreachable"}`;
+    if (res && res.status < 500 && res.status !== 429) break; // a real request error won't fix itself
+  }
+  throw new Error(last);
 }
 
 // llama-3.3-70b was retired on Groq; qwen3.8 has its own daily quota.

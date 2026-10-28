@@ -90,8 +90,9 @@ export function ttsStatus() {
   return { orpheus: Date.now() < orpheusOffUntil ? `off: ${orpheusWhy}` : process.env.GROQ_API_KEY ? "on" : "no GROQ_API_KEY", kokoro: kokoroReady ? "ready" : kokoro ? "loading" : "loads on first use" };
 }
 
-// Warm Kokoro in the background (first download is ~300 MB) when it's the voice in use, so the first
-// spoken reply isn't slow. With Orpheus working it stays unloaded until a fallback is needed.
+// Warm Kokoro in the background (~300 MB from the local cache) as soon as the voice UI opens. Orpheus
+// is tried first when it works, but if it is unavailable this is what keeps the Core from going
+// silent for the first sentence — the load happens while Lind is still talking.
 export function warmKokoro() {
-  if (Date.now() < orpheusOffUntil || !process.env.GROQ_API_KEY) void loadKokoro().catch(() => {});
+  void loadKokoro().catch(() => {});
 }
