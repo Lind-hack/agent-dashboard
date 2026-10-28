@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
 import { Core } from "@/components/core";
-import { speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
+import { primeVoices, speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
 import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
 import { cn } from "@/lib/utils";
-import type { VoiceAction, VoiceTurn } from "@/lib/voice-brain";
+import type { VoiceAction, VoiceLang, VoiceTurn } from "@/lib/voice-brain";
 
 // Talk to the Core: tap, speak, it answers out loud. Hands-free keeps the conversation going (it
 // listens again after each answer); tap while it talks to cut in. Real work never runs on its own:
@@ -17,7 +17,7 @@ import type { VoiceAction, VoiceTurn } from "@/lib/voice-brain";
 type Phase = "idle" | "listening" | "thinking" | "speaking" | "confirming";
 type Turn = VoiceTurn & { sources?: { title: string; href?: string }[] };
 
-const YES = /^(yes|yeah|yep|yup|sure|ok|okay|go|go ahead|do it|run it|start it|please do|po|po po|ja|confirm)\b/;
+const YES = /^(yes|yeah|yep|yup|sure|ok|okay|go|go ahead|do it|run it|start it|please do|ja|confirm|po|po po|po bej|po bëj|beje|bëje|hajde|në rregull|ne rregull|patjetër|patjeter|sigurisht)\b/;
 
 function useStored(key: string, fallback: boolean) {
   const [v, setV] = useState(fallback);
@@ -63,11 +63,15 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
   turnsRef.current = turns;
   const micRef = useRef(mic);
   micRef.current = mic;
+  // The language of the current conversation, so the short "cancelled" line stays in it.
+  const langRef = useRef<VoiceLang>("en");
 
   useEffect(() => {
     gen.current++;
-    // Wake the voice on the VPS so the first answer isn't slow (it only loads if it's needed).
+    // Wake the voice on the VPS so the first answer isn't slow (it only loads if it's needed), and
+    // read the device's voice list now so an Albanian answer doesn't wait on it.
     void fetch("/api/tts", { cache: "no-store" }).catch(() => {});
+    primeVoices();
     return () => {
       gen.current++;
       stopSpeaking();
@@ -85,10 +89,10 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     return gen.current;
   }
 
-  async function say(text: string, g: number) {
+  async function say(text: string, g: number, lang: VoiceLang = "en", sayEn?: string) {
     if (!voiceOnRef.current || g !== gen.current) return;
     setPhase("speaking");
-    await speak(text, "core", "core");
+    await speak(text, "core", "core", { lang, fallbackText: sayEn });
   }
 
   async function ask(input: { audio?: Blob; text?: string }, g: number) {
@@ -98,7 +102,15 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     if (input.text) form.set("text", input.text);
     form.set("history", JSON.stringify(turnsRef.current.slice(-8).map(({ role, text }) => ({ role, text }))));
     const res = await fetch("/api/voice", { method: "POST", body: form }).catch(() => null);
-    const body = (await res?.json().catch(() => null)) as { heard?: string; say?: string; action?: VoiceAction; sources?: Turn["sources"]; error?: string } | null;
+    const body = (await res?.json().catch(() => null)) as {
+      heard?: string;
+      say?: string;
+      lang?: VoiceLang;
+      sayEn?: string;
+      action?: VoiceAction;
+      sources?: Turn["sources"];
+      error?: string;
+    } | null;
     if (g !== gen.current) return;
     if (!res?.ok || !body) {
       setPhase("idle");
@@ -109,7 +121,11 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     if (body.say) next.push({ role: "core", text: body.say, sources: body.sources });
     setTurns(next.slice(-12));
     if (body.action) setAction(body.action); // shown (and announced) while the Core says it
-    if (body.say) await say(body.action ? `${body.say} Shall I go ahead?` : body.say, g);
+    langRef.current = body.lang ?? langRef.current;
+    if (body.say) {
+      const ask = body.lang === "sq" ? "Ta nis?" : "Shall I go ahead?";
+      await say(body.action ? `${body.say} ${ask}` : body.say, g, body.lang, body.action && body.sayEn ? `${body.sayEn} Shall I go ahead?` : body.sayEn);
+    }
     if (g !== gen.current) return;
     setPhase("idle");
     if (body.action) {
@@ -145,7 +161,7 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     setTurns((t) => [...t, { role: "you" as const, text: body?.heard || "…" }].slice(-12));
     if (YES.test(heard)) return void run(a);
     setAction(null);
-    await say("Okay, cancelled.", g);
+    await say(langRef.current === "sq" ? "Në rregull, e anulova." : "Okay, cancelled.", g, langRef.current);
     if (g === gen.current) setPhase("idle");
   }
 
