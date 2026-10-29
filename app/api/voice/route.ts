@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { transcribeDetailed } from "@/lib/groq";
-import { warmAlbanian } from "@/lib/tts";
+import { speak, warmAlbanian, warmKokoro } from "@/lib/tts";
 import { voiceLang } from "@/lib/voices";
 import { voiceAnswer, type VoiceTurn } from "@/lib/voice-brain";
 
@@ -27,9 +27,24 @@ export async function POST(request: Request) {
       const h = JSON.parse(String(form.get("history") ?? "[]"));
       if (Array.isArray(h)) history = h.filter((t) => (t?.role === "you" || t?.role === "core") && typeof t?.text === "string").map((t) => ({ role: t.role, text: String(t.text).slice(0, 800) }));
     } catch {}
+    const nativeVoices = String(form.get("nativeVoices") ?? "").split(",");
+    if (form.get("prepareAudio") === "1") {
+      if (hint === "sq" || /shqip|albanian|[ëç]/i.test(text)) { if (!nativeVoices.includes("sq")) warmAlbanian(); }
+      else if (!nativeVoices.includes("en")) warmKokoro();
+    }
     const answer = await voiceAnswer(text.slice(0, 2000), history, hint);
-    if (answer.lang === "sq") warmAlbanian();
-    return NextResponse.json({ heard: text, ...answer });
+    if (answer.lang === "sq" && !nativeVoices.includes("sq")) warmAlbanian();
+    // Prepare one continuous utterance while still in the turn request, so a client without
+    // a native voice does not need another round trip for every sentence.
+    let preparedAudio: { base64: string; engine: string } | undefined;
+    if (form.get("prepareAudio") === "1" && !nativeVoices.includes(answer.lang)) {
+      const prompt = answer.action ? (answer.lang === "sq" ? " Ta nis?" : " Shall I go ahead?") : "";
+      try {
+        const rendered = await speak(answer.say + prompt, "core", request.signal, answer.lang, true);
+        preparedAudio = { base64: rendered.wav.toString("base64"), engine: rendered.engine };
+      } catch { /* The client keeps its normal retry/device fallback if preparation failed. */ }
+    }
+    return NextResponse.json({ heard: text, ...answer, ...(preparedAudio ? { audio: preparedAudio } : {}) });
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }

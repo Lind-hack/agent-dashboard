@@ -112,3 +112,37 @@ test("browser autoplay denial keeps the answer loaded until a direct playback ta
   assert.equal(await done, true);
   engine.stopSpeaking();
 });
+
+test("a native Core reply is one utterance and makes no synthesis HTTP requests", async () => {
+  let utterances = 0, requests = 0, started = false;
+  const text = "The first sentence is ready. The next sentence follows without another network request.";
+  Object.assign(globalThis, {
+    SpeechSynthesisUtterance: class { constructor(public text: string) {} },
+    window: { AudioContext: class { state = "running"; }, speechSynthesis: {
+      cancel() {}, resume() {}, getVoices: () => [{ lang: "en-US" }],
+      speak(u: { text: string; onstart: () => void; onend: () => void }) {
+        utterances++; assert.equal(u.text, text); u.onstart(); queueMicrotask(() => u.onend());
+      },
+    } },
+    fetch: async () => { requests++; throw new Error("native speech must not request TTS"); },
+  });
+  const engine = await import("../components/voice-engine.ts?native-continuous" as string);
+  assert.equal(await engine.speak(text, "core", "fast", { lang: "en", preferDevice: true, onStart: () => { started = true; } }), true);
+  assert.equal(utterances, 1); assert.equal(requests, 0); assert.equal(started, true);
+});
+
+test("prepared speech plays once with no per-sentence fetch or audio source change", async () => {
+  let requests = 0, plays = 0, started = false;
+  const media = { setAttribute() {}, style: {}, src: "", onplaying: null as null | (() => void), onended: null as null | (() => void), pause() {}, play() { plays++; return Promise.resolve(); } };
+  Object.assign(globalThis, {
+    window: { AudioContext: class { state = "running"; } },
+    document: { createElement: () => media, body: { appendChild() {} } },
+    fetch: async () => { requests++; throw new Error("audio already prepared"); },
+  });
+  const engine = await import("../components/voice-engine.ts?prepared-continuous" as string);
+  const done = engine.speak("Sentence one. Sentence two. Sentence three.", "core", "prepared", { lang: "sq", audio: new Blob(["wave"]), onStart: () => { started = true; } });
+  await tick();
+  assert.equal(started, false); media.onplaying?.(); assert.equal(started, true);
+  media.onended?.(); assert.equal(await done, true);
+  assert.equal(plays, 1); assert.equal(requests, 0);
+});

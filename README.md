@@ -97,10 +97,14 @@ answering; tap while it speaks to interrupt. Each new Talk session starts with *
 If your browser blocks playback, tap **Hear reply** to start the loaded answer. Actions
 remain proposals until you tap Run or give an unambiguous spoken confirmation.
 
-English replies use Groq Orpheus, falling back to local Kokoro. Albanian replies use the local
-Piper `sq_AL-edon-medium` voice, so an Albanian voice does not need to be installed on the phone.
+Core replies prefer an installed English or Albanian device voice for immediate, continuous speech.
+When that language is unavailable on the device, the turn API prepares one complete WAV alongside
+the answer. The text is revealed when playback starts; there are no per-sentence audio requests or
+source swaps during the answer. The local fallback uses Kokoro for English and the local
+Piper `sq_AL-edon-medium` voice for Albanian, so Albanian does not require a voice installed on the phone.
 Its phoneme input preserves punctuation, word boundaries and Unicode decomposition for Albanian
-pronunciation and sentence intonation.
+pronunciation and sentence intonation. Phonemization uses eSpeak’s phoneme-only API rather than
+synthesizing unused audio. Local generation can still take longer when the shared VPS is busy.
 Whisper auto-detects English and Albanian; ask “fol shqip” or “speak English” to switch. If server
 speech fails, an installed device voice can take over; playback failures are shown in the Talk panel.
 The first Albanian request downloads about 61 MB to `DATA_DIR/models/piper`; later requests reuse it.

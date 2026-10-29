@@ -31,6 +31,7 @@ type Piper = {
   config: PiperConfig;
   worker: ESpeakNGWorker;
   ort: Ort;
+  phonemes: (text: string) => string;
 };
 
 let loaded: Piper | null = null;
@@ -75,7 +76,14 @@ function load(): Promise<Piper> {
     const worker = new espeak.eSpeakNGWorker();
     worker.set_voice("sq");
     const session = await ort.InferenceSession.create(modelPath, { intraOpNumThreads: 2, interOpNumThreads: 1 });
-    const p: Piper = { session, config, worker, ort };
+    const phonemes = (text: string) => {
+      // Unlike synthesize_ipa(), this does not render unused eSpeak audio on the CPU.
+      const { ptr } = worker.convert_to_phonemes(text, true);
+      const end = espeak.HEAPU8.indexOf(0, ptr);
+      if (ptr <= 0 || end < ptr) throw new Error("Invalid phoneme buffer");
+      return new TextDecoder().decode(espeak.HEAPU8.subarray(ptr, end));
+    };
+    const p: Piper = { session, config, worker, ort, phonemes };
     loaded = p;
     return p;
   })().catch((e) => {
@@ -141,7 +149,7 @@ export function albanianPhonemes(text: string, worker: Pick<ESpeakNGWorker, "syn
 }
 
 async function synth(p: Piper, text: string): Promise<Buffer> {
-  const phonemes = albanianPhonemes(text, p.worker);
+  const phonemes = albanianPhonemes(text, { synthesize_ipa: (clause) => ({ code: 0, ipa: p.phonemes(clause) }) });
   const ids = phonemeIds(phonemes, p.config.phoneme_id_map);
 
   const { noise_scale, length_scale, noise_w } = p.config.inference;

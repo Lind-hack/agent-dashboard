@@ -76,7 +76,7 @@ async function kokoroWav(text: string, voice: string, signal?: AbortSignal): Pro
 // Recently spoken pieces, so replaying an answer is instant.
 const cache = new Map<string, { wav: Buffer; engine: Engine }>();
 
-export async function speak(text: string, who: Speaker, signal?: AbortSignal, lang: VoiceLang | "auto" = "auto"): Promise<{ wav: Buffer; engine: Engine }> {
+export async function speak(text: string, who: Speaker, signal?: AbortSignal, lang: VoiceLang | "auto" = "auto", preferLocal = false): Promise<{ wav: Buffer; engine: Engine }> {
   const v = VOICES[who];
   const albanian = lang === "sq" || (lang === "auto" && looksAlbanian(text));
   const key = `${who}\u0000${albanian ? "sq" : "en"}\u0000${text}`;
@@ -96,7 +96,7 @@ export async function speak(text: string, who: Speaker, signal?: AbortSignal, la
     }
   }
 
-  const o = await orpheus(text, v.orpheus, v.mood).catch(() => null);
+  const o = preferLocal ? null : await orpheus(text, v.orpheus, v.mood).catch(() => null);
   const out: { wav: Buffer; engine: Engine } = o ? { wav: o, engine: "orpheus" } : { wav: await kokoroWav(text, v.kokoro, signal), engine: "kokoro" };
   cache.set(key, out);
   if (cache.size > 80) cache.delete(cache.keys().next().value as string);
