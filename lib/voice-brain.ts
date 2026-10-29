@@ -55,29 +55,40 @@ function resolveLang(modelLang: unknown, text: string, history: VoiceTurn[], for
 
 const within = <T,>(p: Promise<T>, ms: number, fallback: T) => Promise.race([p.catch(() => fallback), new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
 
-async function context() {
+async function loadContext() {
   const [inbox, cal, repos] = await Promise.all([
     within(inboxItems(), 3000, []),
     within(agenda(1).then((a) => a.events), 3000, [] as Awaited<ReturnType<typeof agenda>>["events"]),
     within(listRepos(), 3000, []),
   ]);
-  const jobs = listJobs()
-    .filter((j) => j.status !== "closed" && j.status !== "cancelled")
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .slice(0, 12);
   return {
-    now: new Date().toISOString(),
     waitingOnLind: inbox.slice(0, 12).map((i) => ({ kind: i.kind, title: i.title, detail: i.detail })),
-    chats: jobs.map((j) => ({ id: j.id, agent: AGENT_LABELS[j.agent], status: j.status, title: j.title, repo: j.repo ? repoShort(j.repo) : undefined })),
     today: cal.slice(0, 10).map((e) => ({ title: e.title, start: e.start, end: e.end, allDay: e.allDay })),
     repos: repos.map((r) => r.name),
   };
 }
 
+// Prefetch remote context when Talk opens, not after the user finishes speaking.
+// Jobs are still read fresh for every turn. Only remote inbox/calendar/repo reads are reused.
+let cachedContext: { at: number; value: Awaited<ReturnType<typeof loadContext>> } | null = null;
+let contextFlight: Promise<Awaited<ReturnType<typeof loadContext>>> | null = null;
+export function warmVoiceContext() {
+  if (cachedContext && Date.now() - cachedContext.at < 15_000) return Promise.resolve(cachedContext.value);
+  contextFlight ??= loadContext().then((value) => { cachedContext = { at: Date.now(), value }; return value; }).finally(() => { contextFlight = null; });
+  return contextFlight;
+}
+async function context() {
+  const snapshot = cachedContext?.value ?? await warmVoiceContext();
+  if (cachedContext && Date.now() - cachedContext.at >= 15_000) void warmVoiceContext().catch(() => {});
+  return { ...snapshot, now: new Date().toISOString(), chats: listJobs().filter((j) => j.status !== "closed" && j.status !== "cancelled")
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12)
+    .map((j) => ({ id: j.id, agent: AGENT_LABELS[j.agent], status: j.status, title: j.title, repo: j.repo ? repoShort(j.repo) : undefined })) };
+}
+
 const SYSTEM = (ctx: string) => `You are the Core, the voice of Lind's "Agentic OS" — his phone-first control room for coding agents (Claude, Codex, OpenCode, Hermes) running on his VPS. You talk to him out loud.
 Reply with JSON: {"say": string, "say_en": string | null, "lang": "en" | "sq", "action": null | {...}, "memory": null | string}.
-- Language: always answer in the language Lind just used — Albanian in, Albanian out (shqip); English in, English out. If he asks you to switch ("talk in Albanian", "në shqip", "flisni shqip", "in English"), switch immediately and keep that language for the following turns until he switches back. Set "lang" to the language of "say" ("sq" for Albanian, "en" for English). When "lang" is "sq", also set "say_en" to the same answer in plain English (a device with no Albanian voice reads that instead); otherwise "say_en" is null.
-- "say": what you speak, warm and direct, like a sharp assistant. 1–3 short sentences, max ~60 words. No markdown, no lists, no URLs, no emoji. Say numbers naturally. Never answer an Albanian question only in English.
+- Language: always answer in the language Lind just used — Albanian in, Albanian out (shqip); English in, English out. If he asks you to switch ("talk in Albanian", "në shqip", "flisni shqip", "in English"), switch immediately and keep that language for the following turns until he switches back. Set "lang" to the language of "say" ("sq" for Albanian, "en" for English). Set "say_en" to null; the voice pipeline supports Albanian directly.
+- "say": what you speak, warm and direct, like a sharp assistant. One or two short sentences, at most 25 words. Be conversational and concise; do not narrate your process. Answer the question directly before any follow-up; never respond to a substantive question with only a greeting or a request to repeat it. No markdown, no lists, no URLs, no emoji. Say numbers naturally. Never answer an Albanian question only in English.
 - Answer from CONTEXT only. If you don't know, say so briefly. Never invent chats, PRs, events or numbers.
 - "action" — only when he clearly asks for it:
   {"type":"start_chat","agent":"claude"|"codex"|"opencode"|"hermes"|"codex-cloud","repo":"owner/name" (one of CONTEXT.repos; omit for hermes),"task":"the full task in his words, cleaned up"} — to start new work. Default agent claude; repo only if he names it or it's obvious, else the first repo.
@@ -106,18 +117,50 @@ function cleanAction(a: Record<string, unknown> | null | undefined, ctx: Awaited
 
 const OL = {
   en: {
-    quota: "My voice brain is out of free quota right now. Try again in a bit, or type it.",
+    quota: "I couldn't get an answer right now. Please try again.",
     noMemory: "I looked through your memory and didn't find anything on that.",
     onIt: "On it.",
     missed: "Sorry, I didn't catch that.",
   },
   sq: {
-    quota: "Truri im i zërit është pa kuotë falas tani. Provo përsëri pas pak, ose shkruaj.",
+    quota: "Nuk munda të marr një përgjigje tani. Provo përsëri.",
     noMemory: "Kërkova në memorien tënde dhe nuk gjeta gjë për këtë.",
     onIt: "Po e bëj.",
     missed: "Më fal, nuk e kuptova.",
   },
 } as const;
+
+export async function voiceJSON<T>(system: string, user: string, temperature: number): Promise<Partial<T> | null> {
+  // Hedge a slow primary after 250 ms rather than making the user wait through its timeout.
+  // The loser is cancelled, and an invalid/empty response never wins the race.
+  const primary = process.env.GROQ_VOICE_MODEL ?? "qwen/qwen3.8-27b";
+  const models = [primary, primary === "openai/gpt-oss-20b" ? "openai/gpt-oss-120b" : "openai/gpt-oss-20b"];
+  const controls = models.map(() => new AbortController());
+  return new Promise((resolve) => {
+    let settled = false, failures = 0, backupStarted = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (value: Partial<T> | null) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); controls.forEach((c) => c.abort()); resolve(value);
+    };
+    const run = async (index: number) => {
+      const value = await groqJSON<T>(system, user, temperature, {
+        models: [models[index]], maxTokens: 1200, reasoningEffort: "none", timeoutMs: 1800, signal: controls[index].signal,
+      }).catch(() => null);
+      if (settled) return;
+      const answer = value as Raw | null;
+      const action = answer?.action;
+      const proposed = action && typeof action === "object" && !Array.isArray(action) && ["start_chat", "reply", "open"].includes(String(action.type));
+      if (answer && ((typeof answer.say === "string" && answer.say.trim()) || (typeof answer.memory === "string" && answer.memory.trim()) || proposed)) return finish(value);
+      failures++;
+      if (failures === 2) finish(null);
+      else if (index === 0) startBackup();
+    };
+    const startBackup = () => { if (!settled && !backupStarted) { backupStarted = true; void run(1); } };
+    timer = setTimeout(startBackup, 250);
+    void run(0);
+  });
+}
 
 export async function voiceAnswer(text: string, history: VoiceTurn[], hint?: VoiceLang): Promise<VoiceAnswer> {
   const ctx = await context();
@@ -126,7 +169,7 @@ export async function voiceAnswer(text: string, history: VoiceTurn[], hint?: Voi
     .map((t) => `${t.role === "you" ? "Lind" : "Core"}: ${t.text}`)
     .join("\n");
   const forced = forcedLang(text) ?? (hint === "sq" ? hint : null);
-  const raw = await groqJSON<Raw>(SYSTEM(JSON.stringify(ctx)), `${hint ? `Detected spoken language: ${hint}.\n` : ""}${convo ? `Conversation so far:\n${convo}\n\n` : ""}Lind: ${text}`, 0.4);
+  const raw = await voiceJSON<Raw>(SYSTEM(JSON.stringify(ctx)), `${hint ? `Detected spoken language: ${hint}.\n` : ""}${convo ? `Conversation so far:\n${convo}\n\n` : ""}Lind: ${text}`, 0.3);
   if (!raw) {
     const lang = resolveLang(null, text, history, forced);
     return { say: OL[lang].quota, lang };
@@ -135,13 +178,13 @@ export async function voiceAnswer(text: string, history: VoiceTurn[], hint?: Voi
   if (typeof raw.memory === "string" && raw.memory.trim()) {
     const found = await within(askMemory(raw.memory.trim()), 25_000, null);
     if (!found?.answer) return { say: OL[lang].noMemory, lang };
-    const told = await groqJSON<{ say?: string; say_en?: string | null }>(
+    const told = await voiceJSON<{ say?: string; say_en?: string | null }>(
       `Turn these findings into a spoken answer for Lind: 1–3 short sentences, max ~60 words, no markdown or URLs. Only what the findings say. Answer in ${lang === "sq" ? "Albanian (shqip)" : "English"}, and when the language is Albanian also give "say_en" with the English rendering. Reply JSON {"say": string, "say_en": string | null}.`,
       `Question: ${raw.memory}\n\nFindings:\n${found.answer.slice(0, 4000)}`,
       0.3,
     );
-    const say = told?.say?.trim() || found.answer.slice(0, 300);
-    const sayEn = lang === "sq" ? told?.say_en?.trim().slice(0, 600) : undefined;
+    const say = typeof told?.say === "string" && told.say.trim() ? told.say.trim() : found.answer.slice(0, 300);
+    const sayEn = lang === "sq" && typeof told?.say_en === "string" ? told.say_en.trim().slice(0, 600) : undefined;
     return {
       say: say.slice(0, 600),
       lang,

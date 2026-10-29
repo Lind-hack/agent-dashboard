@@ -95,7 +95,7 @@ function load(): Promise<Piper> {
 }
 
 export function warmPiper() {
-  void load().catch(() => {});
+  return load().then(() => {}).catch(() => {});
 }
 
 export function piperStatus() {

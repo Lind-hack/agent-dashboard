@@ -389,7 +389,7 @@ function pickMime(): string {
   return "";
 }
 
-// Hands-free recording: starts listening, notices when you start talking, and stops after ~1.4 s of
+// Hands-free recording: starts listening, notices when you start talking, and stops after ~0.65 s of
 // quiet (or 45 s, or 8 s of nothing, or when the page is hidden). Resolves with the audio, or null if
 // nothing was said / cancelled. One recording at a time; a cancel that lands while the mic permission
 // prompt is still open stops the stream the moment it arrives.
@@ -453,6 +453,7 @@ export function useListener() {
       let floor = 0.02;
       let heard = false;
       let quietSince = 0;
+      let lastSpeechAt = t0;
       const cleanup = () => {
         cancelAnimationFrame(raf);
         clearTimeout(deadline);
@@ -480,7 +481,14 @@ export function useListener() {
       const onHide = () => document.hidden && end(true);
       document.addEventListener("visibilitychange", onHide);
       const deadline = setTimeout(() => end(true), 45_000); // holds even when animation frames pause
-      rec.onstop = () => settle(keep && (heard || forced) && chunks.length ? new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" }) : null);
+      rec.onstop = () => {
+        const blob = keep && (heard || forced) && chunks.length ? new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" }) : null;
+        if (blob) {
+          performance.clearMarks("core:speech-end");
+          performance.mark("core:speech-end", { startTime: lastSpeechAt });
+        }
+        settle(blob);
+      };
       rec.onerror = () => settle(null);
       try {
         rec.start(250);
@@ -494,10 +502,11 @@ export function useListener() {
         if (elapsed < 350) floor = Math.min(floor, v); // do not calibrate immediate speech as room noise
         const threshold = Math.max(0.025, floor * 2.2);
         if (v > threshold) {
+          lastSpeechAt = now;
           heard ||= elapsed > 150;
           quietSince = 0;
         } else if (heard) quietSince ||= now;
-        if ((heard && quietSince && now - quietSince > 1400) || (!heard && elapsed > 8000)) return end(true);
+        if ((heard && quietSince && now - quietSince > 650) || (!heard && elapsed > 8000)) return end(true);
         raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop);

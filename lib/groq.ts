@@ -38,21 +38,23 @@ export async function transcribe(audio: Blob, filename: string): Promise<string>
 const FALLBACK_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
 
 // One JSON answer from the first model on the ladder that still has quota; null if all fail.
-export async function groqJSON<T>(system: string, user: string, temperature = 0.2): Promise<Partial<T> | null> {
-  for (const model of [...new Set([groqModel(), ...FALLBACK_MODELS])]) {
+export async function groqJSON<T>(system: string, user: string, temperature = 0.2, options: { models?: string[]; maxTokens?: number; reasoningEffort?: "none" | "low" | "medium" | "high"; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Partial<T> | null> {
+  for (const model of [...new Set(options.models ?? [groqModel(), ...FALLBACK_MODELS])]) {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${groqKey()}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
         temperature,
+        ...(options.maxTokens ? { max_completion_tokens: options.maxTokens } : {}),
+        ...(options.reasoningEffort && (model.startsWith("openai/gpt-oss-") || model.startsWith("qwen/")) ? { reasoning_effort: model.startsWith("openai/gpt-oss-") && options.reasoningEffort === "none" ? "low" : options.reasoningEffort } : {}),
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
         ],
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 20_000)]) : AbortSignal.timeout(options.timeoutMs ?? 20_000),
     }).catch(() => null);
     const body = (await res?.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
     if (!res?.ok) continue;

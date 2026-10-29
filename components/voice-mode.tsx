@@ -74,7 +74,7 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     gen.current++;
     // Wake the voice on the VPS so the first answer isn't slow (it only loads if it's needed), and
     // read the device's voice list now so an Albanian answer doesn't wait on it.
-    void hasDeviceVoice("en").then((native) => { if (!native) return fetch("/api/tts", { cache: "no-store" }); }).catch(() => {});
+    void fetch("/api/voice", { cache: "no-store" }).catch(() => {});
     primeVoices();
     return () => {
       gen.current++;

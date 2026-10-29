@@ -1,6 +1,7 @@
 import path from "node:path";
+import { magpieWav } from "./magpie";
 import { DATA_DIR } from "./config";
-import { piperStatus, piperWav, warmPiper } from "./piper";
+import { piperStatus, piperWav, warmPiper } from "./piper-client";
 import { VOICES, looksAlbanian, type Speaker, type VoiceLang } from "./voices";
 
 // Text → speech for one short piece (a sentence), as WAV. Three free engines:
@@ -12,7 +13,7 @@ import { VOICES, looksAlbanian, type Speaker, type VoiceLang } from "./voices";
 //   3. Piper's Albanian voice on this VPS (lib/piper.ts) — used for Albanian; the other two are
 //      English-only.
 
-export type Engine = "orpheus" | "kokoro" | "piper";
+export type Engine = "orpheus" | "kokoro" | "piper" | "magpie";
 
 let orpheusOffUntil = 0;
 let orpheusWhy = "";
@@ -76,6 +77,20 @@ async function kokoroWav(text: string, voice: string, signal?: AbortSignal): Pro
 // Recently spoken pieces, so replaying an answer is instant.
 const cache = new Map<string, { wav: Buffer; engine: Engine }>();
 
+// Prefer GPU English speech for conversation; return null promptly so native/local voices can take over.
+export async function fastCoreSpeech(text: string, lang: VoiceLang, signal?: AbortSignal): Promise<{ wav: Buffer; engine: Engine } | null> {
+  if (lang !== "en") return null;
+  const key = `core\u0000en\u0000${text}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const wav = await magpieWav(text, signal);
+  if (!wav) return null;
+  const out = { wav, engine: "magpie" as const };
+  cache.set(key, out);
+  if (cache.size > 80) cache.delete(cache.keys().next().value as string);
+  return out;
+}
+
 export async function speak(text: string, who: Speaker, signal?: AbortSignal, lang: VoiceLang | "auto" = "auto", preferLocal = false): Promise<{ wav: Buffer; engine: Engine }> {
   const v = VOICES[who];
   const albanian = lang === "sq" || (lang === "auto" && looksAlbanian(text));
@@ -96,6 +111,8 @@ export async function speak(text: string, who: Speaker, signal?: AbortSignal, la
     }
   }
 
+  const accelerated = who === "core" ? await fastCoreSpeech(text, "en", signal) : null;
+  if (accelerated) return accelerated;
   const o = preferLocal ? null : await orpheus(text, v.orpheus, v.mood).catch(() => null);
   const out: { wav: Buffer; engine: Engine } = o ? { wav: o, engine: "orpheus" } : { wav: await kokoroWav(text, v.kokoro, signal), engine: "kokoro" };
   cache.set(key, out);
