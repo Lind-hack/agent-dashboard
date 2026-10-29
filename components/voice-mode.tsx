@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
 import { Core } from "@/components/core";
-import { primeVoices, resumePlayback, speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
+import { hasDeviceVoice, primeVoices, resumePlayback, speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
 import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
 import { confirmsVoiceAction } from "@/lib/voice-confirm";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,7 @@ import type { VoiceAction, VoiceLang, VoiceTurn } from "@/lib/voice-brain";
 // listens again after each answer); tap while it talks to cut in. Real work never runs on its own:
 // the Core proposes it and you confirm — tap Run, or (hands-free) say "yes" / "go" / "do it".
 
-type Phase = "idle" | "listening" | "thinking" | "speaking" | "confirming";
+type Phase = "idle" | "listening" | "thinking" | "preparing" | "speaking" | "confirming";
 type Turn = VoiceTurn & { sources?: { title: string; href?: string }[] };
 
 
@@ -67,12 +67,14 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
   micRef.current = mic;
   // The language of the current conversation, so the short "cancelled" line stays in it.
   const langRef = useRef<VoiceLang>("en");
+  const pendingReveal = useRef<() => void>(() => {});
+  useEffect(() => { if (voice.blocked) pendingReveal.current(); }, [voice.blocked]);
 
   useEffect(() => {
     gen.current++;
     // Wake the voice on the VPS so the first answer isn't slow (it only loads if it's needed), and
     // read the device's voice list now so an Albanian answer doesn't wait on it.
-    void fetch("/api/tts", { cache: "no-store" }).catch(() => {});
+    void hasDeviceVoice("en").then((native) => { if (!native) return fetch("/api/tts", { cache: "no-store" }); }).catch(() => {});
     primeVoices();
     return () => {
       gen.current++;
@@ -91,11 +93,15 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     return gen.current;
   }
 
-  async function say(text: string, g: number, lang: VoiceLang = "en", sayEn?: string) {
+  async function say(text: string, g: number, lang: VoiceLang = "en", sayEn?: string, audio?: Blob, onStart?: () => void) {
     if (g !== gen.current) return false;
     if (!voiceOnRef.current) return true;
-    setPhase("speaking");
-    return speak(text, "core", "core", { lang, fallbackText: sayEn });
+    setPhase("preparing");
+    return speak(text, "core", "core", { lang, fallbackText: sayEn, preferDevice: !audio, audio, onStart: () => {
+      if (g !== gen.current) return;
+      setPhase("speaking");
+      onStart?.();
+    } });
   }
 
   async function ask(input: { audio?: Blob; text?: string }, g: number) {
@@ -104,8 +110,15 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     if (input.audio) form.set("audio", input.audio, input.audio.type.includes("mp4") ? "note.mp4" : "note.webm");
     if (input.text) form.set("text", input.text);
     form.set("history", JSON.stringify(turnsRef.current.slice(-8).map(({ role, text }) => ({ role, text }))));
+    if (voiceOnRef.current) {
+      const native = await Promise.all((["en", "sq"] as const).map(async (lang) => await hasDeviceVoice(lang) ? lang : ""));
+      form.set("prepareAudio", "1");
+      form.set("nativeVoices", native.filter(Boolean).join(","));
+    }
+    if (g !== gen.current) return;
     const res = await fetch("/api/voice", { method: "POST", body: form }).catch(() => null);
     const body = (await res?.json().catch(() => null)) as {
+      audio?: { base64: string; engine: string };
       heard?: string;
       say?: string;
       lang?: VoiceLang;
@@ -121,13 +134,21 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
     }
     const next: Turn[] = [...turnsRef.current];
     if (body.heard) next.push({ role: "you", text: body.heard });
-    if (body.say) next.push({ role: "core", text: body.say, sources: body.sources });
     setTurns(next.slice(-12));
-    if (body.action) setAction(body.action); // shown (and announced) while the Core says it
+    let revealed = false;
+    const reveal = () => {
+      if (revealed || g !== gen.current) return;
+      revealed = true;
+      if (body.say) setTurns([...next, { role: "core" as const, text: body.say, sources: body.sources }].slice(-12));
+      if (body.action) setAction(body.action);
+    };
+    pendingReveal.current = reveal;
     langRef.current = body.lang ?? langRef.current;
     if (body.say) {
       const ask = body.lang === "sq" ? "Ta nis?" : "Shall I go ahead?";
-      const spoken = await say(body.action ? `${body.say} ${ask}` : body.say, g, body.lang, body.action && body.sayEn ? `${body.sayEn} Shall I go ahead?` : body.sayEn);
+      const audio = body.audio ? new Blob([Uint8Array.from(atob(body.audio.base64), (c) => c.charCodeAt(0))], { type: "audio/wav" }) : undefined;
+      const spoken = await say(body.action ? `${body.say} ${ask}` : body.say, g, body.lang, body.action && body.sayEn ? `${body.sayEn} Shall I go ahead?` : body.sayEn, audio, reveal);
+      reveal(); // Muted or failed playback must still leave the reply readable.
       if (!spoken) {
         if (g === gen.current) setPhase("idle");
         return; // Leave the reply visible; do not listen again after failed playback.
@@ -219,6 +240,8 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
           : "Opening the mic…"
         : phase === "thinking"
           ? "Thinking"
+          : phase === "preparing" && !voice.blocked
+            ? "Preparing voice"
           : voice.blocked
             ? "Tap Hear reply to enable sound"
             : speakingNow

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { looksAlbanian, sentences, speakable, type Speaker } from "@/lib/voices";
+import { looksAlbanian, speakable, type Speaker } from "@/lib/voices";
 
 // One audio engine for the whole app (one AudioContext — iOS only lets a page play sound after a tap,
 // so the first tap anywhere unlocks it for everything after).
@@ -17,7 +17,7 @@ import { looksAlbanian, sentences, speakable, type Speaker } from "@/lib/voices"
 type State = { speaking: Speaker | null; speakingKey: string | null; error: string; blocked: boolean };
 
 export type SpeechLang = "en" | "sq";
-export type SpeakOptions = { lang?: SpeechLang; fallbackText?: string };
+export type SpeakOptions = { lang?: SpeechLang; fallbackText?: string; preferDevice?: boolean; audio?: Blob; onStart?: () => void };
 
 let ctx: AudioContext | null = null;
 let inAnalyser: AnalyserNode | null = null;
@@ -156,9 +156,13 @@ function pickVoice(vs: SpeechSynthesisVoice[], lang: SpeechLang): SpeechSynthesi
   return vs.find((v) => re.test(v.lang)) ?? null;
 }
 
+export async function hasDeviceVoice(lang: SpeechLang): Promise<boolean> {
+  return !!pickVoice(await deviceVoices(), lang);
+}
+
 // Speaks with the device voice. Returns false when the language has no voice here (unless forced),
 // so a failed attempt is reported instead of silently counted as playback.
-async function speakDevice(parts: string[], lang: SpeechLang, signal: AbortSignal, force: boolean): Promise<boolean> {
+async function speakDevice(parts: string[], lang: SpeechLang, signal: AbortSignal, force: boolean, onStart?: () => void): Promise<boolean> {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
   const vs = await deviceVoices();
   const voice = pickVoice(vs, lang);
@@ -174,10 +178,12 @@ async function speakDevice(parts: string[], lang: SpeechLang, signal: AbortSigna
       u.rate = 1;
       let done = false;
       let guard: ReturnType<typeof setTimeout> | undefined;
+      let startGuard: ReturnType<typeof setTimeout> | undefined;
       const finish = (ok: boolean) => {
         if (done) return;
         done = true;
         if (guard) clearTimeout(guard);
+        if (startGuard) clearTimeout(startGuard);
         signal.removeEventListener("abort", onAbort);
         resolve(ok);
       };
@@ -187,6 +193,8 @@ async function speakDevice(parts: string[], lang: SpeechLang, signal: AbortSigna
       };
       guard = setTimeout(() => { stopDevice(); finish(false); }, Math.max(2500, part.length * 120));
       signal.addEventListener("abort", onAbort, { once: true });
+      startGuard = setTimeout(() => { stopDevice(); finish(false); }, 1500);
+      u.onstart = () => { if (done || signal.aborted) return; if (startGuard) clearTimeout(startGuard); onStart?.(); };
       u.onend = () => finish(true);
       u.onerror = () => finish(false);
       try {
@@ -232,7 +240,7 @@ async function fetchPiece(text: string, who: Speaker, lang: SpeechLang, signal: 
   }
 }
 
-function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
+function playBlob(blob: Blob, signal: AbortSignal, onStart?: () => void): Promise<void> {
   const el = element();
   const url = URL.createObjectURL(blob);
   return new Promise((resolve, reject) => {
@@ -248,6 +256,7 @@ function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
       done = true;
       clearTimeout(guard);
       signal.removeEventListener("abort", onAbort);
+      el.onplaying = null;
       el.onended = null;
       el.onerror = null;
       URL.revokeObjectURL(url);
@@ -256,6 +265,7 @@ function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
     const guard = setTimeout(() => finish(new Error("playback stalled")), 120_000);
     if (signal.aborted) return finish(new DOMException("aborted", "AbortError"));
     signal.addEventListener("abort", onAbort, { once: true });
+    el.onplaying = () => onStart?.();
     el.onended = () => finish();
     el.onerror = () => finish(new Error("audio playback failed"));
     el.src = url;
@@ -274,7 +284,8 @@ function playBlob(blob: Blob, signal: AbortSignal): Promise<void> {
 // or stopped. `key` identifies what's being read, so a "play" button can show it's the one playing.
 export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions = {}): Promise<boolean> {
   stopSpeaking();
-  const parts = sentences(speakable(text));
+  const prose = speakable(text);
+  const parts = prose ? [prose] : [];
   if (!parts.length) return Promise.resolve(true);
   void resumeAudio();
   const ac = new AbortController();
@@ -298,50 +309,31 @@ export function speak(text: string, who: Speaker, key = "", opts: SpeakOptions =
 
   const spokenLang = opts.lang ?? (looksAlbanian(text) ? "sq" : "en");
 
-  // Play a list of sentences through the server voices. One bad sentence is retried once, then said
-  // by the device voice — it never cuts the rest of the answer off.
-  async function playParts(ps: string[]): Promise<number> {
-    const pending: (Promise<Blob> | undefined)[] = [];
-    const get = (i: number) => {
-      if (i < ps.length && !pending[i]) {
-        const p = fetchPiece(ps[i], who, spokenLang, ac.signal);
-        p.catch(() => {}); // a piece fetched ahead may fail after we've stopped; handled if played
-        pending[i] = p;
+  async function playUtterance(): Promise<boolean> {
+    let blob = opts.audio ?? await fetchPiece(prose, who, spokenLang, ac.signal).catch(() => null);
+    if (!blob && !stopped) blob = await fetchPiece(prose, who, spokenLang, ac.signal).catch(() => null);
+    if (stopped) return false;
+    if (blob) {
+      try {
+        await playBlob(blob, ac.signal, opts.onStart);
+        return !stopped;
+      } catch {
+        if (stopped) return false;
       }
-      return pending[i];
-    };
-    let played = 0;
-    for (let i = 0; i < ps.length && !stopped; i++) {
-      const piece = get(i)!;
-      get(i + 1);
-      get(i + 2); // render ahead so the next sentence is ready when this one ends
-      let blob = await piece.catch(() => null);
-      if (!blob && !stopped) {
-        pending[i] = undefined;
-        blob = await get(i)!.catch(() => null);
-      }
-      if (stopped) break;
-      if (blob) {
-        try {
-          await playBlob(blob, ac.signal);
-          played++;
-          continue;
-        } catch (e) {
-          if (ac.signal.aborted) break;
-        }
-      }
-      if (await speakDevice([ps[i]], spokenLang, ac.signal, spokenLang === "en")) played++;
-      else if (!stopped) throw new Error("Speech playback failed — tap to try again.");
     }
-    return played;
+    const played = await speakDevice(parts, spokenLang, ac.signal, spokenLang === "en", opts.onStart);
+    if (!played && !stopped) throw new Error("Speech playback failed — tap to try again.");
+    return played && !stopped;
   }
 
   (async () => {
     let success = false;
     try {
-      const played = await playParts(parts);
+      // The phone can start one native utterance without any synthesis/network round trip.
+      const native = opts.preferDevice && await speakDevice(parts, spokenLang, ac.signal, false, opts.onStart);
+      const played = native || await playUtterance();
       if (!played && !stopped) throw new Error("No voice came back — check the connection, then try again.");
-      success = !stopped && played > 0;
+      success = !stopped && !!played;
     } catch (e) {
       if (!stopped) set({ error: e instanceof Error ? e.message : String(e) });
     } finally {

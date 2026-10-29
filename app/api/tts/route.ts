@@ -11,11 +11,11 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { text?: unknown; who?: unknown; lang?: unknown } | null;
   const text = typeof body?.text === "string" ? body.text.trim() : "";
-  if (!text || text.length > 400) return NextResponse.json({ error: "Send 1–400 characters" }, { status: 400 });
+  if (!text || text.length > 1000) return NextResponse.json({ error: "Send 1–1000 characters" }, { status: 400 });
   const who = isSpeaker(body?.who) ? body.who : "core";
   const lang = body?.lang === "sq" || body?.lang === "en" ? body.lang : "auto";
   try {
-    const { wav, engine } = await speak(text, who, request.signal, lang);
+    const { wav, engine } = await speak(text, who, request.signal, lang, who === "core");
     return new Response(new Uint8Array(wav), { headers: { "Content-Type": "audio/wav", "Cache-Control": "private, max-age=3600", "X-Voice-Engine": engine } });
   } catch (e) {
     return NextResponse.json({ error: `Voice unavailable: ${e instanceof Error ? e.message : e}` }, { status: 503 });

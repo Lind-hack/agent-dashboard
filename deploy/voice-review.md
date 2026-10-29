@@ -53,3 +53,24 @@ A persisted `ad.voiceReplies=0` also suppressed synthesis with only an icon indi
 Archify was invoked to map the request sequence. The specification is retained in the deployment
 review artifacts, but the installed skill lacks its core template and standalone validators;
 its diagnostic is internal/unclassified. No validated HTML diagram is claimed.
+
+## Continuous speech and latency follow-up
+
+The old client split every answer into separate WAV requests/source changes. Under VPS contention,
+rendering could run slower than playback, producing gaps between pieces. An uncached 147-character
+Albanian sample took 23.3 seconds to produce 7.3 seconds of audio during the baseline check.
+
+Core replies now prefer a matching native device voice, sent as one complete utterance with zero
+TTS HTTP calls. Otherwise the voice API prepares one full clip in the turn response; the client
+plays that clip without fetching or swapping sources between sentences. The caption is revealed
+on the actual playback-start event. Blocked/muted/failed playback still leaves readable text and
+the existing recovery controls. Core local synthesis skips a remote Orpheus probe, avoiding its
+15-second timeout on an unavailable provider. Native speech that never starts is abandoned after
+1.5 seconds so fallback is not held by the much longer utterance timeout.
+
+Albanian uses eSpeak's phoneme-only buffer instead of synthesize_ipa(), which also synthesized
+unneeded audio. In an isolated comparison, phonemization dropped from 1462 ms to 15 ms with matching
+phonemes (the fast API uses clause separators, removed by the existing per-clause processing).
+Full inference still shares CPU with the VPS's other jobs; this is not a claim of universal
+subsecond end-to-end response time. Model generation, Whisper, network and Core inference remain
+part of the first-audio latency. Unrelated running jobs were not stopped or reprioritized.
