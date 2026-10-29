@@ -74,3 +74,27 @@ phonemes (the fast API uses clause separators, removed by the existing per-claus
 Full inference still shares CPU with the VPS's other jobs; this is not a claim of universal
 subsecond end-to-end response time. Model generation, Whisper, network and Core inference remain
 part of the first-audio latency. Unrelated running jobs were not stopped or reprioritized.
+
+## Faster first audio (October 29)
+
+Reviewed correctness, simplicity, module boundaries, authentication/credentials, cancellation and
+latency. The old post-speech path could wait for remote context, slow model reasoning and CPU
+speech sequentially. This change prefetches context, lowers silence detection to 650 ms, hedges
+slow model replies after 250 ms, and uses existing NVIDIA credentials for GPU English speech.
+Invalid/empty model responses cannot win the race. Provider failures fall back to existing speech;
+no credential reaches the browser. Model-specific reasoning options remain compatible.
+
+Albanian keeps its language-specific Piper model, now in a bounded worker thread so loading and
+inference cannot stall unrelated web requests. No new dependency is added. Actions still require
+confirmation; stale remote context is refreshed and jobs are read fresh.
+
+Recorded microphone tests include real transcription, Core inference and audible WAV playback,
+without an autoplay override. Candidate runs measured approximately 2.8–4.9 seconds from speech
+ending to playback, with one 11-second outlier; the server measured only 2 seconds in that outlier.
+These results demonstrate improvement but do not establish consistently human-speed conversation.
+Albanian on the shared CPU and historical memory searches can still take longer. Deployment
+evidence retains the live recorded-question measurement separately. No subsecond claim is made.
+
+Regression checks cover provider WAV validation/cancellation/circuit behavior and prompt backup
+model cancellation, plus the existing voice and confirmation checks. Production build and
+typecheck are required before activation. No lint script exists.
