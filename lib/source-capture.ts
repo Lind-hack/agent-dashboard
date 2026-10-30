@@ -6,8 +6,22 @@ import { invalidateMemory, vaultDir } from "./memory";
 
 export type CaptureKind = "article" | "video";
 
+const CATEGORIES = {
+  "claude-code": { label: "Claude Code & skills", section: "500 - AI Knowledge Base/AI's I Know/Claude Code Skills" },
+  "ai-apps": { label: "AI apps & tools", section: "500 - AI Knowledge Base/AI's I Know/AI Apps Knowledge" },
+  "ai-techniques": { label: "AI techniques & models", section: "500 - AI Knowledge Base/Techniques & Learnings" },
+  "ai-news": { label: "AI news & commentary", section: "500 - AI Knowledge Base/Articles & Videos (Summaries)" },
+  stocks: { label: "Stocks & markets", section: "1000 - Stocks & Markets" },
+  business: { label: "Business & agency", section: "400 - Vibe Coding & Business" },
+  video: { label: "Video editing", section: "600 - Video Editing" },
+  personal: { label: "Personal", section: "100 - Me" },
+  unsorted: { label: "Unsorted", section: "700 - Ideas Inbox" },
+} as const;
+
+export type CaptureCategory = keyof typeof CATEGORIES;
+
 export type CaptureResult =
-  | { ok: true; file: string; title: string; kind: CaptureKind; via: string; duplicate?: boolean }
+  | { ok: true; file: string; title: string; kind: CaptureKind; via: string; category?: CaptureCategory; section?: string; duplicate?: boolean }
   | { ok: false; error: string };
 
 type Captured = { title: string; text: string; kind: CaptureKind; via: string; channel?: string };
@@ -71,21 +85,30 @@ function canonical(u: URL): string {
   return clean.toString();
 }
 
+function walkMd(dir: string, out: string[] = []): string[] {
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const e of entries) {
+    if (e.name.startsWith(".")) continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walkMd(p, out);
+    else if (e.name.endsWith(".md")) out.push(p);
+  }
+  return out;
+}
+
 function findExisting(url: string): string | null {
   const root = vaultDir();
   for (const rel of ["raw/inbox", "raw/processed", "raw/sources"]) {
-    const dir = path.join(root, rel);
-    let names: string[] = [];
-    try {
-      names = fs.readdirSync(dir).filter((f) => f.endsWith(".md"));
-    } catch {
-      continue;
-    }
-    for (const name of names) {
+    for (const file of walkMd(path.join(root, rel))) {
       try {
-        const head = fs.readFileSync(path.join(dir, name), "utf8").slice(0, 4000);
+        const head = fs.readFileSync(file, "utf8").slice(0, 4000);
         const m = head.match(/^(?:source|source_url|url):\s*["']?([^"'\n]+?)["']?\s*$/m);
-        if (m && m[1].trim() === url) return path.relative(root, path.join(dir, name)).replace(/\\/g, "/");
+        if (m && m[1].trim() === url) return path.relative(root, file).replace(/\\/g, "/");
       } catch {
         continue;
       }
@@ -94,8 +117,26 @@ function findExisting(url: string): string | null {
   return null;
 }
 
-function writeNote(cap: Captured, url: string): string {
-  const dir = rawInbox();
+function classify(title: string, text: string, url: string): CaptureCategory {
+  const hay = `${title}\n${text.slice(0, 5000)}\n${url}`.toLowerCase();
+  const hits = (words: string[], weight = 1) => words.reduce((n, w) => n + (hay.includes(w) ? weight : 0), 0);
+  const scores: Record<CaptureCategory, number> = {
+    "claude-code": hits(["claude code", "claude-code", "claude skills", "agent skill", "subagent", "skill.md"], 3),
+    "ai-apps": hits(["app review", "tool review", "ai app", "ai tool", "tutorial", "cursor", "notion", "perplexity", "copilot", "chatgpt"], 2),
+    "ai-techniques": hits(["prompt", "llm", "model", "technique", "workflow", "rag", "fine-tun", "context engineering", "agent"], 1),
+    "ai-news": hits(["openai", "anthropic", "google", "meta", "funding", "release", "launch", "news", "bubble", "regulation"], 1),
+    stocks: hits(["stock", "market", "trading", "invest", "nvidia", "nasdaq", "s&p", "earnings", "ipo"], 2),
+    business: hits(["agency", "client", "freelance", "pricing", "business", "revenue", "sales", "marketing"], 2),
+    video: hits(["video edit", "editing", "premiere", "capcut", "remotion", "da vinci", "final cut"], 2),
+    personal: hits(["journal", "personal", "college", "study", "health", "family"], 2),
+    unsorted: 0,
+  };
+  const best = (Object.entries(scores) as [CaptureCategory, number][]).sort((a, b) => b[1] - a[1])[0];
+  return best[1] > 0 ? best[0] : "unsorted";
+}
+
+function writeNote(cap: Captured, url: string, category: CaptureCategory): string {
+  const dir = path.join(rawInbox(), category);
   const date = new Date().toISOString().slice(0, 10);
   const base = `${date} ${slug(cap.title || new URL(url).hostname)}`;
   let file = path.join(dir, `${base}.md`);
@@ -108,6 +149,8 @@ function writeNote(cap: Captured, url: string): string {
     `source: ${JSON.stringify(url)}`,
     `source_url: ${JSON.stringify(url)}`,
     `type: ${cap.kind}`,
+    `category: ${category}`,
+    `section: ${JSON.stringify(CATEGORIES[category].section)}`,
     `capture_tool: ${cap.via}`,
     `captured_at: ${new Date().toISOString()}`,
     ...(cap.channel ? [`youtube_channel: ${JSON.stringify(cap.channel)}`] : []),
@@ -136,12 +179,17 @@ export async function readSource(input: string): Promise<CaptureResult> {
   if (!u) return { ok: false, error: "Paste a public http(s) link." };
   const url = canonical(u);
   const existing = findExisting(url);
-  if (existing) return { ok: true, file: existing, title: "", kind: videoUrl(u) ? "video" : "article", via: "existing", duplicate: true };
+  if (existing) {
+    const match = existing.match(/^raw\/inbox\/([^/]+)\//)?.[1];
+    const category = match && match in CATEGORIES ? (match as CaptureCategory) : undefined;
+    return { ok: true, file: existing, title: "", kind: videoUrl(u) ? "video" : "article", via: "existing", category, section: category ? CATEGORIES[category].section : undefined, duplicate: true };
+  }
   try {
     const cap = videoUrl(u) ? await captureVideo(url) : await captureArticle(url);
-    const file = writeNote(cap, url);
+    const category = classify(cap.title, cap.text, url);
+    const file = writeNote(cap, url, category);
     invalidateMemory();
-    return { ok: true, file, title: cap.title, kind: cap.kind, via: cap.via };
+    return { ok: true, file, title: cap.title, kind: cap.kind, via: cap.via, category, section: CATEGORIES[category].section };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }

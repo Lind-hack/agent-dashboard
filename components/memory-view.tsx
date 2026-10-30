@@ -13,6 +13,7 @@ const KINDS: { kind: SourceKind; label: string; color: string; text: string }[] 
   { kind: "chat", label: "Agent chats", color: "var(--color-claude)", text: "text-claude" },
   { kind: "linear", label: "Linear", color: "var(--color-codex)", text: "text-codex" },
   { kind: "obsidian", label: "Obsidian", color: "var(--color-hermes)", text: "text-hermes" },
+  { kind: "sources", label: "Captured sources", color: "var(--color-ok)", text: "text-ok" },
   { kind: "notes", label: "Memory notes", color: "var(--color-opencode)", text: "text-opencode" },
 ];
 const META = Object.fromEntries(KINDS.map((k) => [k.kind, k])) as Record<SourceKind, (typeof KINDS)[number]>;
@@ -67,7 +68,7 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
     const res = await fetch("/api/memory/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
-    return body.duplicate ? `Already in the vault · ${body.file}` : `Read · ${body.file}`;
+    return body.duplicate ? `Already in the vault · ${body.file}` : `Read · ${body.category ? `${body.category} · ` : ""}${body.file}`;
   }
 
   // /memory?q=… (from the command palette) asks straight away — also when already on this page.
@@ -92,6 +93,20 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
               </li>
             ))}
           </ul>
+          {Object.keys(stats.categories).length > 0 && (
+            <div className="mt-4 w-full border-t border-line pt-3">
+              <p className="text-xs text-faint">New captures by section</p>
+              <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                {Object.entries(stats.categories)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([category, n]) => (
+                    <li key={category}>
+                      <span className="text-muted">{category}</span> <span className="tnum text-text">{n}</span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
         </Panel>
         <Panel className="flex flex-col p-5">
           <p className="text-xs text-muted">Last 12 weeks · what was written, by source</p>

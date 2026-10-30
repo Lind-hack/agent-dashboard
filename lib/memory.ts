@@ -12,15 +12,15 @@ import { listJobs } from "./store";
 // - notes:    Claude Code memory notes pushed up from the PC (handoff/sync-notes.mjs → data/notes)
 // Retrieval is plain BM25 (no embeddings to host); Groq writes the answer from the top chunks only.
 
-export type SourceKind = "chat" | "linear" | "obsidian" | "notes";
-export const SOURCE_KINDS: SourceKind[] = ["chat", "linear", "obsidian", "notes"];
+export type SourceKind = "chat" | "linear" | "obsidian" | "sources" | "notes";
+export const SOURCE_KINDS: SourceKind[] = ["chat", "linear", "obsidian", "sources", "notes"];
 
-type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string };
+type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; category?: string };
 type Chunk = { doc: Doc; text: string; tf: Map<string, number>; len: number };
 
 export type Source = { n: number; kind: SourceKind; title: string; href?: string; at: string; snippet: string };
 export type MemoryAnswer = { answer: string; sources: Source[] };
-export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; vault: boolean };
+export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; categories: Record<string, number>; vault: boolean };
 
 export const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 // Obsidian knows the vault by its folder name on the PC ("Lind Brain"), not the VPS path.
@@ -129,17 +129,26 @@ function vaultDocs(): Doc[] {
     const f = read(p);
     if (!f) return [];
     const rel = path.relative(root, p).replace(/\\/g, "/");
+    const kind = rel.startsWith("raw/") ? ("sources" as const) : ("obsidian" as const);
+    const category = kind === "sources" && rel.startsWith("raw/inbox/") ? categoryOf(rel, f.text) : undefined;
     return [
       {
-        id: `obsidian:${rel}`,
-        kind: "obsidian" as const,
+        id: `${kind}:${rel}`,
+        kind,
         title: rel.replace(/\.md$/, ""),
         href: `obsidian://open?vault=${encodeURIComponent(vaultName())}&file=${encodeURIComponent(rel.replace(/\.md$/, ""))}`,
         at: f.at,
         text: f.text,
+        category,
       },
     ];
   });
+}
+
+function categoryOf(rel: string, text: string): string {
+  const declared = text.match(/^category:\s*["']?([^"'\n]+)["']?\s*$/m)?.[1]?.trim();
+  if (declared) return declared;
+  return rel.match(/^raw\/inbox\/([^/]+)\//)?.[1] ?? "unsorted";
 }
 
 function noteDocs(): Doc[] {
@@ -263,7 +272,7 @@ Return JSON: {"answer": string, "used": number[]}.
 
 export async function memoryStats(): Promise<MemoryStats> {
   const ix = await index();
-  const zero = (): Record<SourceKind, number> => ({ chat: 0, linear: 0, obsidian: 0, notes: 0 });
+  const zero = (): Record<SourceKind, number> => ({ chat: 0, linear: 0, obsidian: 0, sources: 0, notes: 0 });
   const counts = zero();
   for (const d of ix.docs) counts[d.kind]++;
   // Twelve weeks of activity: what was written or changed when, by source.
@@ -281,5 +290,7 @@ export async function memoryStats(): Promise<MemoryStats> {
     const w = Math.floor((t - Date.parse(weeks[0].start)) / (7 * 86_400_000));
     if (w >= 0 && w < 12) weeks[w].counts[d.kind]++;
   }
-  return { counts, weeks, vault: fs.existsSync(vaultDir()) && counts.obsidian > 0 };
+  const categories: Record<string, number> = {};
+  for (const d of ix.docs) if (d.category) categories[d.category] = (categories[d.category] ?? 0) + 1;
+  return { counts, weeks, categories, vault: fs.existsSync(vaultDir()) && counts.obsidian + counts.sources > 0 };
 }

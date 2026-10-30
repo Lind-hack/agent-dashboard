@@ -176,7 +176,8 @@ Reasons:
 ## 5. Implementation
 
 The dashboard now ships this as **Memory → `/read <url>`** (`lib/source-capture.ts`,
-`app/api/memory/read/route.ts`). Setup and daily use are in
+`app/api/memory/read/route.ts`). Captures are sorted into `raw/inbox/<category>/`, and the Memory
+page shows captured sources separately from the Obsidian knowledge graph. Setup and daily use are in
 [`docs/source-capture-setup.md`](../source-capture-setup.md). The snippets below remain the
 standalone/reference version for a PC or cron job.
 

@@ -1,7 +1,7 @@
 # Source capture — setup and daily use
 
 The Memory page now has a `/read` command. Paste an article or video link and the dashboard saves
-the readable text (or transcript) into `raw/inbox` with provenance, then reindexes Memory so it is
+the readable text (or transcript) into `raw/inbox/<category>/` with provenance, then reindexes Memory so it is
 searchable immediately. This is the scripted lane from
 [`docs/research/LIN-955-source-capture.md`](research/LIN-955-source-capture.md), wired into the
 dashboard instead of a separate script.
@@ -15,11 +15,14 @@ dashboard instead of a separate script.
 | Article lane: Firecrawl → plain fetch | `lib/source-capture.ts` |
 | Video lane: `yt-dlp` captions → Supadata | `lib/source-capture.ts` |
 | URL dedupe + Markdown note writer | `lib/source-capture.ts` |
+| Category routing | `lib/source-capture.ts` (`CATEGORIES`, `classify`) |
 | Write access to the vault inbox | `deploy/vault-access.sh` |
 
 A bare URL in the Memory composer also works. The note is written to
-`raw/inbox/YYYY-MM-DD <title-slug>.md` with `title`, `source`, `source_url`, `type`, `capture_tool`,
-`captured_at`, optional `youtube_channel`, and `tags: [clipped, inbox]`.
+`raw/inbox/<category>/YYYY-MM-DD <title-slug>.md` with `title`, `source`, `source_url`, `type`,
+`category`, `section`, `capture_tool`, `captured_at`, optional `youtube_channel`, and
+`tags: [clipped, inbox]`. The Memory page counts captured sources separately from the Obsidian
+knowledge graph and shows **New captures by section**.
 
 ## One-time setup
 
@@ -58,7 +61,36 @@ A bare URL in the Memory composer also works. The note is written to
 
    - **Settings** should show Firecrawl and Supadata as connected.
    - Open **Memory**, send `/read https://example.com/some-article`, and check that the reply says
-     `Read · raw/inbox/...` and the new note appears in a Memory search.
+     `Read · <category> · raw/inbox/...` and the new note appears in a Memory search.
+
+## Categories and sections
+
+`/read` sorts each capture into one of the vault's existing sections. The classifier is a cheap
+keyword pass over the title, the first ~5,000 characters, and the URL; it is a suggestion, not a
+verdict. The ingest agent can move the note if the category is wrong.
+
+| Category | Destination section |
+|---|---|
+| `claude-code` | `500 - AI Knowledge Base/AI's I Know/Claude Code Skills` |
+| `ai-apps` | `500 - AI Knowledge Base/AI's I Know/AI Apps Knowledge` |
+| `ai-techniques` | `500 - AI Knowledge Base/Techniques & Learnings` |
+| `ai-news` | `500 - AI Knowledge Base/Articles & Videos (Summaries)` |
+| `stocks` | `1000 - Stocks & Markets` |
+| `business` | `400 - Vibe Coding & Business` |
+| `video` | `600 - Video Editing` |
+| `personal` | `100 - Me` |
+| `unsorted` | `700 - Ideas Inbox` |
+
+Each capture gets its own note and its own `raw/inbox/<category>/` folder, so a new item never
+rewrites or merges into an existing knowledge-graph page. To add a genuinely new section:
+
+1. Add the category, label, and destination path to `CATEGORIES` in `lib/source-capture.ts`.
+2. Add a few distinguishing keywords to `classify` (weight the specific ones higher).
+3. Create the destination folder in the vault, or let the ingest agent create it when it files the
+   first note.
+
+Do not create a category per item — that just rebuilds the inbox with more folders. If something
+does not fit yet, it lands in `unsorted`; promote it once a second or third item joins it.
 
 ## Daily workflow
 
@@ -69,7 +101,7 @@ A bare URL in the Memory composer also works. The note is written to
    /read https://www.youtube.com/watch?v=...
    ```
 
-   or paste the URL by itself. The dashboard writes the note to `raw/inbox` and reindexes Memory.
+   or paste the URL by itself. The dashboard writes the note to `raw/inbox/<category>/` and reindexes Memory.
 
 2. **Keep Web Clipper for reading/highlighting.** Both paths land in `raw/inbox`; the difference is
    that Web Clipper keeps the page's clip template and `/read` keeps a clean Markdown body plus
