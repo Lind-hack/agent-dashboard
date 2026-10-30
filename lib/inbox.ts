@@ -5,6 +5,7 @@ import { listRepos } from "./github";
 import { githubToken } from "./config";
 import { agentIssues } from "./linear";
 import { readBrainStatus } from "./brain";
+import { readDone, readMail, readPiles } from "./gmail";
 import { failedUnits } from "./ops";
 import { listJobs } from "./store";
 
@@ -154,7 +155,11 @@ let countCache: { at: number; n: number } | null = null;
 // For the nav badge on every page — cached briefly so navigation stays fast.
 export async function inboxCount(): Promise<number> {
   if (countCache && Date.now() - countCache.at < 30_000) return countCache.n;
-  const n = (await inboxItems().catch(() => [])).length;
+  // Email the Core put in "Reply today" counts too — that's mail waiting on Lind.
+  const piles = readPiles();
+  const done = readDone();
+  const reply = readMail().messages.filter((m) => piles[m.id]?.pile === "reply" && !done[m.id]).length;
+  const n = (await inboxItems().catch(() => [])).length + reply;
   countCache = { at: Date.now(), n };
   return n;
 }

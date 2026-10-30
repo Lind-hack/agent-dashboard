@@ -4,7 +4,7 @@ import { Keyboard, LoaderCircle, Mic, Play, SendHorizontal, Square, Volume2, Vol
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
-import { Core } from "@/components/core";
+import { NebulaCard, type OrbState } from "@/components/orb";
 import { hasDeviceVoice, primeVoices, resumePlayback, speak, stopSpeaking, unlockAudio, useLevel, useListener, useVoiceState } from "@/components/voice-engine";
 import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
 import { confirmsVoiceAction } from "@/lib/voice-confirm";
@@ -41,6 +41,7 @@ function useStored(key: string, fallback: boolean) {
 function describe(a: VoiceAction): { agent?: TaskAgent; title: string; detail: string } {
   if (a.type === "start_chat") return { agent: a.agent, title: `Start ${AGENT_LABELS[a.agent]}${a.repo ? ` · ${a.repo.split("/")[1]}` : ""}`, detail: a.task };
   if (a.type === "reply") return { title: `Message ${a.jobId}`, detail: a.text };
+  if (a.type === "remember") return { title: "Remember", detail: a.text };
   return { title: "Open", detail: a.href };
 }
 
@@ -208,6 +209,12 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
       return router.push(a.href);
     }
     setPhase("thinking");
+    if (a.type === "remember") {
+      const res = await fetch("/api/memory/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: a.text }) }).catch(() => null);
+      if (g !== gen.current) return;
+      setPhase("idle");
+      return setNote(res?.ok ? "Saved to Memory — it'll be filed in a moment." : "Couldn't save that to Memory.");
+    }
     if (a.type === "reply") {
       const res = await fetch(`/api/jobs/${a.jobId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reply", prompt: a.text }) }).catch(() => null);
       if (g !== gen.current) return;
@@ -230,7 +237,7 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
 
   const speakingNow = voice.speaking === "core";
   const hearing = phase === "listening" || phase === "confirming";
-  const energy = hearing ? 0.55 + lvl * 0.45 : phase === "thinking" ? 0.85 : speakingNow ? 0.5 + lvl * 0.5 : 0.3;
+  const orbState: OrbState = hearing ? "listening" : phase === "thinking" || phase === "preparing" ? "thinking" : speakingNow ? "speaking" : "idle";
   const label =
     phase === "confirming"
       ? "Say yes to run it — anything else cancels"
@@ -259,12 +266,12 @@ export function VoiceMode({ onDone }: { onDone?: () => void }) {
         onClick={tap}
         disabled={phase === "thinking"}
         aria-label={hearing ? "Send" : speakingNow ? "Cut in and talk" : "Tap to talk"}
-        className="voice-core group relative grid aspect-square w-[min(62vw,240px)] place-items-center overflow-hidden rounded-[30%] bg-black transition-transform duration-300 ease-[var(--ease-out-expo)] active:scale-[0.97]"
+        className="voice-core group relative grid aspect-square w-[min(66vw,260px)] place-items-center overflow-hidden rounded-[28px] bg-black transition-transform duration-300 ease-[var(--ease-out-expo)] active:scale-[0.97]"
         data-phase={hearing ? "listening" : phase}
         style={{ ["--lvl" as string]: lvl.toFixed(3) }}
       >
-        <Core className="absolute inset-0 h-full w-full" density={1} energy={energy} tints={hearing ? ["#ffffff"] : []} label="Core" />
-        <span className="relative grid h-14 w-14 place-items-center rounded-[18px] bg-black/55 text-white backdrop-blur-sm" aria-hidden>
+        <NebulaCard state={orbState} level={lvl} className="absolute inset-0 !rounded-[28px]" />
+        <span className="absolute bottom-3 left-1/2 grid h-11 w-11 -translate-x-1/2 place-items-center rounded-[14px] bg-black/55 text-white backdrop-blur-sm" aria-hidden>
           {phase === "thinking" ? <LoaderCircle className="h-6 w-6 animate-spin" /> : hearing ? <Square className="h-5 w-5 fill-current" /> : <Mic className="h-6 w-6" />}
         </span>
       </button>

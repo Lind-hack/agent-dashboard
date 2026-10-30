@@ -8,6 +8,7 @@ import { AgentLogo } from "@/components/agent-logo";
 import { CommandPalette, openPalette } from "@/components/command-palette";
 import { Composer } from "@/components/composer";
 import { Core } from "@/components/core";
+import { NebulaCard, Orb } from "@/components/orb";
 import { VoiceMode } from "@/components/voice-mode";
 import { AGENT_HEX, AGENT_LABELS, type AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
@@ -71,7 +72,7 @@ function TalkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center" role="dialog" aria-modal="true" aria-label="Talk to an agent">
       <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/65 backdrop-blur-sm" />
-      <div className="rise panel brackets relative max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-b-none bg-bg-raised/95 px-5 pt-4 pb-[calc(20px+env(safe-area-inset-bottom))] [overscroll-behavior:contain] lg:rounded-[var(--radius-panel)] lg:pb-6">
+      <div className="rise panel brackets relative max-h-[92dvh] w-full max-w-lg overflow-x-hidden overflow-y-auto rounded-b-none bg-bg-raised/95 px-5 pt-4 pb-[calc(20px+env(safe-area-inset-bottom))] [overscroll-behavior:contain] lg:rounded-[var(--radius-panel)] lg:pb-6">
         <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/15 lg:hidden" />
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-[-0.02em]">{mode === "talk" ? "Talk to the Core" : "Start a chat"}</h2>
@@ -160,23 +161,25 @@ export function Shell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
-        {/* The Core card: tap to talk; it shows who's working right now. */}
-        <button onClick={() => setTalk(true)} className="group brackets relative mt-6 h-[188px] w-full overflow-hidden rounded-[16px] border border-line bg-black/40 text-left" aria-label="Talk to an agent">
-          <Core className="absolute inset-0 h-full w-full transition-transform duration-700 ease-[var(--ease-out-expo)] group-hover:scale-[1.04]" energy={working.length ? 0.85 : 0.3} tints={working.map((a) => AGENT_HEX[a])} />
-          <span className="hud-label absolute top-3 left-3 flex items-center gap-1.5 !text-[9.5px]">
-            <span className={cn("h-1.5 w-1.5 rounded-full", working.length ? "bg-ok shadow-[0_0_8px_var(--color-ok)]" : "bg-hud/60")} />
-            {working.length ? `${working.length} working` : "core idle"}
-          </span>
-          {working.length > 0 && (
-            <span className="absolute top-2.5 right-3 flex -space-x-1.5">
-              {working.map((a) => (
-                <AgentLogo key={a} agent={a} size="xs" state="working" title={AGENT_LABELS[a]} />
-              ))}
+        {/* The Orb: tap to talk; it shows who's working right now. */}
+        <button onClick={() => setTalk(true)} className="group relative mt-6 block w-full text-left" aria-label="Talk to the Core">
+          <NebulaCard state={working.length ? "thinking" : "idle"} className="h-[200px] w-full transition-transform duration-500 ease-[var(--ease-out-expo)] group-hover:scale-[1.015] group-active:scale-[0.985]">
+            <span className="hud-label absolute top-3 left-3 flex items-center gap-1.5 !text-[9.5px]">
+              <span className={cn("h-1.5 w-1.5 rounded-full", working.length ? "bg-ok shadow-[0_0_8px_var(--color-ok)]" : "bg-hermes/70")} />
+              {working.length ? `${working.length} working` : "core idle"}
             </span>
-          )}
-          <span className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-[10px] border border-white/10 bg-black/55 px-3 py-2 text-xs text-text backdrop-blur-md">
-            <Mic className="h-3.5 w-3.5 text-hud" /> Tap to talk
-          </span>
+            {working.length > 0 && (
+              <span className="absolute top-2.5 right-3 flex -space-x-1.5">
+                {working.map((a) => (
+                  <AgentLogo key={a} agent={a} size="xs" state="working" title={AGENT_LABELS[a]} />
+                ))}
+              </span>
+            )}
+            <span className="absolute inset-x-3 bottom-3 flex items-center gap-2 rounded-[10px] border border-white/10 bg-black/45 px-3 py-2 text-xs text-text backdrop-blur-md transition-colors group-hover:border-white/20">
+              <Mic className="h-3.5 w-3.5 text-hermes" /> Ask me anything
+              <kbd className="ml-auto font-mono text-[10px] text-faint">voice</kbd>
+            </span>
+          </NebulaCard>
         </button>
 
         {tools.length > 0 && (
@@ -251,10 +254,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setTalk(true)}
               aria-label="Talk to an agent"
-              className="relative -mt-7 grid h-[60px] w-[60px] place-items-center overflow-hidden rounded-[18px] bg-black shadow-[0_0_0_1px_rgb(169_228_245/0.3)_inset,0_14px_30px_-10px_rgb(169_228_245/0.45)]"
+              className="relative -mt-7 grid h-[60px] w-[60px] place-items-center overflow-hidden rounded-[18px] bg-black shadow-[0_0_0_1px_rgb(214_170_255/0.35)_inset,0_14px_30px_-10px_rgb(160_90_255/0.6)]"
             >
-              <Core className="absolute inset-0 h-full w-full" density={0.45} energy={working.length ? 0.85 : 0.4} tints={working.map((a) => AGENT_HEX[a])} />
-              <Mic className="relative h-5 w-5 text-white drop-shadow-[0_0_6px_rgb(0_0_0)]" />
+              <span className="absolute inset-0 bg-[url(/media/nebula-loop.webp)] bg-cover bg-center opacity-80" aria-hidden />
+              <Orb state={working.length ? "thinking" : "idle"} className="absolute inset-[-6px]" />
             </button>
           </div>
           {[

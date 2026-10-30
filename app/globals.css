@@ -347,8 +347,8 @@ body::before {
 /* The Talk Core: its rim glows with the sound it hears or makes (--lvl, 0–1). */
 .voice-core {
   box-shadow:
-    0 0 0 1px rgb(169 228 245 / calc(0.22 + var(--lvl, 0) * 0.5)) inset,
-    0 24px 60px -22px rgb(169 228 245 / calc(0.25 + var(--lvl, 0) * 0.6));
+    0 0 0 1px rgb(190 140 255 / calc(0.22 + var(--lvl, 0) * 0.5)) inset,
+    0 24px 60px -22px rgb(190 140 255 / calc(0.25 + var(--lvl, 0) * 0.6));
   transition: box-shadow 90ms linear, transform 300ms var(--ease-out-expo);
 }
 .voice-core[data-phase="listening"] {
@@ -426,5 +426,214 @@ body::before {
 @media (min-width: 1024px) {
   .pb-tabbar {
     padding-bottom: 48px;
+  }
+}
+
+/* ---------- v3 motion system ---------- */
+
+/* Every page arrives: content rises out of a slight blur, children one after another (--i or nth). */
+/* Opacity only: a transform or filter here would become the containing block of fixed bars inside. */
+@keyframes page-in {
+  from {
+    opacity: 0;
+  }
+}
+.page-in {
+  animation: page-in 380ms ease-out backwards;
+}
+.stagger > * {
+  animation: rise 620ms var(--ease-out-expo) backwards;
+  animation-delay: calc(var(--i, 0) * 55ms + 40ms);
+}
+.stagger > *:nth-child(2) { --i: 1; }
+.stagger > *:nth-child(3) { --i: 2; }
+.stagger > *:nth-child(4) { --i: 3; }
+.stagger > *:nth-child(5) { --i: 4; }
+.stagger > *:nth-child(6) { --i: 5; }
+.stagger > *:nth-child(7) { --i: 6; }
+.stagger > *:nth-child(8) { --i: 7; }
+.stagger > *:nth-child(n + 9) { --i: 8; }
+
+/* Cards that can be opened lift toward the pointer; presses sink. Pointer devices only. */
+@media (hover: hover) and (pointer: fine) {
+  .lift {
+    transition:
+      transform 260ms var(--ease-out-expo),
+      border-color 200ms,
+      box-shadow 260ms var(--ease-out-expo);
+  }
+  .lift:hover {
+    transform: translateY(-2px);
+    border-color: var(--color-line-hi);
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 0.06) inset,
+      0 22px 48px -26px rgb(0 0 0 / 0.95),
+      0 0 0 1px rgb(179 146 240 / 0.08);
+  }
+}
+.press:active {
+  transform: scale(0.97);
+  transition: transform 90ms ease-out;
+}
+
+/* Processing: a sheen crosses the card while the automation reads it. */
+@keyframes sheen {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(220%); }
+}
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgb(179 146 240 / 0.16), rgb(255 255 255 / 0.08), transparent);
+  animation: sheen 1.7s var(--ease-out-expo) infinite;
+  pointer-events: none;
+}
+
+/* Something new appears (a filed capture, a sorted email): it lands with a short glow. */
+@keyframes land {
+  0% { opacity: 0; transform: translateY(10px) scale(0.98); box-shadow: 0 0 0 0 rgb(179 146 240 / 0); }
+  60% { opacity: 1; transform: none; box-shadow: 0 0 0 4px rgb(179 146 240 / 0.18); }
+  100% { box-shadow: 0 0 0 0 rgb(179 146 240 / 0); }
+}
+.land {
+  animation: land 700ms var(--ease-out-expo) both;
+}
+
+/* Section heroes: a looping clip under the page title, fading into the canvas. */
+.section-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid var(--color-line);
+}
+.section-hero video,
+.section-hero img {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.section-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, rgb(8 8 10 / 0.92) 0%, rgb(8 8 10 / 0.55) 48%, rgb(8 8 10 / 0.15) 100%),
+    linear-gradient(0deg, rgb(8 8 10 / 0.7), transparent 55%);
+}
+
+/* The orb's nebula card. */
+.nebula-card {
+  border-radius: 18px;
+  border: 1px solid rgb(179 146 240 / 0.18);
+  background: #07050c;
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.05) inset,
+    0 24px 50px -28px rgb(120 60 220 / 0.55);
+  transition: box-shadow 400ms var(--ease-out-expo), border-color 300ms;
+}
+.nebula-card[data-state="listening"],
+.nebula-card[data-state="speaking"] {
+  border-color: rgb(214 170 255 / 0.4);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.08) inset,
+    0 28px 70px -24px rgb(160 90 255 / 0.8);
+}
+@keyframes orb-float {
+  0%, 100% { transform: translateY(-2%); }
+  50% { transform: translateY(2%); }
+}
+.orb-float {
+  animation: orb-float 7s ease-in-out infinite;
+}
+/* The comet: draws across, glows, fades — every few seconds. */
+@keyframes comet {
+  0% { stroke-dasharray: 0 60; stroke-dashoffset: 0; opacity: 0; }
+  15% { opacity: 1; }
+  55% { stroke-dasharray: 22 60; stroke-dashoffset: -14; opacity: 0.9; }
+  80%, 100% { stroke-dasharray: 2 60; stroke-dashoffset: -48; opacity: 0; }
+}
+.comet path {
+  animation: comet 6.5s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+  filter: drop-shadow(0 0 1.5px #fff);
+}
+.nebula-card[data-state="thinking"] .comet path {
+  animation-duration: 2.4s;
+}
+
+/* Toggle switch (sources panel). */
+.switch {
+  position: relative;
+  display: inline-flex;
+  height: 22px;
+  width: 38px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.1);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08) inset;
+  transition: background 220ms var(--ease-out-expo);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  height: 16px;
+  width: 16px;
+  border-radius: 999px;
+  background: #cfd0d6;
+  transition: transform 260ms var(--ease-out-expo), background 200ms;
+}
+.switch[aria-checked="true"] {
+  background: color-mix(in oklab, var(--sw, var(--color-hermes)), transparent 35%);
+}
+.switch[aria-checked="true"]::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* Drop target while a file is dragged over the page. */
+.drop-glow {
+  box-shadow:
+    0 0 0 1px rgb(214 170 255 / 0.55) inset,
+    0 0 0 6px rgb(179 146 240 / 0.12),
+    0 30px 80px -30px rgb(160 90 255 / 0.7);
+}
+
+@keyframes grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* Day progress (Today): a thin bar that fills as the day goes. */
+.day-bar {
+  background: linear-gradient(90deg, #f6b25e, #e2825f 45%, #b392f0);
+  box-shadow: 0 0 14px -2px rgb(246 178 94 / 0.6);
+  transition: width 1s var(--ease-out-expo);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-in,
+  .stagger > *,
+  .land,
+  .orb-float,
+  .comet path,
+  .shimmer::after {
+    animation: none;
+  }
+  .lift,
+  .lift:hover {
+    transform: none;
   }
 }

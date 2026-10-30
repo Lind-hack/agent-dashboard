@@ -272,4 +272,12 @@ Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout la
 - **Don't** add a light theme.
 - **Don't** use plain coloured circles or gradient blobs as agent avatars or buttons.
 - **Don't** put corner brackets on every card: they mark live instruments (the core, the Talk sheet, the palette, verdicts, the plan).
-- **Don't** use decorative blur blobs; glass is for overlays and panels only.
+- **Don't** use decorative blur blobs; glass is for overlays and panels only. (The Orb and its nebula are the one exception — Lind asked for them, 2026-10-30; see "v3".)
+
+## v3 — the Orb, section heroes, motion (2026-10-30)
+
+- **The Orb** (`components/orb.tsx`) is the voice assistant's face: one WebGL fragment shader (swirling violet gas, teal veins, fresnel rim, specular), states idle / listening / thinking / speaking driven by the real audio level. It lives in a **Nebula card** (Magnific nebula loop + comet arc) in the sidebar, the Talk sheet, the phone tab bar and the Inbox sort card. Without WebGL it falls back to a still CSS sphere; with reduced motion it draws one frame per state.
+- **Section heroes** (`SectionHero` in `components/motion.tsx`): Memory, Inbox and Today open on a looping Magnific clip (`public/media/*-loop.mp4`, posters `.webp`) under a left-to-right dark scrim; the clip only plays on screen and never with reduced motion.
+- **Motion vocabulary** (globals.css "v3 motion system"): `page-in` (opacity only — a transform would capture the fixed bars), `stagger` children, `lift` + `press` for anything tappable, `shimmer` while the automation reads something, `land` when it arrives, `CountUp` numbers, `day-bar`. All of it switches off under `prefers-reduced-motion`.
+- **Memory**: Visual cortex rings (canvas) — wedges are Library sections, mail piles and sources; dots by recency; search lights hits and draws them to the core; answers light their sources. Sources panel with switches (search scope) and the pink "Refresh all".
+- **Inbox**: pile colours live in `lib/piles.ts`; the pink gradient button is the one "let the Core do it" action per page (Sort all, Refresh all).

@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
+import { PILES, readMail, readPiles } from "./gmail";
 import { groqJSON } from "./groq";
+import { libraryDir, listItems, readSections, readSourceToggles } from "./library";
 import { recentIssues } from "./linear";
 import { listJobs } from "./store";
 
@@ -10,17 +12,22 @@ import { listJobs } from "./store";
 // - linear:   recent Linear issues
 // - obsidian: the lind-brain vault Syncthing keeps on the VPS (MEMORY_VAULT_DIR)
 // - notes:    Claude Code memory notes pushed up from the PC (handoff/sync-notes.mjs → data/notes)
+// - capture:  the Library — everything captured on /memory (text, voice, images, video, links)
+// - mail:     the last week of Gmail (subject, sender, snippet)
 // Retrieval is plain BM25 (no embeddings to host); Groq writes the answer from the top chunks only.
 
-export type SourceKind = "chat" | "linear" | "obsidian" | "notes";
-export const SOURCE_KINDS: SourceKind[] = ["chat", "linear", "obsidian", "notes"];
+export type SourceKind = "capture" | "chat" | "linear" | "obsidian" | "notes" | "mail";
+export const SOURCE_KINDS: SourceKind[] = ["capture", "chat", "linear", "obsidian", "notes", "mail"];
+const zero = (): Record<SourceKind, number> => ({ capture: 0, chat: 0, linear: 0, obsidian: 0, notes: 0, mail: 0 });
 
-type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string };
+type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; group?: string };
 type Chunk = { doc: Doc; text: string; tf: Map<string, number>; len: number };
 
 export type Source = { n: number; kind: SourceKind; title: string; href?: string; at: string; snippet: string };
 export type MemoryAnswer = { answer: string; sources: Source[] };
-export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; vault: boolean };
+export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; vault: boolean; enabled: Record<SourceKind, boolean> };
+// One dot in the Visual cortex: group = a Library section, a mail pile, or the source kind.
+export type GraphNode = { id: string; kind: SourceKind; group: string; title: string; at: string; href?: string };
 
 const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 // Obsidian knows the vault by its folder name on the PC ("Lind Brain"), not the VPS path.
@@ -127,7 +134,8 @@ function vaultDocs(): Doc[] {
   const root = vaultDir();
   return walk(root).flatMap((p) => {
     const f = read(p);
-    if (!f) return [];
+    // Library items mirrored into the vault are already indexed as captures.
+    if (!f || /^dashboard: "\/memory\?item=/m.test(f.text.slice(0, 600))) return [];
     const rel = path.relative(root, p).replace(/\\/g, "/");
     return [
       {
@@ -160,6 +168,33 @@ function noteDocs(): Doc[] {
   });
 }
 
+function captureDocs(): Doc[] {
+  return listItems()
+    .filter((i) => i.status === "ready" || i.text || i.note)
+    .map((i) => ({
+      id: `capture:${i.id}`,
+      kind: "capture" as const,
+      group: i.section ?? "unsorted",
+      title: i.title || i.kind,
+      href: `/memory?item=${i.id}`,
+      at: i.createdAt,
+      text: [i.summary, i.note, i.text, i.url, i.tags.length ? `Tags: ${i.tags.join(", ")}` : ""].filter(Boolean).join("\n\n"),
+    }));
+}
+
+function mailDocs(): Doc[] {
+  const piles = readPiles();
+  return readMail().messages.map((m) => ({
+    id: `mail:${m.id}`,
+    kind: "mail" as const,
+    group: piles[m.id]?.pile ?? "mail",
+    title: `${m.subject} — ${m.from}`,
+    href: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`,
+    at: m.at,
+    text: `From: ${m.from} <${m.fromEmail}>\nSubject: ${m.subject}\n${m.snippet}${m.attachments?.length ? `\nAttachments: ${m.attachments.join(", ")}` : ""}`,
+  }));
+}
+
 // ~900-char chunks on paragraph boundaries; the title rides along so it counts in every chunk.
 function chunk(doc: Doc): Chunk[] {
   const paras = doc.text.split(/\n\s*\n/);
@@ -181,19 +216,31 @@ function chunk(doc: Doc): Chunk[] {
   });
 }
 
-type Index = { at: number; docs: Doc[]; chunks: Chunk[]; df: Map<string, number>; avg: number };
+type Index = { at: number; stamp: string; docs: Doc[]; chunks: Chunk[]; df: Map<string, number>; avg: number };
+
+// The runner files captures and fetches mail in another process; their files' mtimes tell this
+// one to rebuild without waiting out the 10 minutes.
+const mtime = (p: string) => {
+  try {
+    return fs.statSync(p).mtimeMs;
+  } catch {
+    return 0;
+  }
+};
+const changeStamp = () => [path.join(libraryDir(), "items"), path.join(libraryDir(), "sections.json"), path.join(DATA_DIR, "mail", "messages.json"), path.join(DATA_DIR, "mail", "piles.json")].map(mtime).join(":");
 let cache: Index | null = null;
 let building: Promise<Index> | null = null;
 
 async function index(): Promise<Index> {
-  if (cache && Date.now() - cache.at < 10 * 60_000) return cache;
+  const stamp = changeStamp();
+  if (cache && Date.now() - cache.at < 10 * 60_000 && cache.stamp === stamp) return cache;
   building ??= (async () => {
-    const docs = [...chatDocs(), ...(await linearDocs()), ...vaultDocs(), ...noteDocs()];
+    const docs = [...captureDocs(), ...chatDocs(), ...(await linearDocs()), ...vaultDocs(), ...noteDocs(), ...mailDocs()];
     const chunks = docs.flatMap(chunk);
     const df = new Map<string, number>();
     for (const c of chunks) for (const t of c.tf.keys()) df.set(t, (df.get(t) ?? 0) + 1);
     const avg = chunks.reduce((s, c) => s + c.len, 0) / Math.max(1, chunks.length);
-    cache = { at: Date.now(), docs, chunks, df, avg };
+    cache = { at: Date.now(), stamp, docs, chunks, df, avg };
     return cache;
   })().finally(() => (building = null));
   return building;
@@ -203,11 +250,18 @@ export function invalidateMemory() {
   cache = null;
 }
 
+export const enabledSources = (): Record<SourceKind, boolean> => {
+  const t = readSourceToggles();
+  return Object.fromEntries(SOURCE_KINDS.map((k) => [k, t[k] !== false])) as Record<SourceKind, boolean>;
+};
+
 function search(ix: Index, q: string, k: number): Chunk[] {
   const qt = [...new Set(tokens(q))];
   if (!qt.length) return [];
+  const on = enabledSources();
   const N = ix.chunks.length;
   const scored = ix.chunks
+    .filter((c) => on[c.doc.kind])
     .map((c) => {
       let s = 0;
       for (const t of qt) {
@@ -263,7 +317,6 @@ Return JSON: {"answer": string, "used": number[]}.
 
 export async function memoryStats(): Promise<MemoryStats> {
   const ix = await index();
-  const zero = (): Record<SourceKind, number> => ({ chat: 0, linear: 0, obsidian: 0, notes: 0 });
   const counts = zero();
   for (const d of ix.docs) counts[d.kind]++;
   // Twelve weeks of activity: what was written or changed when, by source.
@@ -281,5 +334,32 @@ export async function memoryStats(): Promise<MemoryStats> {
     const w = Math.floor((t - Date.parse(weeks[0].start)) / (7 * 86_400_000));
     if (w >= 0 && w < 12) weeks[w].counts[d.kind]++;
   }
-  return { counts, weeks, vault: fs.existsSync(vaultDir()) && counts.obsidian > 0 };
+  return { counts, weeks, vault: fs.existsSync(vaultDir()) && counts.obsidian > 0, enabled: enabledSources() };
+}
+
+export type GraphGroup = { key: string; label: string; kind: SourceKind; hue?: number };
+
+// Light nodes for the Visual cortex: captures grouped by section, mail by pile, the rest by source.
+export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: GraphGroup[] }> {
+  const ix = await index();
+  const nodes: GraphNode[] = ix.docs.map((d) => ({
+    id: d.id,
+    kind: d.kind,
+    group: d.kind === "capture" ? `capture:${d.group}` : d.kind === "mail" ? `mail:${d.group}` : d.kind,
+    title: d.title.slice(0, 140),
+    at: d.at,
+    href: d.href,
+  }));
+  const seen = new Set(nodes.map((n) => n.group));
+  const groups: GraphGroup[] = [
+    ...readSections().map((s) => ({ key: `capture:${s.id}`, label: s.name, kind: "capture" as const, hue: s.hue })),
+    { key: "capture:unsorted", label: "Unsorted", kind: "capture" },
+    { key: "chat", label: "Agent chats", kind: "chat" },
+    { key: "linear", label: "Linear", kind: "linear" },
+    { key: "obsidian", label: "Obsidian", kind: "obsidian" },
+    { key: "notes", label: "Claude notes", kind: "notes" },
+    ...PILES.map((p) => ({ key: `mail:${p.key}`, label: `Mail · ${p.label}`, kind: "mail" as const })),
+    { key: "mail:mail", label: "Mail · unsorted", kind: "mail" },
+  ];
+  return { nodes, groups: groups.filter((g) => seen.has(g.key)) };
 }

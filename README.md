@@ -98,6 +98,10 @@ If your browser blocks playback, tap **Hear reply** to start the loaded answer. 
 remain proposals until you tap Run or give an unambiguous spoken confirmation.
 
 Core English replies use NVIDIA Magpie GPU speech when the existing `NVIDIA_API_KEY` is configured.
+
+Memory captures (text, voice, images, video, files, links pasted or dropped on /memory) are read and filed by the runner (`runner/library.ts`): ffmpeg + Groq Whisper for speech, **Gemini** for images, video frames and PDFs — set `GEMINI_API_KEY` (free key from aistudio.google.com; `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`). Without it images and video still save and get described once the key is set. Data: `data/library/` (items, media, sections.json, sources.json); a text mirror goes to the vault under `100 - Me/memory/<Section>/`.
+
+Gmail in the Inbox is read-only (`gmail.readonly`): re-run `node handoff/google-auth.mjs` once to grant it. The runner fetches the last 7 days every 10 minutes and sorts new mail into piles (`data/mail/`).
 A 1.5-second provider deadline and circuit breaker preserve the device/local fallback. Albanian
 replies prefer an installed Albanian device voice.
 When that language is unavailable on the device, the turn API prepares one complete WAV alongside

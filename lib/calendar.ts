@@ -43,10 +43,12 @@ function readCreds(): GoogleCreds | null {
 }
 
 export const calendarConnected = () => readCreds() !== null;
+// Gmail needs its own scope; older sign-ins only granted Calendar.
+export const gmailConnected = () => !!readCreds()?.scopes?.some((s) => s.includes("gmail"));
 
 let token: { value: string; until: number } | null = null;
 
-async function accessToken(): Promise<string> {
+export async function accessToken(): Promise<string> {
   if (token && Date.now() < token.until) return token.value;
   const c = readCreds();
   if (!c) throw new Error("Google Calendar isn't connected yet.");

@@ -1,7 +1,9 @@
 import { ArrowUpRight, MapPin, Target } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
-import { Empty, PageHeader, Panel, SectionTitle, StatusPill } from "@/components/kit";
+import { Empty, Panel, SectionTitle, StatusPill } from "@/components/kit";
+import { SectionHero } from "@/components/motion";
+import { NowCard, type NowItem } from "@/components/now-card";
 import { CaptureBar, PlanDay, TaskList, TickTickConnect } from "@/components/today";
 import { TodayPlan } from "@/components/today-plan";
 import { calendarConnected, type CalEvent } from "@/lib/calendar";
@@ -13,6 +15,14 @@ import { cn } from "@/lib/utils";
 export const dynamic = "force-dynamic";
 
 // Today: the day in one place — calendar, TickTick tasks, plan-my-day, and one box to capture anything.
+// "HH:MM" on a calendar day in a time zone → the ISO instant.
+function zoned(day: string, hhmm: string, tz: string): string {
+  const guess = Date.parse(`${day}T${hhmm}:00Z`);
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(guess)).map((x) => [x.type, x.value]));
+  const shown = Date.parse(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:00Z`);
+  return new Date(guess - (shown - guess)).toISOString();
+}
+
 export default async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_error?: string }> }) {
   const { ticktick_error } = await searchParams;
   const t = await today();
@@ -49,6 +59,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
   }
   const dayEnd = process.env.PLAN_DAY_END ?? "23:00";
 
+  const dayStart = process.env.PLAN_DAY_START ?? "07:00";
+  const nowItems: NowItem[] = [
+    ...timed.map((e) => ({ title: e.title, start: e.start, end: e.end, kind: "event" as const })),
+    ...blocks.map((b) => ({ title: b.title, start: zoned(t.today, b.start, t.tz), end: zoned(t.today, b.end, t.tz), kind: "block" as const, done: b.status === "done" || b.status === "dropped" || b.status === "moved" })),
+  ];
+
   const sub = [
     next ? `${new Date(next.start).getTime() <= now ? "Now" : `Next at ${time(next.start)}`}: ${next.title}` : google ? (timed.length ? "Calendar's done for today" : "Nothing on the calendar") : null,
     t.tasks ? (open ? `${open} task${open === 1 ? "" : "s"} open` : "no tasks due") : null,
@@ -56,18 +72,14 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader
+      <SectionHero
+        clip="today"
+        eyebrow={[google ? `${timed.length} on the calendar` : "calendar not connected", planned > 0 && `${planned} blocks ahead`, t.tasks ? `${open} tasks open` : null, stats.todayTotal > 0 && `${stats.todayDone}/${stats.todayTotal} done`, stats.streak > 0 && `${stats.streak}-day streak`].filter(Boolean).join(" · ")}
         title={dayTitle(t.today, { weekday: "long", day: "numeric", month: "long" })}
         sub={sub.length ? `${sub.join(" · ")}.` : "Your day, in one place."}
-        readout={[
-          google ? `${timed.length} on the calendar` : "calendar not connected",
-          planned > 0 && `${planned} planned blocks ahead`,
-          t.tasks ? `${open} tasks open` : "ticktick not connected",
-          stats.todayTotal > 0 && `${stats.todayDone}/${stats.todayTotal} blocks done`,
-          stats.streak > 0 && `${stats.streak}-day streak`,
-          t.tz,
-        ]}
-      />
+      >
+        <NowCard items={nowItems} dayStart={zoned(t.today, dayStart, t.tz)} dayEnd={zoned(t.today, dayEnd, t.tz)} freeMin={freeMin} tz={t.tz} />
+      </SectionHero>
 
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
