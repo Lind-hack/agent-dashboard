@@ -20,7 +20,8 @@ type Chunk = { doc: Doc; text: string; tf: Map<string, number>; len: number };
 
 export type Source = { n: number; kind: SourceKind; title: string; href?: string; at: string; snippet: string };
 export type MemoryAnswer = { answer: string; sources: Source[] };
-export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; categories: Record<string, number>; vault: boolean };
+export type MemoryEntry = { id: string; kind: SourceKind; title: string; href?: string; at: string; category?: string; snippet: string };
+export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; categories: Record<string, number>; entries: MemoryEntry[]; vault: boolean };
 
 export const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 // Obsidian knows the vault by its folder name on the PC ("Lind Brain"), not the VPS path.
@@ -129,13 +130,16 @@ function vaultDocs(): Doc[] {
     const f = read(p);
     if (!f) return [];
     const rel = path.relative(root, p).replace(/\\/g, "/");
-    const kind = rel.startsWith("raw/") ? ("sources" as const) : ("obsidian" as const);
+    // Manual /add notes live in 100 - Me/memory/inbox; keep them with the other memory notes, not the wiki.
+    const manual = rel.startsWith("100 - Me/memory/inbox/");
+    const kind = rel.startsWith("raw/") ? ("sources" as const) : manual ? ("notes" as const) : ("obsidian" as const);
     const category = kind === "sources" && rel.startsWith("raw/inbox/") ? categoryOf(rel, f.text) : undefined;
+    const name = f.text.match(/^name:\s*(.+)$/m)?.[1]?.trim()?.replace(/^"(.*)"$/, "$1");
     return [
       {
         id: `${kind}:${rel}`,
         kind,
-        title: rel.replace(/\.md$/, ""),
+        title: manual ? (name ?? path.basename(rel, ".md")) : rel.replace(/\.md$/, ""),
         href: `obsidian://open?vault=${encodeURIComponent(vaultName())}&file=${encodeURIComponent(rel.replace(/\.md$/, ""))}`,
         at: f.at,
         text: f.text,
@@ -292,5 +296,14 @@ export async function memoryStats(): Promise<MemoryStats> {
   }
   const categories: Record<string, number> = {};
   for (const d of ix.docs) if (d.category) categories[d.category] = (categories[d.category] ?? 0) + 1;
-  return { counts, weeks, categories, vault: fs.existsSync(vaultDir()) && counts.obsidian + counts.sources > 0 };
+  const entries: MemoryEntry[] = ix.docs.map((d) => ({
+    id: d.id,
+    kind: d.kind,
+    title: d.title,
+    href: d.href,
+    at: d.at,
+    category: d.category,
+    snippet: d.text.replace(/^---[\s\S]*?---\s*/, "").replace(/\s+/g, " ").trim().slice(0, 220),
+  }));
+  return { counts, weeks, categories, entries, vault: fs.existsSync(vaultDir()) && counts.obsidian + counts.sources + counts.notes > 0 };
 }

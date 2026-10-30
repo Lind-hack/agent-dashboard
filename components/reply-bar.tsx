@@ -1,7 +1,7 @@
 "use client";
 
 import { LoaderCircle, Mic, SendHorizontal, Square } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "./skill-picker";
@@ -15,17 +15,28 @@ export function ReplyBar({
   disabled,
   onSend,
   agent,
+  seed,
+  seedText,
 }: {
   placeholder: string;
   disabled?: boolean;
   onSend: (text: string, skills: string[]) => Promise<string | void>; // resolves to a notice to show; throws on failure
   agent?: AgentKey;
+  seed?: number; // bump to put seedText in the box and focus it (e.g. the Memory page's Add button)
+  seedText?: string;
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useSkillPicker(agent, box);
+
+  useEffect(() => {
+    if (!seed) return;
+    setText(seedText ?? "");
+    setNotice("");
+    box.current?.focus();
+  }, [seed, seedText]);
 
   const mic = useRecorder(async (audio) => {
     setBusy(true);

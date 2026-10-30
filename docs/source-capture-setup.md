@@ -22,7 +22,9 @@ A bare URL in the Memory composer also works. The note is written to
 `raw/inbox/<category>/YYYY-MM-DD <title-slug>.md` with `title`, `source`, `source_url`, `type`,
 `category`, `section`, `capture_tool`, `captured_at`, optional `youtube_channel`, and
 `tags: [clipped, inbox]`. The Memory page counts captured sources separately from the Obsidian
-knowledge graph and shows **New captures by section**.
+knowledge graph and shows **New captures by section**. The **Memory atlas** below the overview lists
+every indexed item, searchable and filterable by source or section; **Add memory** puts `/add ` in the
+composer, and `/add <text>` saves your own note to the vault inbox.
 
 ## One-time setup
 
@@ -54,7 +56,7 @@ knowledge graph and shows **New captures by section**.
    bash /opt/agent-dashboard/deploy/vault-access.sh
    ```
 
-   This adds ACLs for `raw/inbox` (captured sources) and `100 - Me/memory/inbox` (`/remember`),
+   This adds ACLs for `raw/inbox` (captured sources) and `100 - Me/memory/inbox` (`/add` or `/remember`),
    then restarts the web service. It is safe to re-run after a vault move.
 
 4. **Verify**:
