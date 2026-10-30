@@ -22,7 +22,7 @@ export type Source = { n: number; kind: SourceKind; title: string; href?: string
 export type MemoryAnswer = { answer: string; sources: Source[] };
 export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; vault: boolean };
 
-const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
+export const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 // Obsidian knows the vault by its folder name on the PC ("Lind Brain"), not the VPS path.
 const vaultName = () => process.env.MEMORY_VAULT_NAME ?? "Lind Brain";
 export const notesDir = () => path.join(DATA_DIR, "notes");

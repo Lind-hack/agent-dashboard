@@ -15,6 +15,8 @@ const CONNECTIONS = [
   { label: "GitHub (write)", env: "GITHUB_TOKEN", what: "Branches + PRs", how: "Fine-grained token for the repos below" },
   { label: "GitHub (read)", env: "GITHUB_READ_TOKEN", what: "Brain: commits, PRs", how: "Read-only token for all repos" },
   { label: "Groq", env: "GROQ_API_KEY", what: "Voice, drafting, judge", how: "Free tier key" },
+  { label: "Firecrawl", env: "FIRECRAWL_API_KEY", what: "Article capture", how: "Free key from firecrawl.dev" },
+  { label: "Supadata", env: "SUPADATA_API_KEY", what: "Video transcripts", how: "Free key from supadata.ai" },
   { label: "NVIDIA Nemotron", env: "NVIDIA_API_KEY", what: "Dossiers, brain, Hermes", how: "Free key from build.nvidia.com" },
   { label: "PC hand-off", env: "HANDOFF_TOKEN", what: "/handoff, brain uploads", how: "~/.agent-dashboard/handoff.env on the PC" },
   { label: "Obsidian vault", env: "MEMORY_VAULT_DIR", what: "Memory + brain", how: "Run deploy/vault-access.sh on the VPS" },

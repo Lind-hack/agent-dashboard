@@ -43,8 +43,14 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
     }
   }
 
-  // "/remember …" keeps the text instead of asking about it; the reply bar shows where it landed.
+  // "/remember …" keeps the text instead of asking about it; "/read <url>" saves the page or
+  // transcript to the vault inbox. The reply bar shows where it landed.
   async function send(q: string): Promise<string | void> {
+    if (/^\/read\b/i.test(q)) {
+      const url = q.replace(/^\/read\s*/i, "").trim();
+      if (!url) throw new Error("Paste a URL after /read.");
+      return read(url);
+    }
     if (/^\/remember\b/i.test(q)) {
       const text = q.replace(/^\/remember\s*/i, "").trim();
       if (!text) throw new Error("Write what to remember after /remember.");
@@ -53,13 +59,21 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
       if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
       return `Remembered · ${body.file}`;
     }
+    if (/^https?:\/\/\S+$/i.test(q)) return read(q);
     return ask(q);
+  }
+
+  async function read(url: string): Promise<string> {
+    const res = await fetch("/api/memory/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
+    return body.duplicate ? `Already in the vault · ${body.file}` : `Read · ${body.file}`;
   }
 
   // /memory?q=… (from the command palette) asks straight away — also when already on this page.
   const urlQ = useSearchParams().get("q")?.trim() ?? "";
   useEffect(() => {
-    if (urlQ) void ask(urlQ).catch(() => {});
+    if (urlQ) void send(urlQ).catch(() => {});
     // Only a new question in the URL triggers this; the reply bar handles the rest.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlQ]);
@@ -150,8 +164,12 @@ export function MemoryView({ stats }: { stats: MemoryStats }) {
         )}
       </div>
 
+      <p className="mt-4 px-1 text-xs leading-relaxed text-faint">
+        Send <code className="font-mono text-text">/read https://…</code> to save an article or video transcript to the vault inbox — it becomes searchable here immediately.
+      </p>
+
       <div className="h-28" aria-hidden />
-      <ReplyBar placeholder="Ask your memory — or /remember … to keep it" onSend={send} />
+      <ReplyBar placeholder="Ask your memory — /read <url> or /remember …" onSend={send} />
     </>
   );
 }
