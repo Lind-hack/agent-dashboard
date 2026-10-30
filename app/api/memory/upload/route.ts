@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { createItem, extFor, kindForMime, MAX_UPLOAD, mediaDir, newId, uploadsDir } from "@/lib/library";
+import { createItem, extFor, kindForMime, MAX_UPLOAD, mediaDir, newId, readItem, uploadsDir } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,16 @@ export const dynamic = "force-dynamic";
 const CHUNK_MAX = 9 * 1024 * 1024;
 
 type Meta = { next: number; bytes: number; at: number };
+
+// One request per upload at a time (the web app is one process); a second one waits its turn.
+const locks = new Map<string, Promise<unknown>>();
+function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = locks.get(key) ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  locks.set(key, next);
+  void next.finally(() => locks.get(key) === next && locks.delete(key)).catch(() => {});
+  return next;
+}
 
 function sweepStale() {
   const dir = uploadsDir();
@@ -26,6 +36,12 @@ function sweepStale() {
 }
 
 export async function POST(request: Request) {
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (declared > CHUNK_MAX) return NextResponse.json({ error: "chunk too large" }, { status: 413 });
+  return serial(request.headers.get("x-upload") ?? "", () => handle(request));
+}
+
+async function handle(request: Request) {
   const h = request.headers;
   const upload = h.get("x-upload") ?? "";
   const index = Number(h.get("x-index"));
@@ -41,6 +57,12 @@ export async function POST(request: Request) {
   fs.mkdirSync(dir, { recursive: true });
   const part = path.join(dir, `${upload}.part`);
   const metaFile = path.join(dir, `${upload}.json`);
+  const receipt = path.join(dir, `${upload}.done`);
+  // The last chunk already landed (its answer was lost): answer with the same item, don't make another.
+  if (fs.existsSync(receipt)) {
+    const item = readItem(fs.readFileSync(receipt, "utf8").trim());
+    if (item) return NextResponse.json({ ok: true, item });
+  }
   if (index === 0) {
     sweepStale();
     fs.rmSync(part, { force: true });
@@ -56,6 +78,8 @@ export async function POST(request: Request) {
 
   const buf = Buffer.from(await request.arrayBuffer());
   if (buf.length > CHUNK_MAX) return NextResponse.json({ error: "chunk too large" }, { status: 413 });
+  const onDisk = index === 0 ? 0 : fs.statSync(part, { throwIfNoEntry: false })?.size ?? 0;
+  if (onDisk !== meta.bytes) return NextResponse.json({ error: "upload out of step — start again", expected: 0 }, { status: 409 });
   if (meta.bytes + buf.length > MAX_UPLOAD) {
     fs.rmSync(part, { force: true });
     fs.rmSync(metaFile, { force: true });
@@ -74,6 +98,7 @@ export async function POST(request: Request) {
   fs.mkdirSync(mediaDir(), { recursive: true });
   fs.renameSync(part, path.join(mediaDir(), file));
   fs.rmSync(metaFile, { force: true });
+  fs.writeFileSync(receipt, id);
   const kind = kindForMime(type, voice);
   const it = createItem({
     id,

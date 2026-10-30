@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addSection, readSections, slugId, writeSections } from "@/lib/library";
+import { addSection, listItems, mirrorItem, readSections, saveItem, slugId, writeSections } from "@/lib/library";
 
 export const dynamic = "force-dynamic";
 
@@ -22,5 +22,9 @@ export async function PATCH(request: Request) {
   }
   s.name = name; // the id stays, so items keep pointing at it
   writeSections(all);
+  for (const it of listItems().filter((i) => i.section === s.id && i.mirror)) {
+    mirrorItem(it);
+    saveItem(it);
+  }
   return NextResponse.json({ sections: all });
 }

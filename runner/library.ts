@@ -1,11 +1,13 @@
 import { execFile } from "node:child_process";
+import dns from "node:dns/promises";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { geminiJSON, geminiReady, type InlineImage } from "../lib/gemini";
 import { groqJSON, transcribe } from "../lib/groq";
-import { addSection, listItems, mediaDir, readItem, readSections, saveItem, type LibraryItem, type Section } from "../lib/library";
+import { addSection, listItems, mediaDir, mirrorItem, readItem, readSections, removeMirror, saveItem, type LibraryItem, type Section } from "../lib/library";
 
 // The Library automation (plan v3 §3): every queued capture is read — voice transcribed, images and
 // video frames described, links fetched — then the organiser files it into a section (making a new
@@ -13,7 +15,6 @@ import { addSection, listItems, mediaDir, readItem, readSections, saveItem, type
 
 const run = promisify(execFile);
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "library:", ...a);
-const vault = () => process.env.MEMORY_VAULT_DIR ?? "";
 const MAX_ATTEMPTS = 3;
 
 let busy = false;
@@ -26,8 +27,9 @@ export function libraryTick() {
   const next = items
     .filter((i) => (i.status === "queued" && (!i.nextAt || Date.parse(i.nextAt) <= now)) || (i.status === "processing" && now - Date.parse(i.updatedAt) > 15 * 60_000))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-  // Images saved while Gemini wasn't configured get their description once it is.
-  const waiting = !next && geminiReady() ? items.find((i) => i.waiting === "vision") : undefined;
+  // Images saved while Gemini wasn't configured get their description once it is (ready ones only —
+  // a failed vision pass goes back to "queued" with its backoff like anything else).
+  const waiting = !next && geminiReady() ? items.find((i) => i.waiting === "vision" && i.status === "ready") : undefined;
   const it = next ?? waiting;
   if (!it) return;
   busy = true;
@@ -42,26 +44,39 @@ async function processItem(id: string) {
   it.status = "processing";
   it.attempts = (it.attempts ?? 0) + 1;
   saveItem(it);
+  const stamp = it.updatedAt; // anything newer was Lind editing it while we worked
   log("processing", it.id, it.kind);
   try {
     const read = await extract(it);
-    const fresh = readItem(id); // Lind may have renamed or moved it meanwhile
+    const draft: LibraryItem = { ...(readItem(id) ?? it), text: read.text.slice(0, 40_000), waiting: read.waiting };
+    if (read.poster) draft.media = { ...draft.media!, poster: read.poster, duration: read.duration ?? draft.media?.duration };
+    await organise(draft, read.title);
+    // Commit against the item as it is NOW: deleted → drop the result; edited → keep his title/section.
+    const fresh = readItem(id);
     if (!fresh) return;
-    fresh.text = read.text.slice(0, 40_000);
-    if (read.poster) fresh.media = { ...fresh.media!, poster: read.poster, duration: read.duration ?? fresh.media?.duration };
-    fresh.waiting = read.waiting;
-    await organise(fresh, read.title);
-    fresh.status = "ready";
-    fresh.error = undefined;
-    fresh.nextAt = undefined;
-    mirror(fresh);
+    const edited = fresh.updatedAt !== stamp;
+    Object.assign(fresh, {
+      text: draft.text,
+      media: draft.media,
+      waiting: draft.waiting,
+      summary: draft.summary,
+      tags: draft.tags,
+      title: edited ? fresh.title : draft.title,
+      section: edited && fresh.section ? fresh.section : draft.section,
+      status: "ready",
+      error: undefined,
+      nextAt: undefined,
+    });
+    mirrorItem(fresh);
     saveItem(fresh);
     log("ready", fresh.id, fresh.section, fresh.title);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const fresh = readItem(id) ?? it;
+    const fresh = readItem(id);
+    if (!fresh) return; // deleted meanwhile — nothing to resurrect
     fresh.error = msg.slice(0, 300);
-    if ((fresh.attempts ?? 0) >= MAX_ATTEMPTS) fresh.status = "failed";
+    // Retrying can't fix a refused link or a missing file.
+    if ((fresh.attempts ?? 0) >= MAX_ATTEMPTS || /private address|only http|file is missing/.test(msg)) fresh.status = "failed";
     else {
       fresh.status = "queued";
       fresh.nextAt = new Date(Date.now() + 60_000 * 4 ** (fresh.attempts ?? 1)).toISOString();
@@ -163,12 +178,59 @@ async function readFile(it: LibraryItem): Promise<Read> {
   return { text: withNote(it, name) };
 }
 
-// Links: title + description from the page itself. Private/loopback hosts are refused.
+// Is this address on the public internet? (Loopback, private, link-local, CGNAT, multicast and
+// unique-local ranges are not — the VPS runs Supabase, the dashboard and more on those.)
+function publicIp(ip: string): boolean {
+  const v4 = ip.startsWith("::ffff:") ? ip.slice(7) : ip;
+  if (net.isIPv4(v4)) {
+    const [a, b] = v4.split(".").map(Number);
+    return !(a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b < 128) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || a >= 224);
+  }
+  const x = ip.toLowerCase();
+  return !(x === "::" || x === "::1" || x.startsWith("fc") || x.startsWith("fd") || x.startsWith("fe80") || x.startsWith("ff"));
+}
+
+async function assertPublic(u: URL) {
+  if (!/^https?:$/.test(u.protocol)) throw new Error("only http(s) links");
+  const host = u.hostname.replace(/^\[|\]$/g, "");
+  const ips = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true })).map((a) => a.address);
+  if (!ips.length || !ips.every(publicIp)) throw new Error("that link points at a private address");
+}
+
+// The page body, at most 1 MB, following up to 4 redirects — each hop checked again.
+async function fetchPage(start: URL): Promise<{ html: string; url: URL }> {
+  let u = start;
+  for (let hop = 0; hop < 5; hop++) {
+    await assertPublic(u);
+    const res = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0 (AgenticOS memory)" }, redirect: "manual", signal: AbortSignal.timeout(15_000) });
+    const loc = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && loc) {
+      await res.body?.cancel();
+      u = new URL(loc, u);
+      continue;
+    }
+    if (!res.ok || !/html/.test(res.headers.get("content-type") ?? "") || !res.body) {
+      await res.body?.cancel();
+      return { html: "", url: u };
+    }
+    const reader = res.body.getReader();
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    while (size < 1_000_000) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      parts.push(value);
+      size += value.length;
+    }
+    await reader.cancel().catch(() => {});
+    return { html: Buffer.concat(parts).toString("utf8"), url: u };
+  }
+  throw new Error("too many redirects");
+}
+
+// Links: title + description from the page itself.
 async function readLink(it: LibraryItem): Promise<Read> {
-  const u = new URL(it.url ?? "");
-  if (/^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[?::1\]?$)/i.test(u.hostname)) throw new Error("private address");
-  const res = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0 (AgenticOS memory)" }, redirect: "follow", signal: AbortSignal.timeout(15_000) }).catch(() => null);
-  const html = res?.ok && /html/.test(res.headers.get("content-type") ?? "") ? (await res.text()).slice(0, 600_000) : "";
+  const { html } = await fetchPage(new URL(it.url ?? ""));
   const meta = (re: RegExp) => html.match(re)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
   const decode = (s: string) => s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
   const title = decode(meta(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || meta(/<title[^>]*>([^<]+)<\/title>/i));
@@ -212,36 +274,4 @@ ${list}`,
   if (typeof out.summary === "string") it.summary = out.summary.trim().slice(0, 600);
   if (Array.isArray(out.tags)) it.tags = out.tags.filter((t): t is string => typeof t === "string").map((t) => t.toLowerCase().trim().slice(0, 30)).filter(Boolean).slice(0, 6);
   if (!it.section || !readSections().some((s) => s.id === it.section)) it.section = section?.id ?? sections[0]?.id;
-}
-
-// A text note per item in the vault ("100 - Me/memory/<Section>/…"), so Obsidian and Hermes see it.
-function mirror(it: LibraryItem) {
-  const root = vault();
-  if (!root || !fs.existsSync(root)) return;
-  const section = readSections().find((s) => s.id === it.section)?.name ?? "Unsorted";
-  const safe = (s: string) => s.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim().slice(0, 70) || "Memory";
-  const rel = path.posix.join("100 - Me", "memory", safe(section), `${it.createdAt.slice(0, 10)} ${safe(it.title)} ${it.id.slice(-4)}.md`);
-  try {
-    if (it.mirror && it.mirror !== rel) fs.rmSync(path.join(root, it.mirror), { force: true });
-    fs.mkdirSync(path.join(root, path.dirname(rel)), { recursive: true });
-    const md = [
-      "---",
-      `name: ${JSON.stringify(it.title)}`,
-      `modified: ${new Date().toISOString()}`,
-      `kind: ${it.kind}`,
-      `tags: [${["memory", ...it.tags].map((t) => JSON.stringify(t)).join(", ")}]`,
-      `dashboard: "/memory?item=${it.id}"`,
-      "---",
-      "",
-      it.summary,
-      "",
-      it.url ? `Link: ${it.url}\n` : "",
-      it.text,
-      "",
-    ].join("\n");
-    fs.writeFileSync(path.join(root, rel), md);
-    it.mirror = rel;
-  } catch (e) {
-    log("mirror", it.id, e instanceof Error ? e.message : e);
-  }
 }

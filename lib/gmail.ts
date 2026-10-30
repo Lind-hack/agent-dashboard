@@ -83,8 +83,13 @@ const files = (p?: Part): string[] => [...(p?.filename ? [p.filename] : []), ...
 export async function refreshMail(): Promise<{ messages: Mail[]; error?: string }> {
   if (!gmailConnected()) return { messages: [], error: "not connected" };
   try {
-    const list = await gmail<{ messages?: { id: string }[] }>(`/messages?maxResults=60&q=${encodeURIComponent("in:inbox newer_than:7d")}`);
-    const ids = (list.messages ?? []).map((m) => m.id);
+    const ids: string[] = [];
+    let page = "";
+    do {
+      const list = await gmail<{ messages?: { id: string }[]; nextPageToken?: string }>(`/messages?maxResults=100&q=${encodeURIComponent("in:inbox newer_than:7d")}${page ? `&pageToken=${page}` : ""}`);
+      ids.push(...(list.messages ?? []).map((m) => m.id));
+      page = list.nextPageToken ?? "";
+    } while (page && ids.length < 150);
     const old = new Map(readMail().messages.map((m) => [m.id, m]));
     const out: Mail[] = [];
     // Unchanged messages come from the cache except for the unread flag, which is cheap to refetch.
@@ -149,7 +154,10 @@ Return JSON {"items": [{"n": number, "pile": string, "why": string (≤10 words)
       sorted++;
     }
   }
-  write("piles.json", piles);
+  // Merge into the file as it is now: a pile Lind picked while the Core was thinking stays his.
+  const current = readPiles();
+  for (const [id, v] of Object.entries(piles)) if (current[id]?.why !== "moved by Lind") current[id] = v;
+  write("piles.json", current);
   const stats = { sorted, ms: Date.now() - t0, at: new Date().toISOString() };
   if (sorted) write("sort-stats.json", stats);
   return stats;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteItem, readItem, readSections, saveItem } from "@/lib/library";
+import { deleteItem, mirrorItem, readItem, readSections, saveItem } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     it.status = "queued";
     it.error = undefined;
     it.attempts = 0;
-  }
+    it.nextAt = undefined;
+  } else mirrorItem(it); // a rename or move shows in the vault too
   saveItem(it);
   invalidateMemory();
   return NextResponse.json({ item: it });

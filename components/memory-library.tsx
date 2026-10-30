@@ -1,6 +1,6 @@
 "use client";
 
-import { AudioLines, FileText, Film, Image as ImageIcon, Link2, Plus, RotateCw, StickyNote, Trash2 } from "lucide-react";
+import { AudioLines, Download, FileText, Film, Image as ImageIcon, Link2, Pencil, Plus, RotateCw, StickyNote, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ItemKind, LibraryItem, Section } from "@/lib/library";
 import { ago, cn } from "@/lib/utils";
@@ -28,6 +28,15 @@ export function Library({
   const [open, setOpen] = useState<LibraryItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
+  const [renaming, setRenaming] = useState("");
+  const current = sections.find((s) => s.id === tab);
+
+  async function renameSection() {
+    const res = await fetch("/api/memory/sections", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: tab, name: renaming }) });
+    const out = await res.json().catch(() => null);
+    if (res.ok && out?.sections) onSections(out.sections);
+    setRenaming("");
+  }
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -80,6 +89,25 @@ export function Library({
                 {s.hue !== undefined && <span className="h-2 w-2 rounded-full" style={{ background: `hsl(${s.hue} 78% 70%)` }} />}
                 {s.name}
                 <span className={cn("tnum font-mono text-[11px]", tab === s.id ? "text-bg/55" : "text-faint")}>{s.id === "all" ? items.length : counts.get(s.id) ?? 0}</span>
+              </button>
+            ))}
+          {current &&
+            (renaming ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void renameSection();
+                }}
+                className="flex h-9 items-center gap-1 rounded-full border border-line-hi pr-1 pl-3"
+              >
+                <input autoFocus value={renaming} onChange={(e) => setRenaming(e.target.value)} onBlur={() => setRenaming("")} aria-label={`Rename ${current.name}`} className="bare-field w-32 bg-transparent text-[13px] focus:outline-none" />
+                <button type="submit" onMouseDown={(e) => e.preventDefault()} className="h-7 rounded-full bg-text px-2.5 text-xs font-medium text-bg">
+                  Save
+                </button>
+              </form>
+            ) : (
+              <button onClick={() => setRenaming(current.name)} aria-label={`Rename ${current.name}`} className="press grid h-9 w-9 shrink-0 place-items-center rounded-full text-faint hover:bg-white/5 hover:text-text">
+                <Pencil className="h-3.5 w-3.5" />
               </button>
             ))}
           {adding ? (
@@ -192,12 +220,24 @@ function ItemSheet({ it, sections, onClose, onChange }: { it: LibraryItem; secti
         {(it.kind === "voice" || it.kind === "audio") && <audio src={media(it)} controls className="mx-5 mt-5 w-[calc(100%-40px)]" />}
         <div className="p-5">
           <div className="flex items-start gap-3">
-            <h3 className="min-w-0 flex-1 text-lg leading-snug font-semibold tracking-[-0.02em]">{it.title || it.kind}</h3>
+            <input
+              key={it.id}
+              defaultValue={it.title || it.kind}
+              aria-label="Title"
+              onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== it.title && void patch({ title: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              className="bare-field min-w-0 flex-1 rounded-[8px] bg-transparent px-1 -mx-1 text-lg leading-snug font-semibold tracking-[-0.02em] hover:bg-white/[0.03] focus:bg-white/[0.05] focus:outline-none"
+            />
             <button ref={closeBtn} onClick={onClose} className="h-9 shrink-0 rounded-[10px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text">
               Close
             </button>
           </div>
           {it.summary && <p className="mt-2 text-[15px] leading-relaxed text-muted">{it.summary}</p>}
+          {it.media && (it.kind === "file" || it.kind === "image" || it.kind === "video") && (
+            <a href={media(it)} target="_blank" rel="noreferrer" download={it.kind === "file" ? (it.media.name ?? true) : undefined} className="mt-2 inline-flex items-center gap-1.5 text-sm text-codex hover:underline">
+              <Download className="h-3.5 w-3.5" /> {it.kind === "file" ? `Open ${it.media.name ?? "file"}` : "Open original"}
+            </a>
+          )}
           {it.url && (
             <a href={it.url} target="_blank" rel="noreferrer" className="mt-2 block truncate text-sm text-codex hover:underline">
               {it.url}

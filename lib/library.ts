@@ -85,6 +85,7 @@ export function listItems(): LibraryItem[] {
 export function deleteItem(id: string): boolean {
   const it = readItem(id);
   if (!it) return false;
+  removeMirror(it);
   for (const f of [it.media?.file, it.media?.poster]) if (f) fs.rmSync(path.join(mediaDir(), path.basename(f)), { force: true });
   fs.rmSync(path.join(itemsDir(), `${id}.json`), { force: true });
   return true;
@@ -95,6 +96,55 @@ export function createItem(fields: Partial<LibraryItem> & { kind: ItemKind }): L
   const it: LibraryItem = { id: newId(), status: "queued", createdAt: now, updatedAt: now, title: "", summary: "", text: "", tags: [], attempts: 0, ...fields };
   saveItem(it);
   return it;
+}
+
+// ---- the vault mirror ---------------------------------------------------------------------------
+// A text note per item in the vault ("100 - Me/memory/<Section>/…"), so Obsidian and Hermes see it.
+// Rewritten when the item is filed, renamed or moved; removed when it's deleted.
+
+const vault = () => process.env.MEMORY_VAULT_DIR ?? "";
+const insideVault = (rel: string) => {
+  const root = path.resolve(vault());
+  const p = path.resolve(root, rel);
+  return p.startsWith(root + path.sep) ? p : null;
+};
+
+export function removeMirror(it: LibraryItem) {
+  const p = it.mirror && vault() ? insideVault(it.mirror) : null;
+  if (p) fs.rmSync(p, { force: true });
+}
+
+export function mirrorItem(it: LibraryItem) {
+  const root = vault();
+  if (!root || !fs.existsSync(root) || it.status === "queued" || it.status === "processing") return;
+  const section = readSections().find((s) => s.id === it.section)?.name ?? "Unsorted";
+  const safe = (s: string) => s.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\.+$/, "").replace(/\s+/g, " ").trim().slice(0, 70) || "Memory";
+  const rel = path.posix.join("100 - Me", "memory", safe(section), `${it.createdAt.slice(0, 10)} ${safe(it.title)} ${it.id.slice(-4)}.md`);
+  const target = insideVault(rel);
+  if (!target) return;
+  try {
+    if (it.mirror && it.mirror !== rel) removeMirror(it);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    const md = [
+      "---",
+      `name: ${JSON.stringify(it.title)}`,
+      `modified: ${new Date().toISOString()}`,
+      `kind: ${it.kind}`,
+      `tags: [${["memory", ...it.tags].map((t) => JSON.stringify(t)).join(", ")}]`,
+      `dashboard: "/memory?item=${it.id}"`,
+      "---",
+      "",
+      it.summary,
+      "",
+      it.url ? `Link: ${it.url}\n` : "",
+      it.text,
+      "",
+    ].join("\n");
+    fs.writeFileSync(target, md);
+    it.mirror = rel;
+  } catch {
+    // The vault is best effort; the Library itself is the record.
+  }
 }
 
 // ---- sections ----------------------------------------------------------------------------------
