@@ -84,3 +84,36 @@ export function StepTracker({ log, running }: { log: LogLike[]; running: boolean
     </section>
   );
 }
+
+// Pinned under the top bar while the agent works, so the step it's on stays visible as you scroll the
+// conversation.
+export function LiveStrip({ log, running }: { log: LogLike[]; running: boolean }) {
+  const p = parseProgress(log);
+  const elapsed = useElapsed(p.startedAt, running);
+  if (!running) return null;
+  const done = p.steps.filter((s) => s.status === "done").length;
+  const pct = p.total ? Math.round((done / p.total) * 100) : null;
+  const active = p.steps.find((s) => s.status === "active");
+  return (
+    <div className="sticky top-[calc(60px+var(--focusbar,0px))] z-10 -mx-1 mb-1" role="status" aria-live="polite">
+      <div className="relative flex items-center gap-3 overflow-hidden rounded-[14px] border border-[color-mix(in_oklab,var(--agent),transparent_60%)] bg-bg-raised/90 px-3.5 py-2 shadow-[0_12px_30px_-18px_rgb(0_0_0/0.9)] backdrop-blur-xl">
+        <span className="absolute inset-x-0 bottom-0 h-[2px] bg-white/[0.04]" aria-hidden>
+          <span className="block h-full transition-[width] duration-700 ease-[var(--ease-out-expo)]" style={{ width: `${pct ?? 8}%`, background: "var(--agent)", boxShadow: "0 0 8px var(--agent)" }} />
+        </span>
+        <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin" style={{ color: "var(--agent)" }} aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-[13px]">
+          {p.current && p.total ? <span className="font-mono text-[11px] text-muted">{p.current}/{p.total} · </span> : null}
+          {active?.title ?? p.phase ?? "Working"}
+        </span>
+        {p.steps.length > 0 && (
+          <span className="hidden shrink-0 items-center gap-1 sm:flex" aria-hidden>
+            {p.steps.map((s) => (
+              <span key={s.n} className={cn("h-1.5 rounded-full transition-all", s.status === "active" ? "w-4" : "w-1.5", s.status === "todo" && "bg-white/15")} style={s.status !== "todo" ? { background: s.status === "done" ? "var(--color-ok)" : "var(--agent)" } : undefined} />
+            ))}
+          </span>
+        )}
+        {elapsed && <span className="tnum shrink-0 font-mono text-[10.5px] text-faint">{elapsed}</span>}
+      </div>
+    </div>
+  );
+}

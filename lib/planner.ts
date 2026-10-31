@@ -5,9 +5,10 @@ import { activeGoals, type Goal } from "./goals";
 import { goalProgress } from "./coach";
 import { groqJSON } from "./groq";
 import { blockId } from "./plan-store";
-import { openTasks, ticktickConnected, type Task } from "./ticktick";
+import { openTasks, ticktickConnected } from "./ticktick";
+import { importTickTick, remainingMin, todosFor, type Todo } from "./todos";
 
-// "Plan my day": fixed calendar events + open TickTick tasks + the vault's Daily Agenda priorities +
+// "Plan my day": fixed calendar events + open dashboard tasks + the vault's Daily Agenda priorities +
 // whatever Lind says → time blocks in the free gaps. Nothing is written until he applies the plan
 // (Google Calendar blocks + a plan note in the Obsidian vault).
 
@@ -20,7 +21,7 @@ export type Today = {
   today: string;
   events: CalEvent[]; // today only
   tomorrow: CalEvent[];
-  tasks: { overdue: Task[]; today: Task[]; inbox: Task[] } | null;
+  todos: ReturnType<typeof todosFor>; // dashboard tasks (TickTick's open ones imported into them)
   priorities: string[];
   goals: Goal[];
   errors: string[];
@@ -64,15 +65,15 @@ export async function today(): Promise<Today> {
       errors.push(err instanceof Error ? err.message : String(err));
     }
   }
-  let tasks: Today["tasks"] = null;
   if (ticktickConnected()) {
     try {
-      tasks = await openTasks(tz, day);
+      const tt = await openTasks(tz, day);
+      importTickTick([...tt.overdue, ...tt.today, ...tt.inbox], day, tz);
     } catch (err) {
-      errors.push(err instanceof Error ? err.message : String(err));
+      errors.push(`TickTick: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  return { tz, today: day, events, tomorrow, tasks, priorities: vaultPriorities(), goals: activeGoals(), errors };
+  return { tz, today: day, events, tomorrow, todos: todosFor(day), priorities: vaultPriorities(), goals: activeGoals(), errors };
 }
 
 // Gaps between now (or the start of the day) and the end of the day, around timed events.
@@ -99,8 +100,9 @@ export async function planDay(note: string): Promise<{ blocks: PlanBlock[]; summ
   const t = await today();
   const slots = freeSlots(t);
   if (!slots.length) return { blocks: [], summary: "No free time left today.", day: t.today, tz: t.tz };
-  const taskList = [...(t.tasks?.overdue ?? []), ...(t.tasks?.today ?? []), ...(t.tasks?.inbox ?? [])].slice(0, 30);
-  const pri = { 5: "high", 3: "medium", 1: "low", 0: "none" } as const;
+  const taskList: Todo[] = [...t.todos.overdue, ...t.todos.today].slice(0, 30);
+  const pri = { 3: "high", 2: "medium", 1: "low", 0: "none" } as const;
+  const dueOf = (x: Todo) => (!x.due ? "no deadline" : x.due.slice(0, 10) < t.today ? "overdue" : x.due.includes("T") ? `due ${x.due.slice(11)}` : x.due.slice(0, 10) === t.today ? "due today" : `due ${x.due}`);
   // How far behind each goal is this week, so the plan gives time where it's missing.
   const progress = new Map(goalProgress().map((p) => [p.goal.id, p]));
   const weekly = (id: string) => {
@@ -113,7 +115,7 @@ export async function planDay(note: string): Promise<{ blocks: PlanBlock[]; summ
     `Free slots (only schedule inside these): ${slots.map((s) => `${toHHMM(s.start)}-${toHHMM(s.end)}`).join(", ")}`,
     `Fixed events: ${t.events.filter((e) => !e.allDay && !e.planned).map((e) => `${clock(t.tz, new Date(e.start))}-${clock(t.tz, new Date(e.end))} ${e.title}`).join("; ") || "none"}`,
     `All-day: ${t.events.filter((e) => e.allDay).map((e) => e.title).join("; ") || "none"}`,
-    `Open tasks (id | priority | due | title):\n${taskList.map((x) => `${x.id} | ${pri[x.priority]} | ${x.due ? (x.due < t.today ? "overdue" : "today") : "no date"} | ${x.title}`).join("\n") || "none"}`,
+    `Open tasks (id | priority | deadline | minutes of work left | goal | title):\n${taskList.map((x) => `${x.id} | ${pri[x.priority]} | ${dueOf(x)} | ${remainingMin(x)} | ${x.goalId ?? "—"} | ${x.title}${x.subtasks.length ? ` (steps left: ${x.subtasks.filter((st) => !st.done).map((st) => st.title).join("; ")})` : ""}`).join("\n") || "none"}`,
     `Standing priorities from the vault: ${t.priorities.join(" / ") || "none"}`,
     `Active goals from the vault (id | horizon | next action | why | due | this week so far):\n${t.goals.map((g) => `${g.id} | ${g.horizon} | ${g.title} → ${g.next || "choose the next action"} | ${g.why || "—"} | ${g.due ?? "no date"} | ${weekly(g.id)}`).join("\n") || "none"}`,
     `What Lind says about today: ${note || "(nothing — plan from the list)"}`,
@@ -123,7 +125,8 @@ export async function planDay(note: string): Promise<{ blocks: PlanBlock[]; summ
 Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "title": string, "kind": "task"|"focus"|"break"|"routine", "taskId": string|null, "goalId": string|null}]}.
 - Only inside the free slots, never overlapping each other. Blocks in 15-minute steps.
 - Goals first: each active goal's next action gets a "focus" block long enough to make real progress (45–120 min) before generic tasks, unless Lind's note says otherwise. Goals furthest behind their weekly target get the earliest and longest block; the hardest goal block goes in the morning.
-- Then overdue and high-priority tasks, then the standing priorities as deep "focus" blocks (60–120 min).
+- Then every task with a deadline today must land BEFORE its deadline; then overdue and high-priority tasks, sized to their minutes of work left; then the standing priorities as deep "focus" blocks (60–120 min).
+- The point is finishing the day's list: if everything can't fit, schedule the most important and say in the summary which tasks won't fit.
 - Group small tasks into one block ("Admin: x, y, z"). A 10–15 min break after ~2h of work, and a meal around 13:00 and 19:30 if free.
 - taskId: the id from the list when a block is for one task, else null. goalId: the id of the active goal when the block serves it, else null. Never invent ids.
 - Leave some slack; do not fill every minute. Titles short, in Lind's language.
@@ -155,7 +158,6 @@ Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "
       title,
       kind: (kinds.includes(b.kind) ? b.kind : "task") as PlanBlock["kind"],
       taskId: task?.id,
-      projectId: task?.projectId,
       goalId: goal?.id,
     });
   }

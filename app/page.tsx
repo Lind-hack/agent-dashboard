@@ -238,8 +238,8 @@ function UpNext({ day }: { day: Today }) {
   const now = Date.now();
   const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: day.tz, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
   const upcoming = day.events.filter((e) => !e.allDay && new Date(e.end).getTime() > now).slice(0, 4);
-  const tasks = [...(day.tasks?.overdue ?? []), ...(day.tasks?.today ?? [])].slice(0, 4);
-  const flag: Record<number, string> = { 5: "bg-bad", 3: "bg-warn", 1: "bg-codex" };
+  const tasks = [...day.todos.overdue, ...day.todos.today].slice(0, 4);
+  const flag: Record<number, string> = { 3: "bg-bad", 2: "bg-warn", 1: "bg-codex" };
   return (
     <>
       <Section label="Up next">
@@ -261,9 +261,7 @@ function UpNext({ day }: { day: Today }) {
       </Section>
       <Section label="Tasks">
         <Panel className="overflow-hidden">
-          {day.tasks === null ? (
-            <p className="px-4 py-4 text-sm text-muted">Connect TickTick on the Today page.</p>
-          ) : tasks.length ? (
+          {tasks.length ? (
             tasks.map((t) => (
               <div key={t.id} className="flex min-h-12 items-center gap-3 border-b border-line px-4 py-2 last:border-0">
                 <span className={cn("h-3 w-[3px] shrink-0 rounded-full", t.priority ? flag[t.priority] : "bg-white/15")} />
@@ -271,7 +269,7 @@ function UpNext({ day }: { day: Today }) {
               </div>
             ))
           ) : (
-            <p className="px-4 py-4 text-sm text-muted">Nothing due today.</p>
+            <p className="px-4 py-4 text-sm text-muted">{day.todos.done.length ? `All ${day.todos.done.length} done today.` : "Nothing due today."}</p>
           )}
         </Panel>
       </Section>

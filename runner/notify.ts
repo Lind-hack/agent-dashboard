@@ -8,8 +8,8 @@ import { listNotices, NOTICES_DIR, PUSH_SUBJECT, readSubscriptions, SUBS_FILE, v
 // the daily cap, and keeps the subscription list (dead ones are pruned on 404/410).
 
 const DAILY_PUSH_CAP = 6;
-// The Coach follows Lind's own blocks, so it gets its own, larger allowance.
-const COACH_PUSH_CAP = 40;
+// The Coach follows Lind's own blocks, tasks and events (v5), so it gets its own, larger allowance.
+const COACH_PUSH_CAP = 60;
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "notify:", ...a);
 
 function writeAtomic(file: string, body: string) {

@@ -3,6 +3,7 @@ import { buildRecap, clockNow, coachNow, coachTz, goalProgress, readRecap, saveR
 import { coachMoments } from "../lib/coach-moments";
 import { groqJSON } from "../lib/groq";
 import { activeBlocks, readPlan } from "../lib/plan-store";
+import { assistantTick, eveningNote } from "./assistant";
 import { notify, sweepNotices } from "./notify";
 
 // The Coach, runner side (Lind chose "Coach", 2026-10-31): a push when a block starts, a nudge when
@@ -11,7 +12,8 @@ import { notify, sweepNotices } from "./notify";
 // Every push opens /focus on that block, where one tap starts, finishes, shrinks or moves it.
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "coach:", ...a);
-const PLAN_REMINDER = () => process.env.COACH_PLAN_AT ?? "07:30";
+// The morning briefing goes out at 07:30; this nudge only comes if there's still no plan after it.
+const PLAN_REMINDER = () => process.env.COACH_PLAN_AT ?? "08:15";
 const RECAP_AT = () => process.env.COACH_RECAP_AT ?? "21:30";
 let lastMinute = "";
 let busy = false;
@@ -61,7 +63,9 @@ async function run(tz: string, minute: string) {
     if (sent) log(m.kind, b.id);
   }
 
-  // 07:30 with nothing planned: one reminder.
+  await assistantTick(minute).catch((e) => log("assistant", e instanceof Error ? e.message : e));
+
+  // Still nothing planned after the morning briefing: one reminder.
   if (minute === PLAN_REMINDER() && !now.planned) {
     const top = [...goals.values()].filter((g) => g.goal.horizon !== "long").slice(0, 2);
     await notify({
@@ -88,7 +92,9 @@ async function run(tz: string, minute: string) {
   if (minute >= RECAP_AT() && !old && now.planned) {
     const r = buildRecap(day);
     const tomorrow = activeBlocks(readPlan(addDays(day, 1))).length;
-    const out = await groqJSON<{ note: string }>(
+    // Sol's evening review (written at 21:25) is the note when it's there; Groq writes a short one if not.
+    const sol = eveningNote(day);
+    const out = sol ? { note: sol } : await groqJSON<{ note: string }>(
       `You are Lind's coach. Write his evening recap: 2-3 short sentences, direct and warm, no fluff. Name what moved, the one thing that slipped and why it matters for his goals, and one concrete move for tomorrow morning. Return JSON {"note": string}.`,
       JSON.stringify({ score: r.score, done: `${r.done}/${r.total}`, focus: `${r.focusMin} of ${r.plannedMin} planned minutes`, goals: r.goals, skipped: r.skipped.slice(0, 6), checkins: r.moods, tomorrowPlanned: tomorrow }),
       0.4,

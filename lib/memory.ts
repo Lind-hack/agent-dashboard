@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
 import { PILES, readMail, readPiles } from "./gmail";
+import { readGoals } from "./goals";
 import { groqJSON } from "./groq";
 import { libraryDir, listItems, readSections, readSourceToggles } from "./library";
 import { recentIssues } from "./linear";
@@ -14,20 +15,29 @@ import { listJobs } from "./store";
 // - notes:    Claude Code memory notes pushed up from the PC (handoff/sync-notes.mjs → data/notes)
 // - capture:  the Library — everything captured on /memory (text, voice, images, video, links)
 // - mail:     the last week of Gmail (subject, sender, snippet)
+// v5 adds:
+// - pcchat:   Claude Code / Codex sessions from the PC (the brain's vault pages, wiki/sources/chats)
+// - github:   PRs and issues (runner/sources.ts → data/sources/github.json) + nightly commit pages
+// - calendar: Google Calendar events (60 days back, 14 ahead), day plans with what got done, coach
+//             recaps and the Day assistant's briefings
+// - web:      saved links and YouTube videos, as full text (Firecrawl / Supadata transcripts)
+// Records are also linked through the projects, people and topics they mention (entities), which is
+// what the Visual cortex draws as the web between them.
 // Retrieval is plain BM25 (no embeddings to host); Groq writes the answer from the top chunks only.
 
-export type SourceKind = "capture" | "chat" | "linear" | "obsidian" | "notes" | "mail";
-export const SOURCE_KINDS: SourceKind[] = ["capture", "chat", "linear", "obsidian", "notes", "mail"];
-const zero = (): Record<SourceKind, number> => ({ capture: 0, chat: 0, linear: 0, obsidian: 0, notes: 0, mail: 0 });
+export type SourceKind = "capture" | "chat" | "linear" | "obsidian" | "notes" | "mail" | "pcchat" | "github" | "calendar" | "web";
+export const SOURCE_KINDS: SourceKind[] = ["capture", "web", "chat", "pcchat", "github", "linear", "calendar", "obsidian", "notes", "mail"];
+const zero = (): Record<SourceKind, number> => Object.fromEntries(SOURCE_KINDS.map((k) => [k, 0])) as Record<SourceKind, number>;
 
-type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; group?: string };
+type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; group?: string; tags?: string[]; people?: string[] };
 type Chunk = { doc: Doc; text: string; tf: Map<string, number>; len: number };
 
 export type Source = { n: number; kind: SourceKind; title: string; href?: string; at: string; snippet: string };
 export type MemoryAnswer = { answer: string; sources: Source[] };
 export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; vault: boolean; enabled: Record<SourceKind, boolean> };
 // One dot in the Visual cortex: group = a Library section, a mail pile, or the source kind.
-export type GraphNode = { id: string; kind: SourceKind; group: string; title: string; at: string; href?: string };
+export type GraphNode = { id: string; kind: SourceKind; group: string; title: string; at: string; href?: string; ents?: number[] };
+export type GraphEntity = { id: number; label: string; type: "project" | "person" | "topic"; count: number };
 
 const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 // Obsidian knows the vault by its folder name on the PC ("Lind Brain"), not the VPS path.
@@ -130,6 +140,9 @@ async function linearDocs(): Promise<Doc[]> {
   }));
 }
 
+// Vault folders the brain writes, as their own sources: PC agent chats and GitHub commit/graph pages.
+const vaultKind = (rel: string): SourceKind => (rel.startsWith("wiki/sources/chats/") ? "pcchat" : rel.startsWith("wiki/sources/commits/") || rel.startsWith("wiki/sources/graphs/") ? "github" : "obsidian");
+
 function vaultDocs(): Doc[] {
   const root = vaultDir();
   return walk(root).flatMap((p) => {
@@ -137,10 +150,16 @@ function vaultDocs(): Doc[] {
     // Library items mirrored into the vault are already indexed as captures.
     if (!f || /^dashboard: "\/memory\?item=/m.test(f.text.slice(0, 600))) return [];
     const rel = path.relative(root, p).replace(/\\/g, "/");
+    // Plan notes mirror data/plans, which the calendar source reads with what actually got done.
+    if (rel.startsWith("100 - Me/plans/")) return [];
+    const kind = vaultKind(rel);
+    const tags = f.text.slice(0, 600).match(/^tags:\s*\[([^\]]*)\]/m)?.[1]?.split(",").map((t) => t.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
     return [
       {
         id: `obsidian:${rel}`,
-        kind: "obsidian" as const,
+        kind,
+        group: kind === "obsidian" ? rel.split("/")[0] : undefined,
+        tags,
         title: rel.replace(/\.md$/, ""),
         href: `obsidian://open?vault=${encodeURIComponent(vaultName())}&file=${encodeURIComponent(rel.replace(/\.md$/, ""))}`,
         at: f.at,
@@ -173,7 +192,8 @@ function captureDocs(): Doc[] {
     .filter((i) => i.status === "ready" || i.text || i.note)
     .map((i) => ({
       id: `capture:${i.id}`,
-      kind: "capture" as const,
+      kind: (i.kind === "link" ? "web" : "capture") as SourceKind,
+      tags: i.tags,
       group: i.section ?? "unsorted",
       title: i.title || i.kind,
       href: `/memory?item=${i.id}`,
@@ -189,10 +209,103 @@ function mailDocs(): Doc[] {
     kind: "mail" as const,
     group: piles[m.id]?.pile ?? "mail",
     title: `${m.subject} — ${m.from}`,
+    people: m.from ? [m.from] : [],
     href: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`,
     at: m.at,
     text: `From: ${m.from} <${m.fromEmail}>\nSubject: ${m.subject}\n${m.snippet}${m.attachments?.length ? `\nAttachments: ${m.attachments.join(", ")}` : ""}`,
   }));
+}
+
+function readSource<T>(name: string): T[] {
+  try {
+    const v = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "sources", name), "utf8"));
+    return Array.isArray(v?.items) ? v.items : [];
+  } catch {
+    return [];
+  }
+}
+
+function githubDocs(): Doc[] {
+  return readSource<{ id: string; kind: "pr" | "issue"; repo: string; number: number; title: string; body: string; state: string; url: string; at: string; author: string; labels: string[] }>("github.json").map((g) => ({
+    id: `github:${g.id}`,
+    kind: "github" as const,
+    group: g.repo,
+    title: `${g.repo} ${g.kind === "pr" ? "PR" : "issue"} #${g.number} ${g.title}`,
+    href: g.url,
+    at: g.at,
+    tags: [g.repo, ...g.labels],
+    text: `${g.title}\n${g.kind === "pr" ? "Pull request" : "Issue"} in ${g.repo}, ${g.state}${g.labels.length ? `, labels: ${g.labels.join(", ")}` : ""}\n\n${g.body}`,
+  }));
+}
+
+function readDir(dir: string, re: RegExp): { name: string; json: Record<string, unknown> }[] {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => re.test(f))
+      .flatMap((f) => {
+        try {
+          return [{ name: f, json: JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")) }];
+        } catch {
+          return [];
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
+// What Lind's days looked like: events, the plan with what got done, the recap and the briefings.
+function calendarDocs(): Doc[] {
+  const since = new Date(Date.now() - 120 * 86_400_000).toISOString().slice(0, 10);
+  const events = readSource<{ id: string; title: string; start: string; end: string; allDay: boolean; location?: string; description?: string; link?: string; planned: boolean }>("calendar.json")
+    .filter((e) => !e.planned)
+    .map((e) => ({
+      id: `calendar:${e.id}:${e.start}`,
+      kind: "calendar" as const,
+      group: "events",
+      title: `${e.title} · ${e.start.slice(0, 10)}`,
+      href: e.link,
+      at: e.start.length > 10 ? e.start : `${e.start}T09:00:00Z`,
+      text: `${e.title}\n${e.allDay ? e.start : `${e.start.slice(0, 16).replace("T", " ")} – ${e.end.slice(11, 16)}`}${e.location ? `\nWhere: ${e.location}` : ""}${e.description ? `\n\n${e.description}` : ""}`,
+    }));
+  const plans = readDir(path.join(DATA_DIR, "plans"), /^\d{4}-\d{2}-\d{2}\.json$/)
+    .filter((p) => p.name.slice(0, 10) >= since)
+    .map(({ name, json }) => {
+      const day = name.slice(0, 10);
+      const blocks = (Array.isArray(json.blocks) ? json.blocks : []) as { start?: string; end?: string; title?: string; status?: string }[];
+      return {
+        id: `calendar:plan:${day}`,
+        kind: "calendar" as const,
+        group: "plans",
+        title: `Day plan · ${day}`,
+        href: "/calendar",
+        at: `${day}T07:00:00Z`,
+        text: `Plan for ${day}${json.summary ? ` — ${json.summary}` : ""}\n${blocks.map((b) => `- ${b.start}–${b.end} ${b.title} (${b.status})`).join("\n")}`,
+      };
+    });
+  const recaps = readDir(path.join(DATA_DIR, "coach"), /^recap-\d{4}-\d{2}-\d{2}\.json$/).map(({ name, json }) => {
+    const day = name.slice(6, 16);
+    return {
+      id: `calendar:recap:${day}`,
+      kind: "calendar" as const,
+      group: "plans",
+      title: `Recap · ${day} · ${json.score}/100`,
+      href: `/goals?recap=${day}`,
+      at: `${day}T21:30:00Z`,
+      text: `Day recap ${day}: score ${json.score}/100, ${json.done}/${json.total} blocks, ${json.focusMin} focus minutes.\n${json.note ?? ""}\nSkipped: ${(Array.isArray(json.skipped) ? json.skipped : []).join("; ")}`,
+    };
+  });
+  const briefs = readDir(path.join(DATA_DIR, "assistant"), /^brief-\d{4}-\d{2}-\d{2}-\w+\.json$/).map(({ name, json }) => ({
+    id: `calendar:brief:${name}`,
+    kind: "calendar" as const,
+    group: "plans",
+    title: `${String(json.slot ?? "")} briefing · ${String(json.day ?? "")} · ${String(json.headline ?? "")}`,
+    href: "/calendar#assistant",
+    at: String(json.createdAt ?? new Date().toISOString()),
+    text: `${json.headline}\n${(Array.isArray(json.focus) ? json.focus : []).join("; ")}\n\n${json.body ?? ""}`,
+  }));
+  return [...events, ...plans, ...recaps, ...briefs];
 }
 
 // ~900-char chunks on paragraph boundaries; the title rides along so it counts in every chunk.
@@ -216,7 +329,7 @@ function chunk(doc: Doc): Chunk[] {
   });
 }
 
-type Index = { at: number; stamp: string; docs: Doc[]; chunks: Chunk[]; df: Map<string, number>; avg: number };
+type Index = { at: number; stamp: string; docs: Doc[]; chunks: Chunk[]; df: Map<string, number>; avg: number; graph?: { entities: GraphEntity[]; links: Map<string, number[]> } };
 
 // The runner files captures and fetches mail in another process; their files' mtimes tell this
 // one to rebuild without waiting out the 10 minutes.
@@ -227,7 +340,8 @@ const mtime = (p: string) => {
     return 0;
   }
 };
-const changeStamp = () => [path.join(libraryDir(), "items"), path.join(libraryDir(), "sections.json"), path.join(DATA_DIR, "mail", "messages.json"), path.join(DATA_DIR, "mail", "piles.json")].map(mtime).join(":");
+const changeStamp = () =>
+  [path.join(libraryDir(), "items"), path.join(libraryDir(), "sections.json"), path.join(DATA_DIR, "mail", "messages.json"), path.join(DATA_DIR, "mail", "piles.json"), path.join(DATA_DIR, "sources", "github.json"), path.join(DATA_DIR, "sources", "calendar.json"), path.join(DATA_DIR, "plans")].map(mtime).join(":");
 let cache: Index | null = null;
 let building: Promise<Index> | null = null;
 
@@ -235,7 +349,7 @@ async function index(): Promise<Index> {
   const stamp = changeStamp();
   if (cache && Date.now() - cache.at < 10 * 60_000 && cache.stamp === stamp) return cache;
   building ??= (async () => {
-    const docs = [...captureDocs(), ...chatDocs(), ...(await linearDocs()), ...vaultDocs(), ...noteDocs(), ...mailDocs()];
+    const docs = [...captureDocs(), ...chatDocs(), ...(await linearDocs()), ...vaultDocs(), ...noteDocs(), ...mailDocs(), ...githubDocs(), ...calendarDocs()];
     const chunks = docs.flatMap(chunk);
     const df = new Map<string, number>();
     for (const c of chunks) for (const t of c.tf.keys()) df.set(t, (df.get(t) ?? 0) + 1);
@@ -339,27 +453,106 @@ export async function memoryStats(): Promise<MemoryStats> {
 
 export type GraphGroup = { key: string; label: string; kind: SourceKind; hue?: number };
 
-// Light nodes for the Visual cortex: captures grouped by section, mail by pile, the rest by source.
-export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: GraphGroup[] }> {
+const GROUP_LABEL: Partial<Record<SourceKind, string>> = { chat: "Agent chats", linear: "Linear", notes: "Claude notes", pcchat: "PC chats", web: "Web & video" };
+
+// ---- entities: the projects, people and topics records share --------------------------------------
+
+const ENTITY_STOP = new Set(["me", "inbox", "plan", "memory", "notes", "note", "todo", "misc", "daily", "index", "log", "source", "sources", "chat", "chats"]);
+
+// Names worth linking on: repos and their Linear/brain projects, goal titles, Library sections, the
+// vault's entity pages, [[wikilinks]], tags and mail senders. A name only becomes a hub when at least
+// two records mention it.
+function extractEntities(docs: Doc[]): { entities: GraphEntity[]; links: Map<string, number[]> } {
+  const dict = new Map<string, { label: string; type: GraphEntity["type"]; re: RegExp }>();
+  const add = (label: string, type: GraphEntity["type"]) => {
+    const clean = label.replace(/^Project - /, "").trim();
+    const key = fold(clean);
+    if (key.length < 3 || ENTITY_STOP.has(key) || dict.has(key)) return;
+    const esc = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    dict.set(key, { label: clean, type, re: new RegExp(`(^|[^\\p{L}\\p{N}])${esc}($|[^\\p{L}\\p{N}])`, "u") });
+  };
+  for (const d of docs) {
+    if (d.kind === "github" && d.group) add(d.group, "project");
+    const m = d.id.match(/^obsidian:wiki\/entities\/(.+)\.md$/);
+    if (m) add(m[1], m[1].startsWith("Project - ") ? "project" : "topic");
+  }
+  for (const s of readSections()) add(s.name, "topic");
+  for (const g of readGoals()) add(g.title, "project");
+  const tagCount = new Map<string, number>();
+  const personCount = new Map<string, number>();
+  for (const d of docs) {
+    for (const t of d.tags ?? []) tagCount.set(fold(t), (tagCount.get(fold(t)) ?? 0) + 1);
+    for (const p of d.people ?? []) personCount.set(p, (personCount.get(p) ?? 0) + 1);
+    for (const w of d.text.slice(0, 20_000).matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) add(w[1].split("/").pop() ?? w[1], "topic");
+  }
+  for (const [t, n] of tagCount) if (n >= 2) add(t, "topic");
+  for (const [p, n] of personCount) if (n >= 2 && !/noreply|no-reply|notification/i.test(p)) add(p, "person");
+
+  const ids = new Map<string, number>();
+  const entities: GraphEntity[] = [];
+  const links = new Map<string, number[]>();
+  const list = [...dict.entries()];
+  for (const d of docs) {
+    const hay = fold(`${d.title}\n${(d.tags ?? []).join(" ")}\n${(d.people ?? []).join(" ")}\n${d.text.slice(0, 3000)}`);
+    const hit: number[] = [];
+    for (const [key, e] of list) {
+      if (!hay.includes(key) || !e.re.test(hay)) continue;
+      let id = ids.get(key);
+      if (id === undefined) {
+        id = entities.length;
+        ids.set(key, id);
+        entities.push({ id, label: e.label, type: e.type, count: 0 });
+      }
+      entities[id].count++;
+      hit.push(id);
+      if (hit.length >= 8) break;
+    }
+    if (hit.length) links.set(d.id, hit);
+  }
+  // Hubs: shared by 2+ records but not by nearly everything (that's noise, not a link).
+  const keep = new Set(entities.filter((e) => e.count >= 2 && e.count <= Math.max(40, docs.length * 0.35)).sort((a, z) => z.count - a.count).slice(0, 90).map((e) => e.id));
+  for (const [k, v] of links) {
+    const f = v.filter((x) => keep.has(x));
+    if (f.length) links.set(k, f);
+    else links.delete(k);
+  }
+  return { entities: entities.filter((e) => keep.has(e.id)), links };
+}
+
+const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+// The Visual cortex: captures grouped by section, mail by pile, GitHub by repo, the vault by top
+// folder, the rest by source — plus the entity hubs and which records link to each.
+export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: GraphGroup[]; entities: GraphEntity[] }> {
   const ix = await index();
+  ix.graph ??= extractEntities(ix.docs);
+  const { entities, links } = ix.graph;
+  const groupOf = (d: Doc) => (d.kind === "capture" ? `capture:${d.group}` : d.kind === "mail" ? `mail:${d.group}` : d.kind === "calendar" ? `calendar:${d.group}` : d.kind === "obsidian" ? `obsidian:${d.group}` : d.kind === "github" ? `github:${d.group ?? "commits"}` : d.kind);
   const nodes: GraphNode[] = ix.docs.map((d) => ({
     id: d.id,
     kind: d.kind,
-    group: d.kind === "capture" ? `capture:${d.group}` : d.kind === "mail" ? `mail:${d.group}` : d.kind,
+    group: groupOf(d),
     title: d.title.slice(0, 140),
     at: d.at,
     href: d.href,
+    ents: links.get(d.id),
   }));
-  const seen = new Set(nodes.map((n) => n.group));
-  const groups: GraphGroup[] = [
+  const seen = new Map<string, SourceKind>();
+  for (const n of nodes) seen.set(n.group, n.kind);
+  const fixed: GraphGroup[] = [
     ...readSections().map((s) => ({ key: `capture:${s.id}`, label: s.name, kind: "capture" as const, hue: s.hue })),
     { key: "capture:unsorted", label: "Unsorted", kind: "capture" },
-    { key: "chat", label: "Agent chats", kind: "chat" },
-    { key: "linear", label: "Linear", kind: "linear" },
-    { key: "obsidian", label: "Obsidian", kind: "obsidian" },
-    { key: "notes", label: "Claude notes", kind: "notes" },
     ...PILES.map((p) => ({ key: `mail:${p.key}`, label: `Mail · ${p.label}`, kind: "mail" as const })),
     { key: "mail:mail", label: "Mail · unsorted", kind: "mail" },
+    { key: "calendar:events", label: "Calendar", kind: "calendar" },
+    { key: "calendar:plans", label: "Plans & recaps", kind: "calendar" },
   ];
-  return { nodes, groups: groups.filter((g) => seen.has(g.key)) };
+  const known = new Set(fixed.map((g) => g.key));
+  // Everything else gets a group named after its source (or vault folder) in the order it appears.
+  const rest: GraphGroup[] = [...seen.entries()]
+    .filter(([k]) => !known.has(k))
+    .map(([key, kind]) => ({ key, kind, label: key.startsWith("obsidian:") ? `Vault · ${key.slice(9) || "root"}` : key.startsWith("github:") ? `GitHub · ${key.slice(7)}` : (GROUP_LABEL[kind] ?? kind) }));
+  const order = (k: SourceKind) => SOURCE_KINDS.indexOf(k);
+  const groups = [...fixed.filter((g) => seen.has(g.key)), ...rest].sort((a, z) => order(a.kind) - order(z.kind));
+  return { nodes, groups, entities };
 }

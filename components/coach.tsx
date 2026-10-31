@@ -77,7 +77,7 @@ export function FocusBar() {
   const late = c && c.status !== "running" && now - c.startMs > 10 * 60_000;
 
   return (
-    <div className="sticky top-14 z-[19] border-b border-line bg-[#0b0910]/85 backdrop-blur-xl" role="status" aria-live="polite">
+    <div data-focusbar className="sticky top-14 z-[19] border-b border-line bg-[#0b0910]/85 backdrop-blur-xl" role="status" aria-live="polite">
       <div className="relative mx-auto flex h-11 max-w-[1180px] items-center gap-3 px-4 text-[13px] lg:px-8">
         {c ? (
           <>

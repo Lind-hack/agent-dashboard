@@ -2,12 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GraphGroup, GraphNode, SourceKind } from "@/lib/memory";
+import type { GraphEntity, GraphGroup, GraphNode, SourceKind } from "@/lib/memory";
+import { cn } from "@/lib/utils";
 import { ago } from "@/lib/utils";
 
 // The Visual cortex: every record Memory knows as one dot. Wedges are sections of the Library, mail
 // piles and the other sources; within a wedge, newer records sit further out. Typing in the search
 // lights the matching dots and draws them back to the core; answers light the records they cite.
+// v5: the projects, people and topics records share sit on an inner ring as hubs, with faint threads
+// to every record that mentions them; hover a record to see its threads, pick a hub to light its web.
 
 export const KIND_COLOR: Record<SourceKind, string> = {
   capture: "#b392f0",
@@ -16,11 +19,18 @@ export const KIND_COLOR: Record<SourceKind, string> = {
   obsidian: "#9f7aea",
   notes: "#5fd3a6",
   mail: "#f472b6",
+  pcchat: "#f6b25e",
+  github: "#9ca3af",
+  calendar: "#38bdf8",
+  web: "#34d399",
 };
+
+const HUB_COLOR: Record<GraphEntity["type"], string> = { project: "#f6b25e", person: "#5fd3a6", topic: "#d6c8ff" };
 
 export const groupColor = (g: GraphGroup | undefined, kind: SourceKind) => (g?.hue !== undefined ? `hsl(${g.hue} 78% 70%)` : KIND_COLOR[kind]);
 
 type Placed = GraphNode & { a: number; r: number; color: string; hit: boolean; lit: boolean; k: number };
+type Hub = GraphEntity & { a: number; r: number; color: string; docs: Placed[] };
 
 const hash = (s: string) => {
   let h = 2166136261;
@@ -29,12 +39,15 @@ const hash = (s: string) => {
 };
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
-export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: GraphNode[]; groups: GraphGroup[]; query: string; lit: Set<string>; total: number }) {
+export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }: { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[]; query: string; lit: Set<string>; total: number }) {
+  const [focus, setFocus] = useState<number | null>(null);
+  const [hoverEnts, setHoverEnts] = useState<number[]>([]);
   const canvas = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const [hover, setHover] = useState<{ n: Placed; x: number; y: number } | null>(null);
+  const [hover, setHover] = useState<{ n: Placed | Hub; x: number; y: number } | null>(null);
   const placedRef = useRef<Placed[]>([]);
+  const hubsRef = useRef<Hub[]>([]);
   const geo = useRef({ cx: 0, cy: 0, r0: 0, r1: 0, rot: 0 });
   const [dims, setDims] = useState({ w: 0, h: 0 });
   useEffect(() => {
@@ -76,14 +89,24 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
           a: w.start + pad + hash(n.id) * (w.end - w.start - pad * 2),
           r: 0.08 + 0.9 * (0.15 + 0.85 * Math.sqrt(age)) * (0.86 + 0.14 * hash(`${n.id}r`)),
           color: groupColor(w.g, n.kind),
-          hit: terms.length > 0 && terms.every((t) => title.includes(t)),
+          hit: (terms.length > 0 && terms.every((t) => title.includes(t))) || (focus !== null && !!n.ents?.includes(focus)),
           lit: lit.has(n.id) || (n.href ? lit.has(n.href) : false) || lit.has(`t:${n.title}`),
           k: hash(`${n.id}k`),
         });
       });
     }
-    return { wedges, placed, searching: terms.length > 0 };
-  }, [nodes, groups, query, lit]);
+    // Hubs sit just outside the core, at the average angle of the records that mention them.
+    const byEnt = new Map<number, Placed[]>();
+    for (const n of placed) for (const e of n.ents ?? []) byEnt.set(e, [...(byEnt.get(e) ?? []), n]);
+    const hubs: Hub[] = entities
+      .filter((e) => (byEnt.get(e.id)?.length ?? 0) >= 2)
+      .map((e) => {
+        const docs = byEnt.get(e.id)!;
+        const a = Math.atan2(docs.reduce((s, d) => s + Math.sin(d.a), 0), docs.reduce((s, d) => s + Math.cos(d.a), 0));
+        return { ...e, a, r: 0.035 + 0.11 * hash(`hub${e.id}`), color: HUB_COLOR[e.type], docs };
+      });
+    return { wedges, placed, hubs, searching: terms.length > 0 || focus !== null };
+  }, [nodes, groups, entities, query, lit, focus]);
 
   useEffect(() => {
     const el = canvas.current;
@@ -96,6 +119,8 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
     let raf = 0;
     let visible = true;
     placedRef.current = layout.placed;
+    hubsRef.current = layout.hubs;
+    const hot = new Set(hoverEnts);
 
     const draw = (now: number) => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -174,6 +199,30 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
         ctx.globalAlpha = 1;
       }
 
+      // Threads from each hub to the records that mention it: faint, lit for the picked/hovered hub.
+      const hubPos = (h: Hub) => {
+        const rr = r0 + (R - r0) * h.r * intro;
+        return [cx + Math.cos(h.a + rot) * rr, cy + Math.sin(h.a + rot) * rr] as const;
+      };
+      let drawn = 0;
+      for (const h of layout.hubs) {
+        const on = focus === h.id || hot.has(h.id);
+        if (!on && (drawn > 5000 || layout.searching)) continue;
+        const [hx, hy] = hubPos(h);
+        ctx.strokeStyle = h.color;
+        ctx.lineWidth = on ? 0.9 : 0.5;
+        ctx.globalAlpha = on ? 0.55 : 0.045;
+        ctx.beginPath();
+        for (const d of h.docs) {
+          const [x, y] = pos(d);
+          ctx.moveTo(hx, hy);
+          ctx.lineTo(x, y);
+          drawn++;
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
       // The dots.
       const dim = layout.searching || lit.size > 0;
       for (const n of layout.placed) {
@@ -194,6 +243,33 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
         }
       }
       ctx.globalAlpha = 1;
+
+      // The hubs, with names on the biggest.
+      const top = new Set(layout.hubs.slice().sort((a, z) => z.count - a.count).slice(0, W < 520 ? 6 : 14).map((h) => h.id));
+      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, monospace";
+      for (const h of layout.hubs) {
+        const [hx, hy] = hubPos(h);
+        const on = focus === h.id || hot.has(h.id);
+        const size = 2.2 + Math.min(5, Math.sqrt(h.count) * 0.55);
+        ctx.globalAlpha = focus !== null && !on ? 0.25 : 1;
+        ctx.fillStyle = h.color;
+        ctx.beginPath();
+        ctx.arc(hx, hy, on ? size + 1.5 : size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = (focus !== null && !on ? 0.1 : 0.22) * (on ? 2 : 1);
+        ctx.beginPath();
+        ctx.arc(hx, hy, size * 2.6, 0, Math.PI * 2);
+        ctx.fill();
+        if (on || (top.has(h.id) && focus === null)) {
+          ctx.globalAlpha = on ? 1 : 0.7;
+          ctx.fillStyle = "#ece6ff";
+          const left = Math.cos(h.a + rot) < 0;
+          ctx.textAlign = left ? "right" : "left";
+          ctx.fillText(h.label.length > 22 ? `${h.label.slice(0, 21)}…` : h.label, hx + (left ? -size - 5 : size + 5), hy + 3);
+        }
+      }
+      ctx.globalAlpha = 1;
+      ctx.textAlign = "left";
 
       // The core: a hexagon with a soft glow.
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r0 * 1.3);
@@ -239,18 +315,28 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
       ro.disconnect();
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [layout, lit]);
+  }, [layout, lit, focus, hoverEnts]);
 
-  // The nearest dot within 10px of the pointer.
-  function pick(clientX: number, clientY: number) {
+  // The nearest dot (record or hub) to the pointer.
+  function pick(clientX: number, clientY: number): { n: Placed | Hub; x: number; y: number } | null {
     const el = canvas.current;
     if (!el) return null;
     const rect = el.getBoundingClientRect();
     const x = clientX - rect.left;
     const y = clientY - rect.top;
     const { cx, cy, r0, r1, rot } = geo.current;
-    let best: Placed | null = null;
+    let best: Placed | Hub | null = null;
     let bd = 100;
+    for (const h of hubsRef.current) {
+      const rr = r0 + (r1 - r0) * h.r;
+      const dx = cx + Math.cos(h.a + rot) * rr - x;
+      const dy = cy + Math.sin(h.a + rot) * rr - y;
+      const d = (dx * dx + dy * dy) * 0.6; // hubs are bigger targets
+      if (d < bd) {
+        bd = d;
+        best = h;
+      }
+    }
     for (const n of placedRef.current) {
       const rr = r0 + (r1 - r0) * n.r;
       const dx = cx + Math.cos(n.a + rot) * rr - x;
@@ -264,7 +350,12 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
     return best ? { n: best, x, y } : null;
   }
 
-  const open = (n: GraphNode) => {
+  const isHub = (n: Placed | Hub): n is Hub => "docs" in n;
+  const open = (n: Placed | Hub) => {
+    if (isHub(n)) {
+      setFocus((f) => (f === n.id ? null : n.id));
+      return;
+    }
     if (!n.href) return;
     if (n.href.startsWith("/")) router.push(n.href);
     else window.open(n.href, "_blank", "noopener");
@@ -276,8 +367,16 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
       <canvas
         ref={canvas}
         className="absolute inset-0 h-full w-full cursor-crosshair"
-        onPointerMove={(e) => setHover(pick(e.clientX, e.clientY))}
-        onPointerLeave={() => setHover(null)}
+        onPointerMove={(e) => {
+          const p = pick(e.clientX, e.clientY);
+          setHover(p);
+          const ents = p ? (isHub(p.n) ? [p.n.id] : (p.n.ents ?? [])) : [];
+          setHoverEnts((old) => (old.join() === ents.join() ? old : ents));
+        }}
+        onPointerLeave={() => {
+          setHover(null);
+          setHoverEnts([]);
+        }}
         onClick={(e) => {
           const p = pick(e.clientX, e.clientY);
           if (p) open(p.n);
@@ -310,14 +409,46 @@ export function MemoryGraph({ nodes, groups, query, lit, total }: { nodes: Graph
         </div>
         {hover && (
           <div className="absolute z-10 max-w-[260px] rounded-[10px] border border-line-hi bg-bg-raised/95 px-3 py-2 text-xs shadow-xl backdrop-blur-md" style={{ left: Math.min(hover.x + 12, (wrap.current?.clientWidth ?? 300) - 270), top: hover.y + 12 }}>
-            <p className="line-clamp-2 text-[13px] text-text">{hover.n.title}</p>
-            <p className="mt-0.5 text-faint">
-              <span style={{ color: hover.n.color }}>{hover.n.kind}</span> · {ago(hover.n.at)}
-              {hover.n.href ? " · click to open" : ""}
-            </p>
+            {isHub(hover.n) ? (
+              <>
+                <p className="text-[13px] text-text">{hover.n.label}</p>
+                <p className="mt-0.5 text-faint">
+                  <span style={{ color: hover.n.color }}>{hover.n.type}</span> · linked to {hover.n.count} records · click to {focus === hover.n.id ? "clear" : "light its web"}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="line-clamp-2 text-[13px] text-text">{hover.n.title}</p>
+                <p className="mt-0.5 text-faint">
+                  <span style={{ color: hover.n.color }}>{hover.n.kind}</span> · {ago(hover.n.at)}
+                  {hover.n.ents?.length ? ` · ${hover.n.ents.length} link${hover.n.ents.length > 1 ? "s" : ""}` : ""}
+                  {hover.n.href ? " · click to open" : ""}
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>
+      {layout.hubs.length > 0 && (
+        <div className="absolute inset-x-0 bottom-0 flex gap-1.5 overflow-x-auto px-2 pb-1 [scrollbar-width:none]" role="toolbar" aria-label="Linked projects, people and topics">
+          {layout.hubs
+            .slice()
+            .sort((a, z) => z.count - a.count)
+            .slice(0, 24)
+            .map((h) => (
+              <button
+                key={h.id}
+                onClick={() => setFocus((f) => (f === h.id ? null : h.id))}
+                aria-pressed={focus === h.id}
+                className={cn("flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[11.5px] whitespace-nowrap backdrop-blur-sm transition-colors", focus === h.id ? "border-white/40 bg-white/15 text-text" : "border-line bg-black/40 text-muted hover:text-text")}
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: h.color }} />
+                {h.label}
+                <span className="tnum font-mono text-[10px] text-faint">{h.count}</span>
+              </button>
+            ))}
+        </div>
+      )}
     </div>
   );
 }

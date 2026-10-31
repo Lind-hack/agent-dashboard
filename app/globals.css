@@ -272,6 +272,22 @@ body::before {
   animation: rise 0.6s var(--ease-out-expo) both;
 }
 
+/* The focus bar sits under the top bar; things pinned below it (a chat's live step strip) move down. */
+:root:has([data-focusbar]) {
+  --focusbar: 45px;
+}
+
+/* Today's progress ring (v5): the arc fills in from empty when the page lands. */
+@keyframes ring-fill {
+  from {
+    stroke-dashoffset: 327;
+  }
+}
+.pulse-ring {
+  animation: ring-fill 1.4s var(--ease-out-expo) both;
+  transition: stroke-dashoffset 0.8s var(--ease-out-expo);
+}
+
 /* ---------- Chat + voice ---------- */
 
 /* A message arriving: a short rise out of a slight blur — only for messages that arrive while you watch. */
@@ -408,6 +424,7 @@ body::before {
 
 @media (prefers-reduced-motion: reduce) {
   .meter-fill,
+  .pulse-ring,
   .rise,
   .agent-sweep,
   .palette-in,

@@ -228,9 +228,53 @@ async function fetchPage(start: URL): Promise<{ html: string; url: URL }> {
   throw new Error("too many redirects");
 }
 
-// Links: title + description from the page itself.
+const YOUTUBE = /^(?:www\.|m\.)?(?:youtube\.com|youtu\.be)$/i;
+
+// Videos: the transcript the platform already has (Supadata, mode "native" — never paid generation).
+async function videoTranscript(u: URL): Promise<string> {
+  const key = process.env.SUPADATA_API_KEY;
+  if (!key) return "";
+  const q = new URLSearchParams({ url: u.toString(), text: "true", mode: "native" });
+  const res = await fetch(`https://api.supadata.ai/v1/transcript?${q}`, { headers: { "x-api-key": key }, signal: AbortSignal.timeout(60_000) });
+  if (res.status !== 200) return ""; // 202 = a long async job; the page's own title/description still go in
+  const b = (await res.json().catch(() => null)) as { content?: unknown } | null;
+  return typeof b?.content === "string" ? b.content.slice(0, 40_000) : "";
+}
+
+// Articles: the page's main content as markdown (Firecrawl), so Memory can search the whole text.
+async function articleText(u: URL): Promise<{ title?: string; markdown: string }> {
+  const key = process.env.FIRECRAWL_API_KEY;
+  if (!key) return { markdown: "" };
+  const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ url: u.toString(), formats: ["markdown"], onlyMainContent: true }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) return { markdown: "" };
+  const b = (await res.json().catch(() => null)) as { data?: { markdown?: string; metadata?: { title?: string } } } | null;
+  return { title: b?.data?.metadata?.title, markdown: (b?.data?.markdown ?? "").slice(0, 40_000) };
+}
+
+// Links (v5: full text): YouTube → its transcript; other pages → Firecrawl's main-content markdown.
+// The page's own title + description always go in; without the keys it's those plus a text excerpt.
 async function readLink(it: LibraryItem): Promise<Read> {
-  const { html } = await fetchPage(new URL(it.url ?? ""));
+  const url = new URL(it.url ?? "");
+  await assertPublic(url);
+  const isVideo = YOUTUBE.test(url.hostname);
+  const [{ html }, full] = await Promise.all([
+    fetchPage(url),
+    (isVideo ? videoTranscript(url).then((markdown) => ({ title: undefined, markdown })) : articleText(url)).catch(() => ({ title: undefined, markdown: "" })),
+  ]);
+  if (full.markdown) {
+    const t = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i)?.[1] ?? html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ?? full.title ?? "";
+    const title = t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/\s+/g, " ").trim();
+    return { title: title || undefined, text: withNote(it, [title, it.url, isVideo ? `Transcript:\n${full.markdown}` : full.markdown].filter(Boolean).join("\n\n")) };
+  }
+  return readPageMeta(it, html);
+}
+
+function readPageMeta(it: LibraryItem, html: string): Read {
   const meta = (re: RegExp) => html.match(re)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
   const decode = (s: string) => s.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
   const title = decode(meta(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || meta(/<title[^>]*>([^<]+)<\/title>/i));

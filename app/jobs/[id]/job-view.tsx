@@ -12,7 +12,7 @@ import { AGENT_HEX, AGENT_LABELS, AGENT_META, AGENT_PERSONA, type TaskAgent } fr
 import type { Job } from "@/lib/store";
 import { ago, cn } from "@/lib/utils";
 import { ContextPanel, EarlierOnPc, HandoffStrip } from "./handoff-panels";
-import { StepTracker } from "./step-tracker";
+import { LiveStrip, StepTracker } from "./step-tracker";
 
 type LogEvent = { t?: string; kind?: string; text?: string; ok?: boolean; costUsd?: number; sessionId?: string };
 
@@ -360,6 +360,8 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
 
       {job.imported && tab === "context" && <ContextPanel jobId={job.id} dossierState={job.imported.dossier} />}
       {job.imported && tab === "earlier" && <EarlierOnPc jobId={job.id} Tools={Tools} />}
+
+      {(!job.imported || tab === "chat") && <LiveStrip log={log} running={job.status === "running"} />}
 
       <div className={cn("flex flex-col gap-4 text-[15px] leading-relaxed", job.imported && tab !== "chat" && "hidden")}>
         {blocks.length === 0 && !running && !preparing && <p className="text-sm text-muted">{AGENT_PERSONA[agent].idle}</p>}

@@ -63,7 +63,7 @@ export function RoomLauncher({ agents, repos, judgeModel, seats = [], initialTas
   const chosen = mode === "solo" ? picked.slice(0, 1) : picked;
   const sharedModel = mode === "roast" ? chosen.find((a, i) => chosen.some((b, j) => j > i && byKey[a]?.model === byKey[b]?.model)) : undefined;
   const table = chosen.length + (mode === "roast" ? council.length : 0);
-  const calls = table * 6 + 8; // same budget the runner enforces (debaters, repairs, judge, verdict)
+  const calls = table * 6 + 12; // same budget the runner enforces (debaters, repairs, judge, verdict)
   // Skills work in Solo (one known agent); debaters are tool-free and a team mixes agents.
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useSkillPicker(mode === "solo" ? chosen[0] : undefined, box);
@@ -225,7 +225,7 @@ export function RoomLauncher({ agents, repos, judgeModel, seats = [], initialTas
             <div className="mt-3 flex flex-col gap-1.5 border-t border-line px-1 pt-3 text-xs text-muted">
               <p>
                 Judge: <span className="font-mono text-text/80">{judgeModel}</span> — not one of the debaters
-                {chosen.includes("hermes") ? " (if Groq is out of quota, the Nemotron fallback is Hermes' own model)" : ""}.
+                {chosen.includes("hermes") ? " (if Sol fails, the Nemotron fallback is Hermes' own model)" : ""}.
               </p>
               <p>
                 Up to 3 rounds · at most <span className="tnum">{calls}</span> model calls · debaters can read the evidence but can&apos;t run tools or change anything.
