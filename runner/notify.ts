@@ -8,6 +8,8 @@ import { listNotices, NOTICES_DIR, PUSH_SUBJECT, readSubscriptions, SUBS_FILE, v
 // the daily cap, and keeps the subscription list (dead ones are pruned on 404/410).
 
 const DAILY_PUSH_CAP = 6;
+// The Coach follows Lind's own blocks, so it gets its own, larger allowance.
+const COACH_PUSH_CAP = 40;
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "notify:", ...a);
 
 function writeAtomic(file: string, body: string) {
@@ -25,9 +27,9 @@ export function removeSubscription(endpoint: string) {
   writeAtomic(SUBS_FILE(), JSON.stringify(readSubscriptions().filter((s) => s.endpoint !== endpoint)));
 }
 
-const pushedToday = () => {
+const pushedToday = (coach: boolean) => {
   const day = new Date().toISOString().slice(0, 10);
-  return listNotices().filter((n) => n.pushedAt?.startsWith(day)).length;
+  return listNotices().filter((n) => n.pushedAt?.startsWith(day) && (n.kind === "coach") === coach).length;
 };
 
 async function push(n: Notice): Promise<boolean> {
@@ -60,7 +62,8 @@ export async function notify(n: Omit<Notice, "id" | "createdAt" | "pushedAt">): 
   const notice: Notice = { ...n, id: `${Date.now().toString(36)}${crypto.randomBytes(3).toString("hex")}`, createdAt: new Date().toISOString() };
   const file = path.join(NOTICES_DIR(), `${notice.id}.json`);
   writeAtomic(file, JSON.stringify(notice, null, 2));
-  if (n.priority >= 2 && (n.priority === 3 || pushedToday() < DAILY_PUSH_CAP)) {
+  const coach = n.kind === "coach";
+  if (n.priority >= 2 && (n.priority === 3 || pushedToday(coach) < (coach ? COACH_PUSH_CAP : DAILY_PUSH_CAP))) {
     if (await push(notice).catch(() => false)) {
       notice.pushedAt = new Date().toISOString();
       writeAtomic(file, JSON.stringify(notice, null, 2));

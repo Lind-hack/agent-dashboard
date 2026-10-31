@@ -42,5 +42,5 @@ function crossSite(request: NextRequest): boolean {
 
 export const config = {
   // Everything except the login flow and the static bits a phone fetches before logging in.
-  matcher: ["/((?!login|api/login|_next/static|_next/image|manifest.webmanifest|icon.svg|favicon.ico).*)"],
+  matcher: ["/((?!login|api/login|_next/static|_next/image|manifest.webmanifest|icon.svg|favicon.ico|sw.js).*)"],
 };

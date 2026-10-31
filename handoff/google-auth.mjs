@@ -13,7 +13,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/gmail.readonly"];
+const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/analytics.readonly"];
 const credsPath = process.argv[2] ?? path.join(os.homedir(), "Desktop", "claude", "tools", "google_credentials.json");
 
 const readEnv = (file) =>

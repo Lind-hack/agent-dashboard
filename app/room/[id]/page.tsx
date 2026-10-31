@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { RoomView } from "@/components/room-view";
 import { listRepos } from "@/lib/github";
+import { seats } from "@/lib/council";
 import { readRoom, ROOM_ID_RE } from "@/lib/rooms";
 
 export const dynamic = "force-dynamic";
@@ -13,10 +14,10 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
     if (ROOM_ID_RE.test(id)) {
       const now = new Date().toISOString();
       const repos = (await listRepos().catch(() => [])).map((r) => r.name);
-      return <RoomView repos={repos} initial={{ id, task: "Starting the room…", agents: [], models: {}, judgeModel: "", status: "queued", rounds: [], budget: { calls: 0, used: 0 }, createdAt: now, updatedAt: now }} />;
+      return <RoomView repos={repos} seats={seats()} initial={{ id, task: "Starting the room…", agents: [], models: {}, judgeModel: "", status: "queued", rounds: [], budget: { calls: 0, used: 0 }, createdAt: now, updatedAt: now }} />;
     }
     notFound();
   }
   const repos = room.repo ? [] : (await listRepos().catch(() => [])).map((r) => r.name);
-  return <RoomView initial={room} repos={repos} />;
+  return <RoomView initial={room} repos={repos} seats={seats()} />;
 }

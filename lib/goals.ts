@@ -4,10 +4,11 @@ import path from "node:path";
 // Short- and long-term goals live in the Syncthing vault so Lind can edit them in Obsidian and the
 // planner reads the same file. One markdown list, one goal per line:
 //
-//   - [ ] now Ship the 383 subscriber funnel | next: write the landing copy | why: first revenue | due: 2026-11-15
+//   - [ ] now Ship the 383 subscriber funnel | next: write the landing copy | why: first revenue | due: 2026-11-15 | weekly: 6h
 //
 // horizon is now / short / long. `next:` is the concrete next action the planner reserves time for,
-// `why:` is the reason to keep going, `due:` an optional target date. Ticks are kept on the line.
+// `why:` is the reason to keep going, `due:` an optional target date,
+// `weekly:` the focus time Lind wants on it each week (the Coach measures progress against it). Ticks are kept on the line.
 
 const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 
@@ -20,8 +21,18 @@ export type Goal = {
   next: string;
   why: string;
   due?: string;
+  weeklyMin?: number; // focus minutes a week ("weekly: 6h" / "90m")
   done: boolean;
 };
+
+// "6h", "1h30", "90m", "90" → minutes (5 min … 80 h).
+export function parseWeekly(v: string | undefined): number | undefined {
+  const m = v?.trim().toLowerCase().match(/^(\d+(?:\.\d+)?)\s*(h|hr|hrs|hours?)?\s*(\d+)?\s*(m|min|mins|minutes?)?$/);
+  if (!m) return undefined;
+  const n = m[2] ? Number(m[1]) * 60 + Number(m[3] ?? 0) : Number(m[1]);
+  return Number.isFinite(n) && n >= 5 && n <= 4800 ? Math.round(n) : undefined;
+}
+const fmtWeekly = (n: number) => (n % 60 ? `${Math.floor(n / 60) ? `${Math.floor(n / 60)}h` : ""}${n % 60}m` : `${n / 60}h`);
 
 const HORIZONS: Record<string, GoalHorizon> = {
   now: "now",
@@ -76,8 +87,9 @@ function parseLine(line: string): Goal | null {
   let next = "";
   let why = "";
   let due: string | undefined;
+  let weeklyMin: number | undefined;
   for (const part of parts) {
-    const kv = part.match(/^(next|why|due|by|target)\s*:\s*(.+)$/i);
+    const kv = part.match(/^(next|why|due|by|target|weekly)\s*:\s*(.+)$/i);
     if (!kv) {
       title = [title, part].filter(Boolean).join(" — ");
       continue;
@@ -86,6 +98,7 @@ function parseLine(line: string): Goal | null {
     const value = kv[2].trim();
     if (key === "next") next = value;
     else if (key === "why") why = value;
+    else if (key === "weekly") weeklyMin = parseWeekly(value);
     else due = value;
   }
   // Also accept a bare leading target date: "- [ ] now 2026-11-15 Ship the funnel".
@@ -96,7 +109,7 @@ function parseLine(line: string): Goal | null {
   }
   title = title.replace(/\s+/g, " ").trim();
   if (!title) return null;
-  return { id: goalId(title), horizon, title: clip(title), next: clip(next), why: clip(why), due: validDate(due), done };
+  return { id: goalId(title), horizon, title: clip(title), next: clip(next), why: clip(why), due: validDate(due), weeklyMin, done };
 }
 
 function withUniqueIds(goals: Goal[]): Goal[] {
@@ -144,6 +157,7 @@ export function writeGoals(goals: Goal[]): boolean {
               next: clip(String(g.next ?? "").trim()),
               why: clip(String(g.why ?? "").trim()),
               due: validDate(g.due),
+              weeklyMin: typeof g.weeklyMin === "number" ? parseWeekly(String(g.weeklyMin)) : undefined,
               done: !!g.done,
             }
           : null;
@@ -161,7 +175,7 @@ export function writeGoals(goals: Goal[]): boolean {
     "",
     ...clean.map(
       (g) =>
-        `- [${g.done ? "x" : " "}] ${g.horizon} ${g.title}${g.next ? ` | next: ${g.next}` : ""}${g.why ? ` | why: ${g.why}` : ""}${g.due ? ` | due: ${g.due}` : ""}`,
+        `- [${g.done ? "x" : " "}] ${g.horizon} ${g.title}${g.next ? ` | next: ${g.next}` : ""}${g.why ? ` | why: ${g.why}` : ""}${g.due ? ` | due: ${g.due}` : ""}${g.weeklyMin ? ` | weekly: ${fmtWeekly(g.weeklyMin)}` : ""}`,
     ),
     "",
   ].join("\n");

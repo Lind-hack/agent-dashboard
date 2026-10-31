@@ -5,9 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
+import { FocusBar } from "@/components/coach";
 import { CommandPalette, openPalette } from "@/components/command-palette";
 import { Composer } from "@/components/composer";
-import { Core } from "@/components/core";
 import { NebulaCard, Orb } from "@/components/orb";
 import { VoiceMode } from "@/components/voice-mode";
 import { AGENT_HEX, AGENT_LABELS, type AgentKey } from "@/lib/agents";
@@ -123,8 +123,8 @@ function SideLink({ item, path, count }: { item: NavItem; path: string; count: n
 function Brand({ working }: { working: AgentKey[] }) {
   return (
     <Link href="/" className="flex items-center gap-3 px-1">
-      <span className="relative h-9 w-9 overflow-hidden rounded-[11px] bg-black shadow-[0_0_0_1px_rgb(169_228_245/0.25)_inset]">
-        <Core className="absolute inset-0 h-full w-full" density={0.35} energy={working.length ? 0.8 : 0.3} tints={working.map((a) => AGENT_HEX[a])} />
+      <span className="relative h-9 w-9 overflow-hidden rounded-[11px] bg-[url(/media/nebula-loop.webp)] bg-cover bg-center shadow-[0_0_0_1px_rgb(214_170_255/0.3)_inset]">
+        <Orb state={working.length ? "thinking" : "idle"} className="absolute inset-[-3px]" />
       </span>
       <span className="leading-tight">
         <span className="block text-[16px] font-semibold tracking-[-0.03em]">Agentic OS</span>
@@ -144,7 +144,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const tools = TOOLS.filter((i) => LIVE.has(i.href));
   const crumb =
     [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].find((i) => isActive(path, i.href))?.label ??
-    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : path.startsWith("/agents/g") ? "Room" : path === "/more" ? "More" : "");
+    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : path.startsWith("/agents/g") ? "Room" : path === "/more" ? "More" : path === "/focus" ? "Focus" : "");
 
   return (
     <div className="min-h-dvh lg:pl-[248px]">
@@ -208,8 +208,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b border-line bg-bg/75 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-[1180px] items-center gap-3 px-4 lg:px-8">
-          <Link href="/" className="relative h-8 w-8 overflow-hidden rounded-[10px] bg-black shadow-[0_0_0_1px_rgb(169_228_245/0.25)_inset] lg:hidden" aria-label="Home">
-            <Core className="absolute inset-0 h-full w-full" density={0.3} energy={working.length ? 0.8 : 0.3} tints={working.map((a) => AGENT_HEX[a])} />
+          <Link href="/" className="relative h-8 w-8 overflow-hidden rounded-[10px] bg-[url(/media/nebula-loop.webp)] bg-cover bg-center shadow-[0_0_0_1px_rgb(214_170_255/0.3)_inset] lg:hidden" aria-label="Home">
+            <Orb state={working.length ? "thinking" : "idle"} className="absolute inset-[-3px]" />
           </Link>
           <p className="font-mono text-[12px] tracking-[0.06em]">
             <span className="text-muted">agentic</span>
@@ -236,6 +236,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      <FocusBar />
 
       <main id="main" tabIndex={-1} className="pb-tabbar mx-auto max-w-[1180px] min-w-0 overflow-x-clip px-4 pt-4 outline-none lg:px-8">
         {children}
