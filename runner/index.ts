@@ -10,6 +10,7 @@ import { pendingImports, releaseReservation } from "../lib/handoff";
 import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
 import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
+import { coachTick } from "./coach";
 import { libraryTick } from "./library";
 import { mailTick } from "./mail";
 import { cancelRoom, createRoom, roomTick } from "./room";
@@ -633,6 +634,7 @@ async function tick() {
   try {
     libraryTick();
     mailTick();
+    coachTick();
   } catch (e) {
     log("library", e instanceof Error ? e.message : e);
   }

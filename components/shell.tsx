@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
+import { FocusBar } from "@/components/coach";
 import { CommandPalette, openPalette } from "@/components/command-palette";
 import { Composer } from "@/components/composer";
 import { Core } from "@/components/core";
@@ -236,6 +237,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+      <FocusBar />
 
       <main id="main" tabIndex={-1} className="pb-tabbar mx-auto max-w-[1180px] min-w-0 overflow-x-clip px-4 pt-4 outline-none lg:px-8">
         {children}

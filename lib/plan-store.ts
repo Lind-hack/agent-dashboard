@@ -21,7 +21,14 @@ export type StoredBlock = {
   status: BlockStatus;
   movedTo?: string;
   updatedAt?: string;
+  // Coach (v4): when work really started/ended, and the check-ins answered during the block.
+  startedAt?: string;
+  doneAt?: string;
+  checkins?: Checkin[];
 };
+
+export type Mood = "on-track" | "stuck" | "distracted";
+export type Checkin = { at: string; mood: Mood; note?: string };
 
 export type DayPlan = {
   day: string;
@@ -83,6 +90,10 @@ function clean(raw: Partial<DayPlan> | null): DayPlan | null {
         status: statuses.includes(b.status as BlockStatus) ? (b.status as BlockStatus) : "planned",
         movedTo: b.movedTo || undefined,
         updatedAt: b.updatedAt || undefined,
+        startedAt: b.startedAt || undefined,
+        doneAt: b.doneAt || undefined,
+        // Older files have no check-ins; anything malformed is dropped.
+        checkins: Array.isArray(b.checkins) ? b.checkins.filter((c) => c?.at && ["on-track", "stuck", "distracted"].includes(c?.mood)).slice(-20) : undefined,
       })),
   };
 }
@@ -130,6 +141,9 @@ export function savePlan(day: string, blocks: PlanBlock[], meta: { tz?: string; 
       status: old && old.status !== "dropped" && old.status !== "moved" ? old.status : "planned",
       movedTo: old?.movedTo,
       updatedAt: old?.updatedAt,
+      startedAt: old?.startedAt,
+      doneAt: old?.doneAt,
+      checkins: old?.checkins,
     });
   }
   for (const old of prev?.blocks ?? []) {
@@ -186,6 +200,12 @@ export function setBlockStatus(day: string, id: string, action: BlockAction): Da
     block.movedTo = tomorrow;
   } else {
     block.status = action === "start" ? "running" : action;
+    if (action === "start") block.startedAt ??= at;
+    if (action === "done") {
+      block.doneAt = at;
+      block.startedAt ??= at;
+    }
+    if (action === "planned") block.doneAt = undefined;
   }
   block.updatedAt = at;
   writePlan(plan);
@@ -237,3 +257,68 @@ export function planStats(day: string): PlanStats {
     todayTotal: todayBlocks.length,
   };
 }
+
+// ---- Coach (v4) -----------------------------------------------------------------------------------
+
+const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+
+// A block added by hand ("Focus on this now", "Plan into today"): placed at `start`, `length` minutes.
+export function addBlock(day: string, b: { start: string; length: number; title: string; goalId?: string; kind?: StoredBlock["kind"]; status?: BlockStatus }): StoredBlock {
+  const at = new Date().toISOString();
+  const plan = readPlan(day) ?? { day, createdAt: at, updatedAt: at, blocks: [] };
+  const start = mins(b.start);
+  const block: StoredBlock = {
+    id: blockId(day, b.start, b.title),
+    start: b.start,
+    end: hhmm(Math.min(start + Math.max(10, Math.min(240, b.length)), 23 * 60 + 59)),
+    title: b.title.slice(0, 200),
+    kind: b.kind ?? "focus",
+    goalId: b.goalId,
+    status: b.status ?? "planned",
+    updatedAt: at,
+    startedAt: b.status === "running" ? at : undefined,
+  };
+  const base = block.id;
+  let n = 2;
+  while (plan.blocks.some((x) => x.id === block.id)) block.id = `${base}-${n++}`;
+  plan.blocks = [...plan.blocks, block].sort((a, z) => a.start.localeCompare(z.start));
+  writePlan(plan);
+  return block;
+}
+
+// "Shrink it": the block becomes a 25-minute start from now — the smallest step that still counts.
+export function shrinkBlock(day: string, id: string, nowHHMM: string, length = 25): DayPlan | null {
+  const plan = readPlan(day);
+  const block = plan?.blocks.find((b) => b.id === id);
+  if (!plan || !block) return null;
+  block.start = nowHHMM;
+  block.end = hhmm(Math.min(mins(nowHHMM) + length, 23 * 60 + 59));
+  block.status = "running";
+  block.startedAt = new Date().toISOString();
+  block.updatedAt = block.startedAt;
+  plan.blocks.sort((a, z) => a.start.localeCompare(z.start));
+  writePlan(plan);
+  return plan;
+}
+
+export function addCheckin(day: string, id: string, mood: Mood, note?: string): DayPlan | null {
+  const plan = readPlan(day);
+  const block = plan?.blocks.find((b) => b.id === id);
+  if (!plan || !block) return null;
+  block.checkins = [...(block.checkins ?? []), { at: new Date().toISOString(), mood, note: note?.trim().slice(0, 300) || undefined }].slice(-20);
+  block.updatedAt = new Date().toISOString();
+  writePlan(plan);
+  return plan;
+}
+
+// Minutes a block really counted for: actual start→done when known, else its planned length.
+export function blockMinutes(b: StoredBlock): number {
+  if (b.startedAt && b.doneAt) {
+    const m = Math.round((Date.parse(b.doneAt) - Date.parse(b.startedAt)) / 60_000);
+    if (m > 0 && m < 600) return m;
+  }
+  return Math.max(0, mins(b.end) - mins(b.start));
+}
+
+export { addDays as shiftDay, daysOfWeek };

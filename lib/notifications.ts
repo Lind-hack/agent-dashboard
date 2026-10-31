@@ -11,7 +11,7 @@ import { DATA_DIR } from "./config";
 export type Notice = {
   id: string;
   key: string; // dedupe: one live notice per key
-  kind: "plan" | "checkin" | "review" | "goal" | "system" | "test";
+  kind: "plan" | "checkin" | "review" | "goal" | "system" | "test" | "coach";
   title: string; // shown in the app
   body: string;
   push?: { title: string; body: string }; // lock-screen text; defaults to a generic line

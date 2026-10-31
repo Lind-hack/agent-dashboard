@@ -1,6 +1,7 @@
 "use client";
 
-import { Ban, CalendarClock, Check, Flame, LoaderCircle, Play, RotateCcw, Target } from "lucide-react";
+import { Ban, CalendarClock, Check, Crosshair, Flame, LoaderCircle, Play, RotateCcw, Target } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { BlockAction, PlanStats, StoredBlock } from "@/lib/plan-store";
@@ -115,6 +116,11 @@ export function TodayPlan({
                   </span>
                 </span>
                 <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                  {b.status !== "done" && b.kind !== "break" && (
+                    <Link href={`/focus?block=${encodeURIComponent(b.id)}`} aria-label={`Focus mode: ${b.title}`} className="grid h-10 w-10 place-items-center rounded-full text-faint transition-colors hover:bg-white/5 hover:text-hermes">
+                      <Crosshair className="h-4 w-4" />
+                    </Link>
+                  )}
                   {b.status !== "done" && b.status !== "running" && (
                     <Control label="Start" onClick={() => act(b.id, "start")} busy={busy === `${b.id}:start`}>
                       <Play className="h-4 w-4" />

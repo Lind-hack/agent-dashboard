@@ -115,6 +115,20 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
                   aria-label="Why it matters"
                   className={cn(field, "min-w-0 flex-1")}
                 />
+                <label className={cn(field, "flex shrink-0 items-center gap-1.5 py-0")}>
+                  <span className="text-xs text-faint">h/week</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={80}
+                    step={0.5}
+                    value={g.weeklyMin ? g.weeklyMin / 60 : ""}
+                    onChange={(e) => set(g.key, { weeklyMin: e.target.value ? Math.round(Number(e.target.value) * 60) || undefined : undefined })}
+                    placeholder="4"
+                    aria-label="Focus hours a week"
+                    className="w-12 bg-transparent py-2 outline-none"
+                  />
+                </label>
                 <input
                   type="date"
                   value={g.due ?? ""}
