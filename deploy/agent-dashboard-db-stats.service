@@ -1,0 +1,8 @@
+[Unit]
+Description=Agent dashboard: Supabase DB health snapshot (read-only)
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/agent-dashboard/deploy/db-stats.sh
+TimeoutStartSec=60

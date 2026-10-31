@@ -12,6 +12,7 @@ import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
 import { coachTick } from "./coach";
 import { libraryTick } from "./library";
+import { monitorTick } from "./monitor";
 import { mailTick } from "./mail";
 import { cancelRoom, createRoom, roomTick } from "./room";
 import { syncSkillsTick } from "./skills-sync";
@@ -635,6 +636,7 @@ async function tick() {
     libraryTick();
     mailTick();
     coachTick();
+    monitorTick();
   } catch (e) {
     log("library", e instanceof Error ? e.message : e);
   }
