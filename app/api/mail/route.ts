@@ -16,7 +16,8 @@ export async function POST(request: Request) {
       invalidateMemory();
       invalidateInboxCount();
       if (b.action === "refresh") return NextResponse.json({ ok: true, total: messages.length });
-      return NextResponse.json({ ok: true, total: messages.length, ...(await sortMail(!!b.all)) });
+      // One tap sorts up to 48 (about a minute on the free tier); the runner keeps going every few minutes.
+      return NextResponse.json({ ok: true, total: messages.length, ...(await sortMail(!!b.all, 48)) });
     }
     if (b?.action === "done" && Array.isArray(b.ids)) {
       markMailDone(b.ids.filter((x) => typeof x === "string").slice(0, 200));
