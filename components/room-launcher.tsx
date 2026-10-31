@@ -7,6 +7,8 @@ import { AgentLogo } from "@/components/agent-logo";
 import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "@/components/skill-picker";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
 import { AGENT_LABELS, AGENT_META, type AgentKey } from "@/lib/agents";
+import type { Seat } from "@/lib/council";
+import { SeatBadge } from "./seat-badge";
 import { cn } from "@/lib/utils";
 
 // The Room: pick a mode and the agents for one task.
@@ -29,7 +31,7 @@ const SUGGESTIONS: Record<Mode, string[]> = {
   roast: ["Should 383's news pipeline move off Hermes to the runner?", "What's the single highest-leverage thing to build this week for my goals?"],
 };
 
-export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", initialMode = "roast" }: { agents: LauncherAgent[]; repos: string[]; judgeModel: string; initialTask?: string; initialMode?: Mode }) {
+export function RoomLauncher({ agents, repos, judgeModel, seats = [], initialTask = "", initialMode = "roast" }: { agents: LauncherAgent[]; repos: string[]; judgeModel: string; seats?: Seat[]; initialTask?: string; initialMode?: Mode }) {
   const router = useRouter();
   const byKey = useMemo(() => Object.fromEntries(agents.map((a) => [a.agent, a])) as Record<AgentKey, LauncherAgent>, [agents]);
   const claudeHot = (byKey.claude?.weeklyPct ?? 0) > 70;
@@ -38,6 +40,8 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
   // R7: Claude is opt-in for debates (it spends the same weekly limit as real coding).
   const [picked, setPicked] = useState<AgentKey[]>(() => agents.filter((a) => a.ready && a.agent !== "claude").map((a) => a.agent));
   const [repo, setRepo] = useState(repos[0] ?? "");
+  // Council seats (Lind chose: pick 3–5 per roast). None by default; tap to seat.
+  const [council, setCouncil] = useState<string[]>([]);
   const [text, setText] = useState(initialTask);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -58,7 +62,8 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
 
   const chosen = mode === "solo" ? picked.slice(0, 1) : picked;
   const sharedModel = mode === "roast" ? chosen.find((a, i) => chosen.some((b, j) => j > i && byKey[a]?.model === byKey[b]?.model)) : undefined;
-  const calls = chosen.length * 6 + 8; // same budget the runner enforces (debaters, repairs, judge, verdict)
+  const table = chosen.length + (mode === "roast" ? council.length : 0);
+  const calls = table * 6 + 8; // same budget the runner enforces (debaters, repairs, judge, verdict)
   // Skills work in Solo (one known agent); debaters are tool-free and a team mixes agents.
   const box = useRef<HTMLTextAreaElement>(null);
   const picker = useSkillPicker(mode === "solo" ? chosen[0] : undefined, box);
@@ -67,7 +72,7 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
     const next = picker.pick(s, text, caret);
     setText(next.text);
   };
-  const valid = (text.trim() || (mode === "solo" && picker.chips.length)) && (mode === "solo" ? chosen.length === 1 : mode === "team" && teamKind === "relay" ? true : chosen.length >= 2 && chosen.length <= 4);
+  const valid = (text.trim() || (mode === "solo" && picker.chips.length)) && (mode === "solo" ? chosen.length === 1 : mode === "team" && teamKind === "relay" ? true : mode === "roast" ? table >= 2 && table <= 7 && chosen.length <= 4 : chosen.length >= 2 && chosen.length <= 4);
 
   async function start(audio?: Blob) {
     setBusy(true);
@@ -84,6 +89,7 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
     if (mode === "roast") {
       url = "/api/rooms";
       form.set("agents", chosen.join(","));
+      form.set("seats", council.join(","));
     } else if (mode === "solo") {
       form.set("mode", "single");
       form.set("agent", chosen[0] ?? "claude");
@@ -140,7 +146,7 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
       {!(mode === "team" && teamKind === "relay") && (
         <section className="panel brackets p-3 sm:p-4" aria-label="Agents">
           <div className="mb-3 flex items-center justify-between px-1">
-            <p className="hud-label">{mode === "solo" ? "Pick one agent" : `Pick ${mode === "roast" ? "2–4 debaters" : "2–4 agents"}`}</p>
+            <p className="hud-label">{mode === "solo" ? "Pick one agent" : mode === "roast" ? "Agents at the table (optional)" : "Pick 2–4 agents"}</p>
             <p className="hud-label tnum">{chosen.length} selected</p>
           </div>
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -185,6 +191,36 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
               );
             })}
           </div>
+          {mode === "roast" && seats.length > 0 && (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="mb-3 flex items-center justify-between px-1">
+                <p className="hud-label">The council — pick 3–5 seats</p>
+                <p className="hud-label tnum">{table} at the table</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {seats.map((s) => {
+                  const on = council.includes(s.key);
+                  return (
+                    <button
+                      key={s.key}
+                      onClick={() => setCouncil((c) => (on ? c.filter((x) => x !== s.key) : c.length + chosen.length >= 7 ? c : [...c, s.key]))}
+                      aria-pressed={on}
+                      title={s.question}
+                      className={cn("press relative flex items-start gap-2.5 rounded-[12px] border p-2.5 text-left transition-all duration-200", on ? "border-transparent bg-white/[0.05]" : "border-line bg-black/20 hover:bg-white/[0.03]")}
+                      style={on ? { boxShadow: `0 0 0 1px ${s.color} inset, 0 10px 26px -16px ${s.color}` } : undefined}
+                    >
+                      <SeatBadge seat={s} size="md" active={on} />
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13.5px] font-medium">{s.name}</span>
+                        <span className="block truncate text-[11px] text-faint">{s.pillar}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 px-1 text-[11px] text-faint">Seats argue in their expert&apos;s voice from a brain of their public work — simulations, not the people. They run on Nemotron with no tools.</p>
+            </div>
+          )}
           {mode === "roast" && (
             <div className="mt-3 flex flex-col gap-1.5 border-t border-line px-1 pt-3 text-xs text-muted">
               <p>
@@ -231,7 +267,7 @@ export function RoomLauncher({ agents, repos, judgeModel, initialTask = "", init
       <div className="flex items-end gap-1.5">
         <button
           onClick={mic.toggle}
-          disabled={busy || (!mic.recording && mode !== "solo" && !(mode === "team" && teamKind === "relay") && chosen.length < 2)}
+          disabled={busy || (!mic.recording && mode !== "solo" && !(mode === "team" && teamKind === "relay") && (mode === "roast" ? table : chosen.length) < 2)}
           aria-label={mic.recording ? "Stop and send" : "Talk"}
           className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[14px]", mic.recording ? "bg-bad/20 text-bad" : "text-muted hover:bg-white/5 hover:text-text")}
         >

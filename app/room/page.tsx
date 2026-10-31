@@ -5,6 +5,7 @@ import { PageHeader, Panel } from "@/components/kit";
 import { RoomLauncher, type LauncherAgent } from "@/components/room-launcher";
 import { agentStatuses } from "@/lib/agent-status";
 import { listRepos } from "@/lib/github";
+import { seats } from "@/lib/council";
 import { agentModels, judgeModelName, listRooms, type Room } from "@/lib/rooms";
 import { planUsage } from "@/lib/usage";
 import { ago, cn } from "@/lib/utils";
@@ -40,7 +41,7 @@ export default async function RoomPage({ searchParams }: { searchParams: Promise
   return (
     <div className="mx-auto max-w-4xl">
       <PageHeader title="Room" sub="Put your agents on one task — alone, as a team, or in a roast until they agree." />
-      <RoomLauncher key={`${initialMode}:${sp?.task ?? ""}`} agents={agents} repos={repos.map((r) => r.name)} judgeModel={judgeModelName()} initialTask={(sp?.task ?? "").slice(0, 2000)} initialMode={initialMode} />
+      <RoomLauncher key={`${initialMode}:${sp?.task ?? ""}`} agents={agents} repos={repos.map((r) => r.name)} judgeModel={judgeModelName()} seats={seats()} initialTask={(sp?.task ?? "").slice(0, 2000)} initialMode={initialMode} />
 
       {rooms.length > 0 && (
         <section className="mt-10">

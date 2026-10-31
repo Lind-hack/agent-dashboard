@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AgentKey } from "./agents";
+import { AGENT_LABELS, type AgentKey } from "./agents";
+import { isSeat, SEAT_PREFIX, seatByKey, seatKey } from "./council";
 import { claudeModel, codexModel, DATA_DIR, groqModel } from "./config";
 
 // Roast rooms (PLAN-v2 stage 2): several agents debate one task until a neutral judge finds consensus.
@@ -30,6 +31,8 @@ export type JudgeRound = {
   open_disagreements: { topic: string; sides?: string; blocking?: boolean }[];
   per_agent: { agent: string; stance: string; changed?: boolean; why?: string }[];
   unverified_claims: { agent: string; claim: string }[];
+  // v4: the judge's rubric per debater, 0–10 each (total = sum, 0–40).
+  scores?: { agent: string; evidence: number; reasoning: number; practicality: number; responsiveness: number; total: number; note?: string }[];
   model: string;
 };
 
@@ -42,16 +45,26 @@ export type Verdict = {
   next_step: string;
   best_agent?: string;
   model: string;
+  // v4 decision memo (older rooms don't have it).
+  decision?: string; // one line: what to do
+  why?: string; // markdown
+  objection?: { claim: string; answer: string }; // the strongest objection, and how it's answered
+  risks?: string[];
+  actions?: { title: string; who: "lind" | "agent" }[]; // ≤3, each one tap: an agent chat or a block on today's plan
+  confidence?: number; // 0–100
+  scoreboard?: { agent: string; score: number }[]; // rubric totals across rounds, best first
+  winner?: string;
 };
 
-export type RoomRound = { n: number; answers: Partial<Record<AgentKey, RoomAnswer>>; judge?: JudgeRound | null; judgeError?: string };
+export type RoomRound = { n: number; answers: Partial<Record<string, RoomAnswer>>; judge?: JudgeRound | null; judgeError?: string };
 
 export type Room = {
   id: string;
   task: string;
   repo?: string;
   agents: AgentKey[];
-  models: Partial<Record<AgentKey, string>>;
+  seats?: string[]; // council seat keys debating alongside (or instead of) the agents
+  models: Partial<Record<string, string>>;
   judgeModel: string;
   status: "queued" | "evidence" | "debating" | "judging" | "done" | "cancelled" | "refused";
   reason?: string; // why refused / cancelled
@@ -63,6 +76,10 @@ export type Room = {
   createdAt: string;
   updatedAt: string;
 };
+
+// Everyone at the table: agents by key, council seats as "seat:<key>".
+export const debaters = (r: Pick<Room, "agents" | "seats">): string[] => [...(r.agents ?? []), ...(r.seats ?? []).map((k) => `${SEAT_PREFIX}${k}`)];
+export const debaterLabel = (d: string) => (isSeat(d) ? (seatByKey(seatKey(d))?.name ?? seatKey(d)) : (AGENT_LABELS[d as AgentKey] ?? d));
 
 export const ROOMS_DIR = () => path.join(DATA_DIR, "rooms");
 export const MAX_ROUNDS = 3;
@@ -76,7 +93,7 @@ export function readRoom(id: string): Room | null {
   if (!ROOM_ID_RE.test(id)) return null;
   try {
     const r = JSON.parse(fs.readFileSync(path.join(ROOMS_DIR(), `${id}.json`), "utf8")) as Room;
-    return { ...r, rounds: r?.rounds ?? [], agents: r?.agents ?? [], models: r?.models ?? {}, budget: r?.budget ?? { calls: 0, used: 0 } };
+    return { ...r, rounds: r?.rounds ?? [], agents: r?.agents ?? [], seats: Array.isArray(r?.seats) ? r.seats : [], models: r?.models ?? {}, budget: r?.budget ?? { calls: 0, used: 0 } };
   } catch {
     return null;
   }
