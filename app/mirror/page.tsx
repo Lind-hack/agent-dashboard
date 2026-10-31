@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { FaceBackdrop } from "@/components/face-backdrop";
 import { FaceUpload } from "@/components/face-upload";
 import { MirrorCard, PushCard } from "@/components/mirror";
+import { MirrorHero } from "@/components/mirror-hero";
 import { keptStreak, mirror, staleGoals } from "@/lib/accountability";
 import { addDays } from "@/lib/calendar";
 import { coachNow } from "@/lib/coach";
@@ -24,7 +24,6 @@ export default async function MirrorPage({ searchParams }: { searchParams: Promi
   const asked = (await searchParams)?.day;
   const pick = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked <= today ? asked : addDays(today, -1);
   const face = faceSet();
-  const now = snapshot(today);
   const days = wall(56);
   const counted = days.filter((d) => d.verdict && d.day !== today);
   const enough = counted.filter((d) => d.verdict === "enough").length;
@@ -33,27 +32,7 @@ export default async function MirrorPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="mx-auto max-w-3xl">
-      <section aria-label="Today so far" className="relative isolate overflow-hidden rounded-[var(--radius-panel)] border border-white/10 text-white">
-        <FaceBackdrop face={face} />
-        <div className="relative flex min-h-[420px] flex-col px-6 pt-6 pb-6 sm:min-h-[480px] sm:px-8">
-          <div className="flex items-start justify-between gap-3">
-            <p className="font-mono text-[11px] tracking-[0.22em] text-white/55 uppercase">The mirror · so far today</p>
-            <FaceUpload set={face} />
-          </div>
-          <div className="mt-auto">
-            <h1 className={cn("text-[clamp(2.75rem,11vw,5.5rem)] leading-[0.88] font-black tracking-[-0.05em] uppercase", VERDICT_TONE[now.verdict])}>{VERDICT_WORDS[now.verdict]}</h1>
-            {now.verdict !== "no-plan" && now.verdict !== "pending" && (
-              <p className="tnum mt-5 text-[clamp(1.2rem,4.2vw,1.6rem)] leading-snug font-semibold">
-                You said {fmtMin(now.saidMin)}. So far you did <span className={VERDICT_TONE[now.verdict]}>{fmtMin(now.didMin)}</span>.
-              </p>
-            )}
-            <p className="tnum mt-2 font-mono text-[13px] text-white/60">
-              {now.done}/{now.blocks} done · {now.missed} missed · {now.onTimeRate}% on time · streak {streak.days}
-              {streak.todayAlive ? "" : " · broken today"}
-            </p>
-          </div>
-        </div>
-      </section>
+      <MirrorHero day={today} action={<FaceUpload set={face} />} />
 
       <PushCard push={readPush(today)} face={face} />
 

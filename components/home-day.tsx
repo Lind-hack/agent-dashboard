@@ -1,12 +1,11 @@
-import { ArrowRight, CalendarDays, ScanFace } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { mirror, type Verdict } from "@/lib/accountability";
 import type { Today } from "@/lib/planner";
-import { snapshot } from "@/lib/reckoning";
-import { fmtMin, VERDICT_TONE, VERDICT_WORDS } from "@/lib/verdict";
 import { cn } from "@/lib/utils";
+import { MirrorHero } from "./mirror-hero";
 
-// Home (v5.2): the day comes first — the verdict so far, then the plan's blocks and the calendar's
+// Home (v5.2; v5.3 leads with the full-bleed mirror): the day comes first — the verdict so far, then the plan's blocks and the calendar's
 // events in time order, each block judged against the clock. One tap to Today or the Mirror.
 
 const TONE: Record<Verdict, string> = { upcoming: "text-faint", "not-started": "text-bad", "on-time": "text-ok", late: "text-warn", missed: "text-bad", unfinished: "text-bad" };
@@ -14,7 +13,6 @@ const WORD: Record<Verdict, string> = { upcoming: "", "not-started": "not starte
 
 export function HomeDay({ day }: { day: Today }) {
   const m = mirror(day.today);
-  const s = snapshot(day.today);
   const hm = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: day.tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso));
   const items = [
     ...m.rows.map((r) => ({ key: r.id, start: r.start, end: r.end, title: r.title, verdict: r.verdict as Verdict | null, running: r.running, lateMin: r.lateMin })),
@@ -22,25 +20,14 @@ export function HomeDay({ day }: { day: Today }) {
   ].sort((a, z) => a.start.localeCompare(z.start));
 
   return (
-    <section aria-label="The day" className="panel overflow-hidden">
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 border-b border-line px-4 py-3.5">
-        <div className="min-w-0">
-          <p className="font-mono text-[10.5px] tracking-[0.16em] text-faint uppercase">The day · so far</p>
-          <p className={cn("mt-1 text-[clamp(1.5rem,5vw,2rem)] leading-none font-black tracking-[-0.035em] uppercase", VERDICT_TONE[s.verdict])}>{VERDICT_WORDS[s.verdict]}</p>
-          {s.verdict !== "no-plan" && s.verdict !== "pending" && (
-            <p className="tnum mt-1.5 text-[13px] text-muted">
-              Said {fmtMin(s.saidMin)} · did {fmtMin(s.didMin)} · {s.missed} missed · {s.onTimeRate}% on time · streak {s.streak}
-            </p>
-          )}
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Link href="/calendar#plan" className="press flex h-9 items-center gap-1.5 rounded-[10px] border border-line px-3 text-[13px] text-muted hover:text-text">
-            <CalendarDays className="h-3.5 w-3.5" /> Plan
-          </Link>
-          <Link href="/mirror" className="press flex h-9 items-center gap-1.5 rounded-[10px] bg-text px-3 text-[13px] font-medium text-bg">
-            <ScanFace className="h-3.5 w-3.5" /> Mirror
-          </Link>
-        </div>
+    <div className="flex flex-col gap-3">
+      <MirrorHero day={day.today} />
+      <section aria-label="The day" className="panel overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <p className="font-mono text-[10.5px] tracking-[0.16em] text-faint uppercase">The day · block by block</p>
+        <Link href="/calendar" className="flex items-center gap-1 text-[12.5px] text-muted hover:text-text">
+          Today <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
       {items.length === 0 ? (
         <Link href="/calendar#plan" className="flex items-center gap-2 px-4 py-4 text-[14px] text-bad hover:bg-white/[0.02]">
@@ -61,6 +48,7 @@ export function HomeDay({ day }: { day: Today }) {
           ))}
         </ol>
       )}
-    </section>
+      </section>
+    </div>
   );
 }

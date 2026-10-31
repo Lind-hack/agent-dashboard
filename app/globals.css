@@ -732,3 +732,35 @@ label,
     animation: none;
   }
 }
+
+/* The mirror hero (v5.3): the photo pushes in slowly; a softened day's red glow breathes. */
+@keyframes pain-drift {
+  from {
+    transform: scale(1.04);
+  }
+  to {
+    transform: scale(1.16) translateY(1.5%);
+  }
+}
+@keyframes pain-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.pain-drift {
+  animation: pain-drift 36s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.pain-pulse {
+  animation: pain-pulse 4.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pain-drift,
+  .pain-pulse {
+    animation: none;
+  }
+}
