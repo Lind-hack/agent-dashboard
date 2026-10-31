@@ -457,7 +457,12 @@ const GROUP_LABEL: Partial<Record<SourceKind, string>> = { chat: "Agent chats", 
 
 // ---- entities: the projects, people and topics records share --------------------------------------
 
-const ENTITY_STOP = new Set(["me", "inbox", "plan", "memory", "notes", "note", "todo", "misc", "daily", "index", "log", "source", "sources", "chat", "chats"]);
+// Words that show up as tags or [[links]] everywhere but don't name a project, person or topic.
+const ENTITY_STOP = new Set(
+  "me inbox plan plans memory notes note todo misc daily index log logs source sources chat chats obsidian readme agents agent claude codex content verification workflow workflows can will should done work task tasks project projects idea ideas people person summary overview status changelog docs doc wiki concept concepts entity entities maintenance draft drafts template templates archive test tests decisions decision data context home scratchpad workspace journal reference synthesis lint personal learning tools general other".split(" "),
+);
+// File-like names ("README", "AGENTS", "CLAUDE.md") are documents, not topics.
+const looksLikeFile = (s: string) => /^[A-Z0-9_-]{3,}$/.test(s) || /\.(md|ts|tsx|js|json|py)$/i.test(s);
 
 // Names worth linking on: repos and their Linear/brain projects, goal titles, Library sections, the
 // vault's entity pages, [[wikilinks]], tags and mail senders. A name only becomes a hub when at least
@@ -467,7 +472,7 @@ function extractEntities(docs: Doc[]): { entities: GraphEntity[]; links: Map<str
   const add = (label: string, type: GraphEntity["type"]) => {
     const clean = label.replace(/^Project - /, "").trim();
     const key = fold(clean);
-    if (key.length < 3 || ENTITY_STOP.has(key) || dict.has(key)) return;
+    if (key.length < (type === "topic" ? 4 : 3) || ENTITY_STOP.has(key) || STOP.has(key) || looksLikeFile(clean) || dict.has(key)) return;
     const esc = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     dict.set(key, { label: clean, type, re: new RegExp(`(^|[^\\p{L}\\p{N}])${esc}($|[^\\p{L}\\p{N}])`, "u") });
   };
@@ -485,8 +490,9 @@ function extractEntities(docs: Doc[]): { entities: GraphEntity[]; links: Map<str
     for (const p of d.people ?? []) personCount.set(p, (personCount.get(p) ?? 0) + 1);
     for (const w of d.text.slice(0, 20_000).matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)) add(w[1].split("/").pop() ?? w[1], "topic");
   }
-  for (const [t, n] of tagCount) if (n >= 2) add(t, "topic");
-  for (const [p, n] of personCount) if (n >= 2 && !/noreply|no-reply|notification/i.test(p)) add(p, "person");
+  for (const [t, n] of tagCount) if (n >= 3) add(t, "topic");
+  // Senders by name; a bare address (often Lind's own) isn't a person to link on.
+  for (const [p, n] of personCount) if (n >= 2 && !p.includes("@") && !/noreply|no-reply|notification/i.test(p)) add(p, "person");
 
   const ids = new Map<string, number>();
   const entities: GraphEntity[] = [];
@@ -510,7 +516,7 @@ function extractEntities(docs: Doc[]): { entities: GraphEntity[]; links: Map<str
     if (hit.length) links.set(d.id, hit);
   }
   // Hubs: shared by 2+ records but not by nearly everything (that's noise, not a link).
-  const keep = new Set(entities.filter((e) => e.count >= 2 && e.count <= Math.max(40, docs.length * 0.35)).sort((a, z) => z.count - a.count).slice(0, 90).map((e) => e.id));
+  const keep = new Set(entities.filter((e) => e.count >= 2 && e.count <= Math.max(40, docs.length * 0.15)).sort((a, z) => z.count - a.count).slice(0, 90).map((e) => e.id));
   for (const [k, v] of links) {
     const f = v.filter((x) => keep.has(x));
     if (f.length) links.set(k, f);
