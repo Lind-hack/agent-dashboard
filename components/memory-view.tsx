@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowUpRight, Brain, CircleDot, Clock3, FileText, ListTodo, Mail, MessageSquare, NotebookPen, RefreshCw, Search, Sparkles } from "lucide-react";
+import { ArrowUpRight, Brain, CalendarDays, CircleDot, Clock3, FileText, GitPullRequest, Globe, ListTodo, Mail, MessageSquare, MonitorSmartphone, NotebookPen, RefreshCw, Search, Sparkles } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LibraryItem, Section } from "@/lib/library";
-import type { GraphGroup, GraphNode, MemoryAnswer, MemoryStats, SourceKind } from "@/lib/memory";
+import type { GraphEntity, GraphGroup, GraphNode, MemoryAnswer, MemoryStats, SourceKind } from "@/lib/memory";
 import { ago, cn } from "@/lib/utils";
 import { Panel, SectionTitle } from "./kit";
 import { Md } from "./md";
@@ -16,7 +16,11 @@ import { ReplyBar } from "./reply-bar";
 
 const KINDS: { kind: SourceKind; label: string; sub: string; icon: typeof Brain }[] = [
   { kind: "capture", label: "Your captures", sub: "notes, voice, photos, video", icon: Sparkles },
+  { kind: "web", label: "Web & video", sub: "saved links, full text + YouTube transcripts", icon: Globe },
   { kind: "chat", label: "Agent chats", sub: "Claude · Codex · OpenCode · Hermes", icon: MessageSquare },
+  { kind: "pcchat", label: "PC chats", sub: "Claude Code + Codex sessions on your PC", icon: MonitorSmartphone },
+  { kind: "github", label: "GitHub", sub: "PRs, issues, commits across your repos", icon: GitPullRequest },
+  { kind: "calendar", label: "Calendar & days", sub: "events, plans, recaps, briefings", icon: CalendarDays },
   { kind: "obsidian", label: "Obsidian", sub: "lind-brain vault", icon: NotebookPen },
   { kind: "notes", label: "Claude notes", sub: "memory synced from the PC", icon: FileText },
   { kind: "linear", label: "Linear", sub: "recent issues", icon: ListTodo },
@@ -25,7 +29,7 @@ const KINDS: { kind: SourceKind; label: string; sub: string; icon: typeof Brain 
 const META = Object.fromEntries(KINDS.map((k) => [k.kind, k])) as Record<SourceKind, (typeof KINDS)[number]>;
 
 type Asked = MemoryAnswer & { q: string };
-type Graph = { nodes: GraphNode[]; groups: GraphGroup[] };
+type Graph = { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[] };
 
 export function MemoryView({ stats, items: initialItems, sections: initialSections }: { stats: MemoryStats; items: LibraryItem[]; sections: Section[] }) {
   const router = useRouter();
@@ -189,7 +193,7 @@ export function MemoryView({ stats, items: initialItems, sections: initialSectio
           <div className="relative">
             {view === "rings" ? (
               graph ? (
-                <MemoryGraph nodes={visibleNodes} groups={graph.groups} query={query} lit={lit} total={visibleNodes.length} />
+                <MemoryGraph nodes={visibleNodes} groups={graph.groups} entities={graph.entities ?? []} query={query} lit={lit} total={visibleNodes.length} />
               ) : (
                 <div className="grid h-[min(78vw,560px)] min-h-[340px] place-items-center text-sm text-faint">Mapping your memory…</div>
               )

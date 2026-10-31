@@ -270,7 +270,7 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}
 const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 // A block added by hand ("Focus on this now", "Plan into today"): placed at `start`, `length` minutes.
-export function addBlock(day: string, b: { start: string; length: number; title: string; goalId?: string; kind?: StoredBlock["kind"]; status?: BlockStatus }): StoredBlock {
+export function addBlock(day: string, b: { start: string; length: number; title: string; goalId?: string; taskId?: string; kind?: StoredBlock["kind"]; status?: BlockStatus }): StoredBlock {
   const at = new Date().toISOString();
   const plan = readPlan(day) ?? { day, createdAt: at, updatedAt: at, blocks: [] };
   const start = mins(b.start);
@@ -281,6 +281,7 @@ export function addBlock(day: string, b: { start: string; length: number; title:
     title: b.title.slice(0, 200),
     kind: b.kind ?? "focus",
     goalId: b.goalId,
+    taskId: b.taskId,
     status: b.status ?? "planned",
     updatedAt: at,
     startedAt: b.status === "running" ? at : undefined,

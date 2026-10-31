@@ -139,3 +139,9 @@ permissions, Bluetooth routing, iOS playback restrictions, and perceived Albania
 - `GA4_PROPERTY_ID` — the numeric GA4 property for traffic; re-run `handoff/google-auth.mjs` once for the analytics.readonly scope.
 - `MONITOR_ENABLED=0` stops the 383ks.com probes. Supabase health needs the root timer once: `bash /opt/agent-dashboard/deploy/install-db-stats.sh`.
 - Council seats for the Roast room live in `council/` (copied from the roast-room skill: roster, personas, brain excerpts) and run on Nemotron.
+
+### v5 settings (all optional, in /etc/agent-dashboard.env)
+- Tasks live in the dashboard (`data/todos.json`); TickTick's open tasks are imported once each and ticking one completes it there too.
+- The Day assistant: `SOL_MODEL` (gpt-6.1-sol), `SOL_EFFORT` (medium), `SOL_ENABLED=0` to fall back to Nemotron/Groq everywhere. Briefings at `BRIEF_MORNING_AT` (07:30), `BRIEF_MIDDAY_AT` (13:00), `BRIEF_EVENING_AT` (21:25); progress pushes at `PROGRESS_AT` (16:00,19:00). The "still no plan" nudge moved to `COACH_PLAN_AT` 08:15. Sol runs through the agent user's Codex login (`CODEX_HOME`), one call at a time.
+- The Roast room judge is Sol first, then Nemotron, then Groq.
+- Memory sources: `runner/sources.ts` syncs GitHub PRs/issues (`GITHUB_READ_TOKEN`) and calendar history into `data/sources/` hourly (`SOURCES_ENABLED=0` stops it). Saved links use `FIRECRAWL_API_KEY` (article text) and `SUPADATA_API_KEY` (YouTube transcripts, native captions only).

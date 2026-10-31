@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { AGENT_LABELS, type AgentKey } from "./agents";
 import { isSeat, SEAT_PREFIX, seatByKey, seatKey } from "./council";
-import { claudeModel, codexModel, DATA_DIR, groqModel } from "./config";
+import { claudeModel, codexModel, DATA_DIR } from "./config";
+import { solLabel } from "./sol";
 
 // Roast rooms (PLAN-v2 stage 2): several agents debate one task until a neutral judge finds consensus.
 // One JSON file per room under data/rooms/, written only by the runner (runner/room.ts); the web app
@@ -148,7 +149,7 @@ export function agentModels(): Record<AgentKey, string> {
   };
 }
 
-export const judgeModelName = () => `groq ${groqModel()} (fallback: Nemotron)`;
+export const judgeModelName = () => `${solLabel()} (fallback: Nemotron, Groq)`;
 
 export function roomsStartedToday(rooms: Room[]): number {
   const day = new Date().toISOString().slice(0, 10);

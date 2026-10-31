@@ -217,3 +217,70 @@ export async function calendarBusy(): Promise<[number, number][]> {
     .filter((e) => !e.allDay && !e.planned && dayString(tz, new Date(e.start)) === day)
     .map((e) => [toMin(clockNow(tz, new Date(e.start))), Math.max(toMin(clockNow(tz, new Date(e.start))) + 5, dayString(tz, new Date(e.end)) === day ? toMin(clockNow(tz, new Date(e.end))) : 24 * 60)] as [number, number]);
 }
+
+// ---- the day's progress (v5) -------------------------------------------------------------------------
+
+export type DayProgress = {
+  day: string;
+  percent: number; // share of today's work done (tasks weighted by estimate; blocks when there are no tasks)
+  tasksDone: number;
+  tasksTotal: number;
+  workLeftMin: number; // estimated minutes still to do on open tasks
+  untilEndMin: number; // minutes from now to the end of the work day
+  freeMin: number; // of those, minutes not taken by calendar events
+  overloadMin: number; // work left that can't fit in the free time left today (0 = it fits)
+  expected: number; // where the percent "should" be by now, from the share of the work day gone
+  pace: "ahead" | "on-pace" | "behind" | "not-started";
+  blocksDone: number;
+  blocksTotal: number;
+  focusMin: number;
+  next?: { id: string; title: string; dueAt?: string }; // most urgent open task
+};
+
+export async function dayProgress(at = new Date()): Promise<DayProgress> {
+  const { todosFor, remainingMin } = await import("./todos");
+  const tz = coachTz();
+  const day = dayString(tz, at);
+  const c = coachNow(at);
+  const t = todosFor(day);
+  const open = [...t.overdue, ...t.today];
+  const doneEst = t.done.reduce((s, x) => s + x.estimateMin, 0);
+  const openEst = open.reduce((s, x) => s + x.estimateMin, 0);
+  const workLeftMin = open.reduce((s, x) => s + remainingMin(x), 0);
+  const total = doneEst + openEst;
+  const percent = total ? Math.round((100 * (total - workLeftMin)) / total) : c.total ? Math.round((100 * c.done) / c.total) : 0;
+  const nowMin = toMin(clockNow(tz, at));
+  const start = toMin(DAY_START());
+  const end = toMin(DAY_END());
+  const from = Math.max(nowMin, start);
+  const untilEndMin = Math.max(0, end - from);
+  // Calendar events between now and the end of the day aren't time for tasks.
+  const busy = (await calendarBusy().catch(() => [] as [number, number][])).map(([a, z]) => [Math.max(a, from), Math.min(z, end)] as const).filter(([a, z]) => z > a).sort((x, y) => x[0] - y[0]);
+  let taken = 0;
+  let edge = from;
+  for (const [a, z] of busy) {
+    taken += Math.max(0, z - Math.max(a, edge));
+    edge = Math.max(edge, z);
+  }
+  const freeMin = Math.max(0, untilEndMin - taken);
+  const expected = Math.round(100 * Math.min(1, Math.max(0, (nowMin - start) / Math.max(1, end - start))));
+  const any = total > 0 || c.total > 0;
+  const pace = !any || (percent === 0 && nowMin < start + 60) ? "not-started" : percent >= expected + 10 ? "ahead" : percent >= expected - 10 ? "on-pace" : "behind";
+  const urgent = open.slice().sort((a, z) => (a.due ?? "9999").localeCompare(z.due ?? "9999") || z.priority - a.priority)[0];
+  return {
+    day,
+    percent,
+    tasksDone: t.done.length,
+    tasksTotal: t.done.length + open.length,
+    workLeftMin,
+    untilEndMin,
+    freeMin,
+    overloadMin: Math.max(0, workLeftMin - freeMin),
+    expected,
+    pace,
+    blocksDone: c.done,
+    blocksTotal: c.total,
+    focusMin: c.focusMin,
+    next: urgent ? { id: urgent.id, title: urgent.title, dueAt: urgent.due } : undefined,
+  };
+}

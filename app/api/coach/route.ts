@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { mirrorBlock } from "@/lib/calendar";
 import { calendarBusy, clockNow, coachNow, coachTz, goalProgress, nextFreeSlot } from "@/lib/coach";
 import { goalById } from "@/lib/goals";
 import { groqJSON } from "@/lib/groq";
 import { addBlock, addCheckin, setBlockStatus, shrinkBlock, type BlockAction, type Mood } from "@/lib/plan-store";
+import { finishTodo } from "@/lib/todo-actions";
+import { listTodos } from "@/lib/todos";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +51,8 @@ export async function POST(request: Request) {
             : null
           : setBlockStatus(day, b.id, action as BlockAction);
     if (!plan) return NextResponse.json({ error: "That block isn't in today's plan any more." }, { status: 404 });
+    const taskId = plan.blocks.find((x) => x.id === b.id)?.taskId;
+    if (action === "done" && taskId && listTodos().some((t) => t.id === taskId && !t.done)) await finishTodo(taskId, true);
     return NextResponse.json({ ok: true, now: coachNow() });
   }
   if (action === "focus" || action === "plan") {
@@ -57,6 +62,7 @@ export async function POST(request: Request) {
     const start = action === "focus" ? clockNow(tz) : nextFreeSlot(minutes, new Date(), await calendarBusy());
     if (!start) return NextResponse.json({ error: `No ${minutes}-minute gap left today.` }, { status: 409 });
     const block = addBlock(day, { start, length: minutes, title: goal.next || goal.title, goalId: goal.id, kind: "focus", status: action === "focus" ? "running" : "planned" });
+    if (action === "plan") await mirrorBlock(day, { blockId: block.id, start: block.start, end: block.end, title: block.title, kind: "focus", goalId: goal.id }).catch(() => false);
     return NextResponse.json({ ok: true, block, now: coachNow() });
   }
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });

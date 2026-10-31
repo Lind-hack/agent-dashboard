@@ -4,6 +4,7 @@ import { SectionHero } from "@/components/motion";
 import { addDays, dayString } from "@/lib/calendar";
 import { buildRecap, coachTz, goalProgress, readRecap } from "@/lib/coach";
 import { readGoals } from "@/lib/goals";
+import { listTodos } from "@/lib/todos";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export default async function GoalsPage({ searchParams }: { searchParams: Promis
         title="Goals"
         sub="What you're chasing and how much real focus each one got this week. One tap turns a goal into time on today's plan — the Coach keeps you on it."
       />
-      <GoalsBoard progress={progress} recap={recap} today={today} />
+      <GoalsBoard progress={progress} recap={recap} today={today} todos={listTodos().filter((t) => t.goalId)} />
       <section className="mt-10" aria-labelledby="edit-goals">
         <h2 id="edit-goals" className="mb-3 px-1 text-xl font-semibold tracking-[-0.02em]">
           Edit goals

@@ -110,7 +110,7 @@ export function TodayPlan({
                     {b.taskId && (
                       <>
                         <span className="text-faint">·</span>
-                        <span className="text-muted">TickTick</span>
+                        <span className="text-muted">task</span>
                       </>
                     )}
                   </span>

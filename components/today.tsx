@@ -30,9 +30,9 @@ export const KIND_STYLE: Record<PlanBlock["kind"], { label: string; bar: string;
 
 type Plan = { blocks: PlanBlock[]; summary: string; day: string; tz: string };
 
-export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: number }) {
+export function PlanDay({ canWrite, planned, initialNote }: { canWrite: boolean; planned: number; initialNote?: string }) {
   const router = useRouter();
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initialNote ?? "");
   const [plan, setPlan] = useState<Plan | null>(null);
   const [busy, setBusy] = useState<"" | "plan" | "apply">("");
   const [msg, setMsg] = useState("");
@@ -48,6 +48,15 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
       setBusy("");
     }
   }
+
+  // Arriving from the assistant's "Re-plan" (?replan=…): start planning straight away.
+  const auto = useRef(initialNote !== undefined);
+  useEffect(() => {
+    if (!auto.current) return;
+    auto.current = false;
+    void make();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function apply() {
     if (!plan) return;
@@ -124,7 +133,7 @@ export function PlanDay({ canWrite, planned }: { canWrite: boolean; planned: num
                     <span className="block truncate text-[15px]">{b.title}</span>
                     <span className={cn("text-[11px]", KIND_STYLE[b.kind].text)}>
                       {KIND_STYLE[b.kind].label}
-                      {b.taskId && " · from TickTick"}
+                      {b.taskId && " · a task from your list"}
                     </span>
                   </span>
                   <button
@@ -244,8 +253,14 @@ export function CaptureBar() {
     setError("");
     try {
       if (draft.kind === "event") await post("/api/calendar/events", { draft: draft.event });
-      else await post("/api/ticktick/tasks", { task: draft.task });
-      setSaved(draft.kind === "event" ? "Added to your calendar." : "Added to TickTick.");
+      else {
+        // Tasks go on the dashboard list (v5); a future date puts it on that day.
+        const tk = draft.task;
+        const pri = tk.priority >= 5 ? 3 : tk.priority >= 3 ? 2 : tk.priority >= 1 ? 1 : 0;
+        const today = new Intl.DateTimeFormat("en-CA").format(new Date());
+        await post("/api/todos", { title: tk.title, day: tk.date && tk.date > today ? tk.date : undefined, due: tk.date ? (tk.time ? `${tk.date}T${tk.time}` : tk.date) : undefined, priority: pri });
+      }
+      setSaved(draft.kind === "event" ? "Added to your calendar." : "Added to your tasks.");
       setDraft(null);
       router.refresh();
     } catch (e) {
@@ -285,7 +300,7 @@ export function CaptureBar() {
                 onClick={() => switchKind(k)}
                 className={cn("flex flex-1 items-center justify-center gap-2 rounded-[9px] px-3 py-2", draft.kind === k ? "bg-white/[0.09] text-text" : "text-muted")}
               >
-                {k === "task" ? <ListTodo className="h-4 w-4" /> : <CalendarPlus className="h-4 w-4" />} {k === "task" ? "TickTick task" : "Calendar event"}
+                {k === "task" ? <ListTodo className="h-4 w-4" /> : <CalendarPlus className="h-4 w-4" />} {k === "task" ? "Task" : "Calendar event"}
               </button>
             ))}
           </div>
@@ -326,7 +341,7 @@ export function CaptureBar() {
                   <option value={5}>High</option>
                 </select>
               </div>
-              <p className="mt-2 text-xs text-faint">{tk.date ? "Goes to your TickTick Inbox with this date." : "Goes to your TickTick Inbox, no date."}</p>
+              <p className="mt-2 text-xs text-faint">{tk.date ? "Goes on your task list, due on this date." : "Goes on today's task list."}</p>
             </>
           )}
           {error && <p className="mt-3 text-sm text-bad" aria-live="polite">{error}</p>}

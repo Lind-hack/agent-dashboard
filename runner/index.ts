@@ -13,6 +13,7 @@ import { brainTick } from "./brain";
 import { coachTick } from "./coach";
 import { libraryTick } from "./library";
 import { monitorTick } from "./monitor";
+import { sourcesTick } from "./sources";
 import { mailTick } from "./mail";
 import { cancelRoom, createRoom, roomTick } from "./room";
 import { syncSkillsTick } from "./skills-sync";
@@ -638,6 +639,7 @@ async function tick() {
     mailTick();
     coachTick();
     monitorTick();
+    sourcesTick();
   } catch (e) {
     log("library", e instanceof Error ? e.message : e);
   }

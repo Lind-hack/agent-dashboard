@@ -170,20 +170,32 @@ export async function replacePlan(day: string, blocks: PlanBlock[]) {
   for (const e of old.items ?? []) {
     if (new Date(e.start?.dateTime ?? 0).getTime() > now) await gcal(`/calendars/primary/events/${encodeURIComponent(e.id)}`, { method: "DELETE" });
   }
-  for (const b of blocks) {
-    await gcal("/calendars/primary/events", {
-      method: "POST",
-      body: JSON.stringify({
-        summary: b.title,
-        colorId: PLAN_COLOR[b.kind] ?? "9",
-        description: b.taskId ? "From your TickTick list · planned on agents.383ks.com" : "Planned on agents.383ks.com",
-        start: { dateTime: `${day}T${b.start}:00`, timeZone: tz },
-        end: { dateTime: `${b.end > b.start ? day : addDays(day, 1)}T${b.end}:00`, timeZone: tz },
-        reminders: { useDefault: false, overrides: b.kind === "break" ? [] : [{ method: "popup", minutes: 5 }] },
-        extendedProperties: { private: { [PLAN_KEY]: day, ...(b.taskId ? { taskId: b.taskId, projectId: b.projectId ?? "" } : {}) } },
-      }),
-    });
-  }
+  for (const b of blocks) await insertBlock(day, b, tz);
+}
+
+// One plan block on Google Calendar, tagged so a re-plan replaces it, with phone/PC alarms 10 minutes
+// before and at the start (v5: "Calendar alarms" — they fire even when web push doesn't).
+async function insertBlock(day: string, b: PlanBlock, tz: string) {
+  await gcal("/calendars/primary/events", {
+    method: "POST",
+    body: JSON.stringify({
+      summary: b.title,
+      colorId: PLAN_COLOR[b.kind] ?? "9",
+      description: b.taskId ? "A task from your list · planned on agents.383ks.com" : "Planned on agents.383ks.com",
+      start: { dateTime: `${day}T${b.start}:00`, timeZone: tz },
+      end: { dateTime: `${b.end > b.start ? day : addDays(day, 1)}T${b.end}:00`, timeZone: tz },
+      reminders: { useDefault: false, overrides: b.kind === "break" ? [] : [{ method: "popup", minutes: 10 }, { method: "popup", minutes: 0 }] },
+      extendedProperties: { private: { [PLAN_KEY]: day, blockId: b.blockId, ...(b.taskId ? { taskId: b.taskId } : {}) } },
+    }),
+  });
+}
+
+// A block added after the plan was applied ("Schedule this task", "Plan into today"): onto the
+// calendar too, when it's connected. Failures are the caller's to ignore — the plan file is the truth.
+export async function mirrorBlock(day: string, b: PlanBlock) {
+  if (!calendarConnected()) return false;
+  await insertBlock(day, b, await timeZone());
+  return true;
 }
 
 export async function createEvent(d: EventDraft): Promise<CalEvent> {
@@ -196,6 +208,7 @@ export async function createEvent(d: EventDraft): Promise<CalEvent> {
         start: { dateTime: `${d.date}T${d.start}:00`, timeZone: tz },
         // An end before the start means it runs past midnight.
         end: { dateTime: `${d.end && d.end > d.start ? d.date : addDays(d.date, 1)}T${d.end ?? d.start}:00`, timeZone: tz },
+        reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 30 }, { method: "popup", minutes: 10 }] },
       };
   const e = await gcal<GEvent>("/calendars/primary/events", { method: "POST", body: JSON.stringify(body) });
   return {

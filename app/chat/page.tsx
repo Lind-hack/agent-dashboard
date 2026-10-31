@@ -1,8 +1,10 @@
 import { GitPullRequest, Plus } from "lucide-react";
 import Link from "next/link";
 import { AgentLogo } from "@/components/agent-logo";
+import { ChatBoard } from "@/components/chat-board";
 import { Empty, PageHeader, Panel, Segmented, StatusPill } from "@/components/kit";
 import { AGENT_LABELS, type TaskAgent } from "@/lib/agents";
+import { liveChats } from "@/lib/chat-live";
 import { repoShort } from "@/lib/config";
 import { agentIssues } from "@/lib/linear";
 import { listJobs } from "@/lib/store";
@@ -61,7 +63,7 @@ export default async function ChatsPage({ searchParams }: { searchParams: Promis
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title="Chats"
-        sub="Every conversation with your agents, newest first."
+        sub="Who's working on what, the step each agent is on, and what's waiting on you."
         readout={[`${count("open")} open`, running > 0 && `${running} running`, count("turn") > 0 && `${count("turn")} waiting on you`]}
         right={
           <Link href="/voice" className="flex h-10 items-center gap-2 rounded-[12px] bg-text px-4 text-sm font-medium text-bg hover:bg-white">
@@ -69,6 +71,7 @@ export default async function ChatsPage({ searchParams }: { searchParams: Promis
           </Link>
         }
       />
+      <ChatBoard initial={liveChats()} />
       <Segmented
         label="Filter chats"
         current={f}
