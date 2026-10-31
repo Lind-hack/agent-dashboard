@@ -29,7 +29,7 @@ export type SourceKind = "capture" | "chat" | "linear" | "obsidian" | "notes" | 
 export const SOURCE_KINDS: SourceKind[] = ["capture", "web", "chat", "pcchat", "github", "linear", "calendar", "obsidian", "notes", "mail"];
 const zero = (): Record<SourceKind, number> => Object.fromEntries(SOURCE_KINDS.map((k) => [k, 0])) as Record<SourceKind, number>;
 
-type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; group?: string; tags?: string[]; people?: string[] };
+type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; group?: string; tags?: string[]; people?: string[]; parent?: string };
 type Chunk = { doc: Doc; text: string; tf: Map<string, number>; len: number };
 
 export type Source = { n: number; kind: SourceKind; title: string; href?: string; at: string; snippet: string };
@@ -196,6 +196,7 @@ function captureDocs(): Doc[] {
       tags: i.tags,
       group: i.section ?? "unsorted",
       title: i.title || i.kind,
+      parent: i.parent ? `capture:${i.parent}` : undefined,
       href: `/memory?item=${i.id}`,
       at: i.createdAt,
       text: [i.summary, i.note, i.text, i.url, i.tags.length ? `Tags: ${i.tags.join(", ")}` : ""].filter(Boolean).join("\n\n"),
@@ -536,7 +537,18 @@ function extractEntities(docs: Doc[]): { entities: GraphEntity[]; links: Map<str
     if (f.length) links.set(k, f);
     else links.delete(k);
   }
-  return { entities: entities.filter((e) => keep.has(e.id)), links };
+  const out = entities.filter((e) => keep.has(e.id));
+  // A memory dump is the hub of its parts, however many there are: where they came from is context.
+  const kids = new Map<string, string[]>();
+  for (const d of docs) if (d.parent) kids.set(d.parent, [...(kids.get(d.parent) ?? []), d.id]);
+  for (const [pid, ids] of kids) {
+    const p = docs.find((d) => d.id === pid);
+    if (!p || ids.length < 2) continue;
+    const id = entities.length + out.length;
+    out.push({ id, label: p.title, type: "project", count: ids.length + 1 });
+    for (const k of [pid, ...ids]) links.set(k, [id, ...(links.get(k) ?? [])].slice(0, 8));
+  }
+  return { entities: out, links };
 }
 
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();

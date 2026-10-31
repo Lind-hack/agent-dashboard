@@ -6,7 +6,8 @@ import type { ItemKind, LibraryItem, Section } from "@/lib/library";
 import { ago, cn } from "@/lib/utils";
 
 // The Library: what was captured, grouped into the sections the automation keeps. Items being
-// read show a sheen; failed ones can be retried. Tap a card to open it.
+// read show a sheen; failed ones can be retried. Tap a card to open it. A memory dump shows its
+// progress while it's split, then lists its parts; each part links back to it.
 
 const KIND_ICON: Record<ItemKind, typeof FileText> = { text: StickyNote, voice: AudioLines, audio: AudioLines, image: ImageIcon, video: Film, file: FileText, link: Link2 };
 const media = (it: LibraryItem, poster = false) => `/api/memory/media/${it.id}${poster ? "?poster=1" : ""}`;
@@ -143,7 +144,7 @@ export function Library({
         </ul>
       )}
 
-      {open && <ItemSheet it={items.find((x) => x.id === open.id) ?? open} sections={sections} onClose={() => setOpen(null)} onChange={onChange} />}
+      {open && <ItemSheet it={items.find((x) => x.id === open.id) ?? open} items={items} sections={sections} onClose={() => setOpen(null)} onChange={onChange} onOpen={setOpen} />}
     </section>
   );
 }
@@ -176,7 +177,7 @@ function Card({ it, section, onOpen }: { it: LibraryItem; section?: Section; onO
         {it.summary && <span className="line-clamp-2 text-[12px] leading-snug text-muted">{it.summary}</span>}
         <span className="mt-auto flex items-center gap-1.5 pt-1.5 text-[11px] text-faint">
           {section && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: `hsl(${section.hue} 78% 70%)` }} />}
-          <span className="truncate">{working ? (it.status === "processing" ? "Reading & filing…" : "Queued") : it.status === "failed" ? <span className="text-bad">Couldn&apos;t read it</span> : (section?.name ?? "Unsorted")}</span>
+          <span className="truncate">{working && it.split ? `Splitting · ${it.split.next}/${it.split.total}` : working ? (it.status === "processing" ? "Reading & filing…" : "Queued") : it.split?.parts.length ? `${it.split.parts.length} parts` : it.status === "failed" ? <span className="text-bad">Couldn&apos;t read it</span> : (section?.name ?? "Unsorted")}</span>
           <span className="ml-auto shrink-0">{ago(it.createdAt).replace(" ago", "")}</span>
         </span>
       </span>
@@ -184,9 +185,41 @@ function Card({ it, section, onOpen }: { it: LibraryItem; section?: Section; onO
   );
 }
 
-function ItemSheet({ it, sections, onClose, onChange }: { it: LibraryItem; sections: Section[]; onClose: () => void; onChange: (it: LibraryItem | { id: string; deleted: true }) => void }) {
+function ItemSheet({
+  it,
+  items,
+  sections,
+  onClose,
+  onChange,
+  onOpen,
+}: {
+  it: LibraryItem;
+  items: LibraryItem[];
+  sections: Section[];
+  onClose: () => void;
+  onChange: (it: LibraryItem | { id: string; deleted: true }) => void;
+  onOpen: (it: LibraryItem) => void;
+}) {
   const [armed, setArmed] = useState(false);
   const closeBtn = useRef<HTMLButtonElement>(null);
+  // The list carries long texts cut short: the whole one is loaded when the sheet opens.
+  const [full, setFull] = useState<{ id: string; text: string } | null>(null);
+  useEffect(() => {
+    setArmed(false);
+    let live = true;
+    fetch(`/api/memory/items/${it.id}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((b) => live && typeof b?.item?.text === "string" && setFull({ id: it.id, text: b.item.text }))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [it.id, it.updatedAt]);
+  const text = full?.id === it.id ? full.text : it.text;
+  const parts = it.split ? items.filter((x) => x.parent === it.id) : [];
+  const order = new Map((it.split?.parts ?? []).map((p, i) => [p, i]));
+  parts.sort((a, b) => (order.get(a.id) ?? 1e9) - (order.get(b.id) ?? 1e9));
+  const parent = it.parent ? items.find((x) => x.id === it.parent) : undefined;
   useEffect(() => {
     closeBtn.current?.focus();
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -203,6 +236,7 @@ function ItemSheet({ it, sections, onClose, onChange }: { it: LibraryItem; secti
     if (!armed) return setArmed(true);
     const res = await fetch(`/api/memory/items/${it.id}`, { method: "DELETE" });
     if (res.ok) {
+      for (const p of parts) onChange({ id: p.id, deleted: true });
       onChange({ id: it.id, deleted: true });
       onClose();
     }
@@ -232,7 +266,17 @@ function ItemSheet({ it, sections, onClose, onChange }: { it: LibraryItem; secti
               Close
             </button>
           </div>
+          {parent && (
+            <button onClick={() => onOpen(parent)} className="mt-1 block max-w-full truncate text-left text-[12.5px] text-codex hover:underline">
+              Part of {parent.title}
+            </button>
+          )}
           {it.summary && <p className="mt-2 text-[15px] leading-relaxed text-muted">{it.summary}</p>}
+          {it.split?.state === "splitting" && (
+            <p className="mt-3 text-[13px] text-muted">
+              Reading it in full and splitting it by topic — {it.split.next} of {it.split.total} pieces read, {it.split.parts.length} parts so far.
+            </p>
+          )}
           {it.media && (it.kind === "file" || it.kind === "image" || it.kind === "video") && (
             <a href={media(it)} target="_blank" rel="noreferrer" download={it.kind === "file" ? (it.media.name ?? true) : undefined} className="mt-2 inline-flex items-center gap-1.5 text-sm text-codex hover:underline">
               <Download className="h-3.5 w-3.5" /> {it.kind === "file" ? `Open ${it.media.name ?? "file"}` : "Open original"}
@@ -254,7 +298,24 @@ function ItemSheet({ it, sections, onClose, onChange }: { it: LibraryItem; secti
           )}
           {it.error && <p className="mt-3 rounded-[12px] border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">{it.error}</p>}
           {it.waiting === "vision" && <p className="mt-3 text-xs text-warn">Saved — the description arrives once GEMINI_API_KEY is set on the VPS.</p>}
-          {it.text && it.text !== it.summary && <p className="mt-4 max-h-64 overflow-y-auto rounded-[12px] bg-black/30 px-3.5 py-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted">{it.text}</p>}
+          {parts.length > 0 ? (
+            <ol className="mt-4 max-h-80 overflow-y-auto rounded-[12px] bg-black/30 py-1">
+              {parts.map((p) => {
+                const s = sections.find((x) => x.id === p.section);
+                return (
+                  <li key={p.id}>
+                    <button onClick={() => onOpen(p)} className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-[13px] hover:bg-white/[0.04]">
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: s ? `hsl(${s.hue} 78% 70%)` : "var(--color-faint)" }} />
+                      <span className="min-w-0 flex-1 truncate text-text">{p.title}</span>
+                      <span className="shrink-0 text-[11px] text-faint">{s?.name ?? "Unsorted"}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            text && text !== it.summary && <p className="mt-4 max-h-64 overflow-y-auto rounded-[12px] bg-black/30 px-3.5 py-3 text-[13px] leading-relaxed whitespace-pre-wrap text-muted">{text}</p>
+          )}
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <label className="flex h-10 items-center gap-2 rounded-[11px] border border-line px-3 text-sm text-muted">
@@ -275,7 +336,7 @@ function ItemSheet({ it, sections, onClose, onChange }: { it: LibraryItem; secti
             )}
             <span className="ml-auto text-xs text-faint">{new Date(it.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</span>
             <button onClick={() => void remove()} className={cn("press flex h-10 items-center gap-2 rounded-[11px] border px-3 text-sm", armed ? "border-bad/50 text-bad" : "border-line text-muted hover:text-text")}>
-              <Trash2 className="h-4 w-4" /> {armed ? "Tap again to delete" : "Delete"}
+              <Trash2 className="h-4 w-4" /> {armed ? (parts.length ? `Tap again to delete it and its ${parts.length} parts` : "Tap again to delete") : "Delete"}
             </button>
           </div>
         </div>

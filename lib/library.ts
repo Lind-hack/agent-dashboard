@@ -30,6 +30,9 @@ export type LibraryItem = {
   nextAt?: string; // retry not before
   waiting?: "vision"; // saved, but the description waits for GEMINI_API_KEY
   mirror?: string; // the vault note mirroring it (path relative to the vault)
+  parent?: string; // a part of a memory dump: the dump's item id
+  // A memory dump being split into parts (lib/dump.ts): windows read so far, of how many, and the parts.
+  split?: { state: "splitting" | "done"; next: number; total: number; parts: string[]; fails?: number; context?: string };
 };
 
 export type Section = { id: string; name: string; description: string; hue: number; createdAt: string; createdBy: "core" | "lind" };
@@ -85,11 +88,18 @@ export function listItems(): LibraryItem[] {
 export function deleteItem(id: string): boolean {
   const it = readItem(id);
   if (!it) return false;
+  // A dump goes with its parts.
+  if (it.split) for (const c of listItems()) if (c.parent === id) deleteItem(c.id);
   removeMirror(it);
   for (const f of [it.media?.file, it.media?.poster]) if (f) fs.rmSync(path.join(mediaDir(), path.basename(f)), { force: true });
   fs.rmSync(path.join(itemsDir(), `${id}.json`), { force: true });
   return true;
 }
+
+// What the browser gets in a list: long texts cut short (a dump's parts can add up to megabytes);
+// the item sheet loads the whole item when it opens.
+export const SLIM_TEXT = 300;
+export const slimItem = (it: LibraryItem): LibraryItem => (it.text.length > SLIM_TEXT ? { ...it, text: it.text.slice(0, SLIM_TEXT) } : it);
 
 export function createItem(fields: Partial<LibraryItem> & { kind: ItemKind }): LibraryItem {
   const now = new Date().toISOString();
