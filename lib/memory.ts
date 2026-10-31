@@ -416,6 +416,14 @@ function search(ix: Index, q: string, k: number): Chunk[] {
   return out;
 }
 
+// The best few passages for a query, without an answer — so the planner, the Buddy and the morning
+// push can cite what Lind has actually said before (v5.2).
+export async function recallMemory(q: string, k = 4): Promise<{ title: string; kind: SourceKind; at: string; text: string }[]> {
+  return search(await index(), q, k).map((h) => ({ title: h.doc.title, kind: h.doc.kind, at: h.doc.at.slice(0, 10), text: h.text.replace(/\s+/g, " ").slice(0, 500) }));
+}
+
+export const recallText = (hits: Awaited<ReturnType<typeof recallMemory>>) => hits.map((h) => `- (${h.kind}, ${h.at}) ${h.title}: ${h.text}`).join("\n");
+
 export async function askMemory(q: string): Promise<MemoryAnswer> {
   const hits = search(await index(), q, 10);
   if (!hits.length) return { answer: "Nothing in memory matches that. Try other words — a project name, a person, a file.", sources: [] };

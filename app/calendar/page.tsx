@@ -2,6 +2,8 @@ import { ArrowUpRight, MapPin, NotebookPen, Target } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { AssistantPanel } from "@/components/assistant-panel";
+import { MirrorCard, PushCard } from "@/components/mirror";
+import { SayIt } from "@/components/say-it";
 import { AutopilotStrip } from "@/components/autopilot-strip";
 import { PushSwitch } from "@/components/coach";
 import { DayPulse } from "@/components/day-pulse";
@@ -12,7 +14,9 @@ import { CaptureBar, PlanDay, TickTickConnect } from "@/components/today";
 import { TodayPlan } from "@/components/today-plan";
 import { TodoBoard } from "@/components/todo-board";
 import { briefPending, readBrief, readChat, type BriefSlot } from "@/lib/assistant";
+import { keptStreak, mirror, staleGoals } from "@/lib/accountability";
 import { autopilotEnabled, readAutopilot } from "@/lib/autopilot";
+import { readPush } from "@/lib/goggins";
 import { addDays, calendarConnected, type CalEvent } from "@/lib/calendar";
 import { dayProgress, goalProgress } from "@/lib/coach";
 import { activeBlocks, planStats, readPlan } from "@/lib/plan-store";
@@ -101,7 +105,12 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
+      <SayIt />
+
+      <PushCard push={readPush(t.today)} />
+
       <DayPulse p={progress} />
+      <MirrorCard m={mirror(t.today)} streak={keptStreak(t.today)} idle={staleGoals(t.today)} />
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
         <PushSwitch />
         <span className="max-w-md text-xs leading-relaxed text-faint">Task deadlines, events 10 min before, block starts and the day&apos;s progress go to every device you turn on — your iPhone (from the Home Screen) and this PC&apos;s browser.</span>

@@ -1,6 +1,7 @@
 import { GoalsBoard } from "@/components/goals-board";
 import { GoalsEditor } from "@/components/goals-editor";
 import { SectionHero } from "@/components/motion";
+import { SayIt } from "@/components/say-it";
 import { addDays, dayString } from "@/lib/calendar";
 import { buildRecap, coachTz, goalProgress, readRecap } from "@/lib/coach";
 import { readGoals } from "@/lib/goals";
@@ -27,12 +28,16 @@ export default async function GoalsPage({ searchParams }: { searchParams: Promis
         title="Goals"
         sub="What you're chasing and how much real focus each one got this week. One tap turns a goal into time on today's plan — the Coach keeps you on it."
       />
+      <div className="mb-6">
+        <SayIt placeholder="New goal: save 2k by March · 2 hours on the pitch tomorrow at 10…" />
+      </div>
       <GoalsBoard progress={progress} recap={recap} today={today} todos={listTodos().filter((t) => t.goalId)} />
       <section className="mt-10" aria-labelledby="edit-goals">
         <h2 id="edit-goals" className="mb-3 px-1 text-xl font-semibold tracking-[-0.02em]">
           Edit goals
         </h2>
-        <GoalsEditor initial={goals} />
+        {/* Re-mounted when goals change elsewhere (Say it), so saving here never drops them. */}
+        <GoalsEditor key={goals.map((g) => g.id).join("|")} initial={goals} />
       </section>
     </div>
   );

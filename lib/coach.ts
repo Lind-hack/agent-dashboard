@@ -4,6 +4,7 @@ import { addDays, dayString } from "./calendar";
 import { DATA_DIR } from "./config";
 import { activeGoals, readGoals, type Goal } from "./goals";
 import { activeBlocks, blockMinutes, daysOfWeek, readPlan, type Mood, type StoredBlock } from "./plan-store";
+import { listTodos } from "./todos";
 
 // The Coach (v4): what Lind should be doing this minute, how each goal is moving this week, and how
 // the day went. Shared by the web app (focus bar, /focus, /goals) and the runner (pushes, recap).
@@ -102,10 +103,20 @@ export function goalProgress(at = new Date()): GoalProgress[] {
   const look = Array.from({ length: 60 }, (_, i) => addDays(today, -i));
   const plans = new Map(look.map((d) => [d, activeBlocks(readPlan(d))]));
   const nowClock = clockNow(tz, at);
+  // Tasks tied to a goal count too (v5.2): a finished task adds its estimate on the day it was ticked,
+  // unless a done block for that task already counted the real minutes.
+  const since = look[look.length - 1];
+  const taskMin = new Map<string, number>(); // `${goalId}|${day}` → minutes
+  for (const t of listTodos()) {
+    if (!t.done || !t.goalId || !t.doneAt) continue;
+    const d = dayString(tz, new Date(t.doneAt));
+    if (d < since || (plans.get(d) ?? []).some((b) => b.taskId === t.id && b.status === "done")) continue;
+    taskMin.set(`${t.goalId}|${d}`, (taskMin.get(`${t.goalId}|${d}`) ?? 0) + t.estimateMin);
+  }
   return readGoals()
     .filter((g) => !g.done)
     .map((goal) => {
-      const doneOn = (d: string) => (plans.get(d) ?? []).filter((b) => b.goalId === goal.id && b.status === "done").reduce((s, b) => s + blockMinutes(b), 0);
+      const doneOn = (d: string) => (plans.get(d) ?? []).filter((b) => b.goalId === goal.id && b.status === "done").reduce((s, b) => s + blockMinutes(b), 0) + (taskMin.get(`${goal.id}|${d}`) ?? 0);
       let streak = 0;
       for (let i = 0; i < look.length; i++) {
         if (doneOn(look[i]) > 0) streak++;
@@ -161,6 +172,11 @@ export type Recap = {
   skipped: string[];
   moods: Record<Mood, number>;
   goals: { id: string; title: string; min: number }[];
+  // Goggins mode (v5.2): the block-by-block mirror's numbers and the kept-days streak.
+  onTimeRate?: number;
+  missed?: number;
+  kept?: boolean;
+  streak?: number;
   note?: string; // the Coach's words, written by the runner
   createdAt: string;
 };
