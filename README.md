@@ -132,3 +132,10 @@ subsecond replies; provider latency, network and local Albanian inference still 
 Voice regression checks: `node --import tsx --test deploy/*.test.ts deploy/*.test.mjs`,
 then `npm run typecheck` and `npm run build`. A phone check is still needed for microphone
 permissions, Bluetooth routing, iOS playback restrictions, and perceived Albanian pronunciation.
+
+### v4 settings (all optional, in /etc/agent-dashboard.env)
+- `DASHBOARD_TZ` (default Europe/Belgrade), `PLAN_DAY_START` / `PLAN_DAY_END`, `COACH_PLAN_AT` (07:30), `COACH_RECAP_AT` (21:30), `COACH_ENABLED=0` to silence the Coach.
+- `PAGESPEED_API_KEY` — Core Web Vitals on the Website page (Google Cloud → enable PageSpeed Insights API → API key). The anonymous quota is shared and usually exhausted.
+- `GA4_PROPERTY_ID` — the numeric GA4 property for traffic; re-run `handoff/google-auth.mjs` once for the analytics.readonly scope.
+- `MONITOR_ENABLED=0` stops the 383ks.com probes. Supabase health needs the root timer once: `bash /opt/agent-dashboard/deploy/install-db-stats.sh`.
+- Council seats for the Roast room live in `council/` (copied from the roast-room skill: roster, personas, brain excerpts) and run on Nemotron.

@@ -8,7 +8,10 @@ import { cn } from "@/lib/utils";
 const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // A number that counts up to its value the first time it's seen, and eases to new values after.
-export function CountUp({ value, className, format = (n) => Math.round(n).toLocaleString("en") }: { value: number; className?: string; format?: (n: number) => string }) {
+// Server components pass decimals/suffix (functions can't cross into a client component); client
+// components may pass format.
+export function CountUp({ value, className, decimals, suffix = "", format }: { value: number; className?: string; decimals?: number; suffix?: string; format?: (n: number) => string }) {
+  const show = format ?? ((n: number) => `${decimals === undefined ? Math.round(n).toLocaleString("en") : n.toFixed(decimals)}${suffix}`);
   const [shown, setShown] = useState(0);
   const from = useRef(0);
   const el = useRef<HTMLSpanElement>(null);
@@ -42,14 +45,14 @@ export function CountUp({ value, className, format = (n) => Math.round(n).toLoca
   }, [value]);
   return (
     <span ref={el} className={cn("tnum", className)}>
-      {format(shown)}
+      {show(shown)}
     </span>
   );
 }
 
 // A looping Magnific clip behind a page's title. Plays only while visible and never with reduced
 // motion (the still poster shows instead).
-export function SectionHero({ clip, eyebrow, title, sub, right, className, children }: { clip: "memory" | "inbox" | "today"; eyebrow?: string; title: React.ReactNode; sub?: React.ReactNode; right?: React.ReactNode; className?: string; children?: React.ReactNode }) {
+export function SectionHero({ clip, eyebrow, title, sub, right, className, children }: { clip: "memory" | "inbox" | "today" | "room" | "website" | "agents" | "home"; eyebrow?: string; title: React.ReactNode; sub?: React.ReactNode; right?: React.ReactNode; className?: string; children?: React.ReactNode }) {
   const video = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     const v = video.current;
@@ -75,4 +78,20 @@ export function SectionHero({ clip, eyebrow, title, sub, right, className, child
       {children}
     </section>
   );
+}
+
+// Just the loop, for a hero laid out by its page (Home).
+export function HeroLoop({ clip }: { clip: string }) {
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    const v = video.current;
+    if (!v) return;
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && !reduced()) void v.play().catch(() => {});
+      else v.pause();
+    });
+    io.observe(v);
+    return () => io.disconnect();
+  }, []);
+  return <video ref={video} src={`/media/${clip}-loop.mp4`} poster={`/media/${clip}-loop.webp`} muted loop playsInline preload="metadata" aria-hidden />;
 }

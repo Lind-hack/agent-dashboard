@@ -2,6 +2,8 @@ import { ArrowRight, ArrowUpRight, Brain, CalendarDays, Inbox, Radio, Swords } f
 import Link from "next/link";
 import { AgentLogo } from "@/components/agent-logo";
 import { CoreStage, type Dock } from "@/components/core-stage";
+import { MissionStrip } from "@/components/mission-strip";
+import { HeroLoop } from "@/components/motion";
 import { HudClock } from "@/components/hud-clock";
 import { InboxList } from "@/components/inbox-list";
 import { Dot, Empty, Panel } from "@/components/kit";
@@ -9,6 +11,7 @@ import { UsageGauge } from "@/components/usage-gauge";
 import { agentStatuses, type AgentStatus } from "@/lib/agent-status";
 import type { AgentKey } from "@/lib/agents";
 import { readBrainStatus } from "@/lib/brain";
+import { coachNow, goalProgress } from "@/lib/coach";
 import { repoShort } from "@/lib/config";
 import { inboxItems, type InboxItem } from "@/lib/inbox";
 import { today, type Today } from "@/lib/planner";
@@ -87,7 +90,8 @@ export default async function Home() {
 
   return (
     <div className="flex min-w-0 flex-col gap-7 lg:gap-8">
-      <header className="rise flex items-end justify-between gap-4 pt-2 lg:pt-5">
+      <header className="section-hero rise flex items-end justify-between gap-4 px-5 py-6 lg:px-8 lg:py-9">
+        <HeroLoop clip="home" />
         <div className="min-w-0">
           <h1 className="text-[2.1rem] leading-[1.02] font-semibold tracking-[-0.045em] text-balance sm:text-[2.6rem] lg:text-[3.2rem]">{greeting()}</h1>
           <p className="mt-2.5 text-[15px] text-muted">
@@ -103,6 +107,8 @@ export default async function Home() {
         </div>
         <HudClock className="hidden shrink-0 text-[3.2rem] sm:block" />
       </header>
+
+      <MissionStrip now={coachNow()} goals={goalProgress()} />
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)_minmax(0,0.95fr)] lg:gap-5">
         {/* Centre on the phone comes first: the core and the agents. */}

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AgentLogo, type LogoState } from "@/components/agent-logo";
-import { Core } from "@/components/core";
+import { NebulaCard } from "@/components/orb";
 import { AGENT_HEX, AGENT_LABELS, type AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
 
@@ -49,14 +49,12 @@ function DockCard({ d, className }: { d: Dock; className?: string }) {
 
 export function CoreStage({ docks, readout }: { docks: Dock[]; readout: string[] }) {
   const working = docks.filter((d) => d.working).map((d) => d.agent);
-  const energy = working.length ? 0.6 + working.length * 0.1 : 0.28;
-  const tints = working.map((a) => AGENT_HEX[a]);
   return (
     <section className="panel brackets relative overflow-hidden" aria-label="Agents">
       <div className="relative h-[300px] sm:h-[380px] lg:h-[440px]">
-        <Core className="absolute inset-0 h-full w-full" density={1.4} energy={energy} tints={tints} label={working.length ? `${working.length} agents working` : "Core idle"} />
+        <NebulaCard state={working.length ? "thinking" : "idle"} className="absolute inset-0 !rounded-none !border-0 !shadow-none" />
         <p className="hud-label absolute top-4 left-1/2 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap">
-          <span className={cn("h-1.5 w-1.5 rounded-full", working.length ? "bg-ok shadow-[0_0_8px_var(--color-ok)]" : "bg-hud/60")} />
+          <span className={cn("h-1.5 w-1.5 rounded-full", working.length ? "bg-ok shadow-[0_0_8px_var(--color-ok)]" : "bg-hermes/70")} />
           core · {working.length ? `${working.length} working` : "idle"}
         </p>
 
@@ -66,7 +64,7 @@ export function CoreStage({ docks, readout }: { docks: Dock[]; readout: string[]
             <path
               key={d.agent}
               d={WIRE[d.agent]}
-              stroke={d.working ? AGENT_HEX[d.agent] : "rgb(169 228 245)"}
+              stroke={d.working ? AGENT_HEX[d.agent] : "rgb(214 170 255)"}
               strokeOpacity={d.working ? 0.7 : 0.16}
               strokeWidth={1}
               strokeDasharray={d.working ? undefined : "2 3"}

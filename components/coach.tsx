@@ -90,7 +90,7 @@ export function FocusBar() {
               <span className="font-medium">{c.title}</span>
               {c.goal && <span className="hidden text-faint sm:inline"> · serves {c.goal.title}</span>}
             </span>
-            <span className="tnum hidden shrink-0 font-mono text-[12px] text-muted sm:inline">{fmtLeft(c.endMs - now)} left</span>
+            <span className="tnum hidden shrink-0 font-mono text-[12px] text-muted sm:inline">{c.endMs > now ? `${fmtLeft(c.endMs - now)} left` : `${fmtLeft(now - c.endMs)} over`}</span>
             {c.status !== "running" ? (
               <button onClick={() => void run({ action: "start", id: c.id })} disabled={!!busy} className="press flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] bg-text px-3 font-medium text-bg">
                 {busy === "start" ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} Start

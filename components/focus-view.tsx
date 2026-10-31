@@ -85,7 +85,7 @@ export function FocusView() {
         </svg>
         <Orb state={running ? "thinking" : "idle"} className="h-[74%] w-[74%]" />
         <div className="pointer-events-none absolute inset-x-0 bottom-[14%] text-center">
-          <p className="tnum font-mono text-3xl font-semibold tracking-tight text-white drop-shadow-[0_2px_10px_rgb(0_0_0)]">{notYet ? `in ${fmtLeft(b.startMs - now)}` : fmtLeft(left)}</p>
+          <p className="tnum font-mono text-3xl font-semibold tracking-tight text-white drop-shadow-[0_2px_10px_rgb(0_0_0)]">{notYet ? `in ${fmtLeft(b.startMs - now)}` : left >= 0 ? fmtLeft(left) : `+${fmtLeft(-left)}`}</p>
           <p className="text-[11px] text-white/70">{notYet ? "until it starts" : left > 0 ? "left" : "over time"}</p>
         </div>
       </div>

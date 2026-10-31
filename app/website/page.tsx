@@ -32,7 +32,7 @@ export default async function WebsitePage() {
   return (
     <div className="mx-auto max-w-6xl">
       <SectionHero
-        clip="today"
+        clip="website"
         eyebrow={[open.length ? `${open.length} open incident${open.length > 1 ? "s" : ""}` : "no open incidents", overall24h !== null && `${overall24h}% up · 24 h`, badUnits.length > 0 && `${badUnits.length} jobs failing`].filter(Boolean).join(" · ")}
         title="383ks.com"
         sub={!s.up ? "Not answering right now." : open.length ? "Up, with an open incident below." : badUnits.length ? `Up — but ${badUnits.length} scheduled job${badUnits.length > 1 ? "s" : ""} failed.` : "Up, fast and publishing."}
@@ -349,7 +349,7 @@ function Stat({ icon: Icon, label, value, suffix = "", sub, good, decimals = 0 }
         <Icon className="h-3.5 w-3.5" strokeWidth={1.75} /> {label}
       </p>
       <p className={cn("mt-2 text-[1.9rem] leading-none font-semibold tracking-[-0.04em]", value === null ? "text-faint" : good ? "text-text" : "text-warn")}>
-        {value === null ? "—" : <CountUp value={value} format={(n) => `${n.toFixed(decimals)}${suffix}`} />}
+        {value === null ? "—" : <CountUp value={value} decimals={decimals} suffix={suffix} />}
       </p>
       <p className="mt-1.5 truncate text-[11px] text-faint">{sub}</p>
     </Panel>

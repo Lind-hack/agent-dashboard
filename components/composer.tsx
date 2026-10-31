@@ -4,7 +4,7 @@ import { Check, GitBranch, LoaderCircle, Mic, NotebookPen, SendHorizontal, Squar
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { AgentLogo } from "@/components/agent-logo";
-import { Core } from "@/components/core";
+import { Orb } from "@/components/orb";
 import { SkillChips, SkillMenu, useSkillPicker, type SkillInfo } from "@/components/skill-picker";
 import { audioFilename, useRecorder } from "@/components/use-recorder";
 import { AGENT_HEX, AGENT_LABELS, AGENT_META, type AgentKey, type TaskAgent } from "@/lib/agents";
@@ -179,7 +179,8 @@ export function Composer({ autoFocusText = false, onStarted }: { autoFocusText?:
           className="group relative grid h-36 w-36 place-items-center overflow-hidden rounded-[36px] bg-black shadow-[0_0_0_1px_rgb(169_228_245/0.25)_inset] transition-transform duration-300 ease-[var(--ease-out-expo)] hover:scale-[1.03] active:scale-[0.97] disabled:opacity-40"
           style={{ boxShadow: `0 0 0 1px rgb(169 228 245 / 0.25) inset, 0 20px 50px -18px ${AGENT_HEX[agent]}` }}
         >
-          <Core className="absolute inset-0 h-full w-full" density={0.8} energy={mic.recording ? 1 : 0.45} tints={[AGENT_HEX[agent]]} />
+          <span className="absolute inset-0 bg-[url(/media/nebula-loop.webp)] bg-cover bg-center opacity-80" aria-hidden />
+          <Orb state={mic.recording ? "listening" : "idle"} level={mic.recording ? 0.6 : 0} className="absolute inset-[-8px]" />
           <span className="relative grid place-items-center text-white drop-shadow-[0_0_8px_rgb(0_0_0)]">
             {busy ? <LoaderCircle className="h-8 w-8 animate-spin" /> : mic.recording ? <Square className="h-7 w-7 fill-current" /> : <Mic className="h-9 w-9" />}
           </span>

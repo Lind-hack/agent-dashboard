@@ -281,3 +281,13 @@ Geist Mono 10.5px, 0.18em tracking, uppercase, ink-faint. Section and readout la
 - **Motion vocabulary** (globals.css "v3 motion system"): `page-in` (opacity only — a transform would capture the fixed bars), `stagger` children, `lift` + `press` for anything tappable, `shimmer` while the automation reads something, `land` when it arrives, `CountUp` numbers, `day-bar`. All of it switches off under `prefers-reduced-motion`.
 - **Memory**: Visual cortex rings (canvas) — wedges are Library sections, mail piles and sources; dots by recency; search lights hits and draws them to the core; answers light their sources. Sources panel with switches (search scope) and the pink "Refresh all".
 - **Inbox**: pile colours live in `lib/piles.ts`; the pink gradient button is the one "let the Core do it" action per page (Sort all, Refresh all).
+
+## v4 — Coach, council, monitor, the Orb everywhere (2026-10-31)
+
+- **The Orb is the brand.** Sidebar mark, phone logo, login, composer, Home stage and Talk sheet all use the Orb on the nebula (the canvas Core is retired from screens). Agents keep their real marks; **council seats** get a monogram on a rounded square in the seat's colour (`SeatBadge`) — personas, never faces.
+- **Focus bar** (under the top bar, every page): what this minute is for, one button (Start / Done / Plan my day), a hairline that fills as the block runs. Amber→pink→violet (`day-bar`) is the Coach's colour; it means *your time*, never system state.
+- **Focus mode** (`/focus`): the Orb inside a countdown ring, one primary action, the check-in as three equal choices. Stuck → three tiny steps, never a lecture.
+- **Goals** are a scoreboard: ring = week vs target, 7 small bars = the last week, flame = streak. Each card ends in "Focus now" (primary) and "Plan".
+- **Room**: the table strip lights whoever is speaking in their colour; the judge's rubric is four stacked colours (evidence blue, reasoning violet, practicality mint, responsiveness amber); the verdict is a **decision memo** — the decision in one large line, objection (red) beside its answer (green), numbered actions each with "agent" and "today" buttons.
+- **Chats**: the step tracker sits under the title, in the agent's colour; STEP/DONE markers are hidden from the conversation.
+- **Website**: four vitals, then per-endpoint 48-bucket sparklines (blue = ms, amber = slow, red = failed). Findings are written as what to do ("a VACUUM FULL would reclaim it"), not just numbers.
