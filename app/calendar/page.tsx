@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { AssistantPanel } from "@/components/assistant-panel";
 import { MirrorCard, PushCard } from "@/components/mirror";
+import { DayBoard } from "@/components/day-board";
 import { SayIt } from "@/components/say-it";
 import { AutopilotStrip } from "@/components/autopilot-strip";
 import { PushSwitch } from "@/components/coach";
@@ -16,6 +17,7 @@ import { TodoBoard } from "@/components/todo-board";
 import { briefPending, readBrief, readChat, type BriefSlot } from "@/lib/assistant";
 import { keptStreak, mirror, staleGoals } from "@/lib/accountability";
 import { autopilotEnabled, readAutopilot } from "@/lib/autopilot";
+import { board } from "@/lib/day-board";
 import { faceSet } from "@/lib/face";
 import { readPush } from "@/lib/goggins";
 import { addDays, calendarConnected, type CalEvent } from "@/lib/calendar";
@@ -107,6 +109,8 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
       <SayIt />
+
+      <DayBoard initial={board()} />
 
       <div id="plan" className="mt-6 scroll-mt-20">
         <PlanDay canWrite={google} planned={planned} initialNote={replan} />
