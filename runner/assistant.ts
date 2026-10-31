@@ -3,6 +3,7 @@ import { agenda, calendarConnected, type CalEvent } from "../lib/calendar";
 import { clockNow, coachNow, coachTz, dayProgress, zonedMs } from "../lib/coach";
 import { solJSON, solLabel } from "../lib/sol";
 import { todosFor, remainingMin } from "../lib/todos";
+import { stepSettled } from "./autopilot";
 import { notify } from "./notify";
 
 // The Day assistant, runner side (v5):
@@ -85,6 +86,8 @@ export async function assistantTick(minute: string) {
   for (const slot of ["morning", "midday", "evening"] as BriefSlot[]) {
     const late = toMin(minute) - toMin(AT[slot]());
     if (late < 0 || late > 180 || briefing || readBrief(day, slot)) continue;
+    // Autopilot plans first (morning/midday) or rolls tasks over (evening); the briefing reads the result.
+    if (!stepSettled(day, slot)) continue;
     const key = `${day}:${slot}`;
     const t = tries.get(key) ?? { n: 0, last: 0 };
     if (t.n >= 3 || Date.now() - t.last < 15 * 60_000) continue;
@@ -149,7 +152,13 @@ export async function assistantTick(minute: string) {
   if (PROGRESS_AT().includes(minute)) {
     const p = await dayProgress();
     if (p.tasksTotal || p.blocksTotal) {
-      const head = p.pace === "behind" ? `Behind: ${p.percent}% done (aim ~${p.expected}%)` : `${p.percent}% done — ${p.pace === "ahead" ? "ahead of pace" : "on pace"}`;
+      const head = p.blocks
+        ? p.pace === "behind"
+          ? `Behind by ${fmt(p.blocks.behindMin)} on your time blocks`
+          : `${p.percent}% done — ${p.pace === "ahead" ? "ahead of your blocks" : "on track with your blocks"}`
+        : p.pace === "behind"
+          ? `Behind: ${p.percent}% done (aim ~${p.expected}%)`
+          : `${p.percent}% done — ${p.pace === "ahead" ? "ahead of pace" : "on pace"}`;
       const body = [`${p.tasksDone}/${p.tasksTotal} tasks`, `${fmt(p.workLeftMin)} of work left`, `${fmt(p.untilEndMin)} in the day`, p.overloadMin ? `${fmt(p.overloadMin)} won't fit — cut or move something` : "", p.next ? `Next: ${p.next.title}` : ""].filter(Boolean).join(" · ");
       await notify({
         key: `coach:progress:${day}:${minute}`,

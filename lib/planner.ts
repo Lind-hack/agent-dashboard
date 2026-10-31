@@ -4,10 +4,13 @@ import { agenda, calendarConnected, type CalEvent, type PlanBlock } from "./cale
 import { activeGoals, type Goal } from "./goals";
 import { goalProgress } from "./coach";
 import { groqJSON } from "./groq";
+import { solJSON, solLabel } from "./sol";
 import { blockId } from "./plan-store";
 import { openTasks, ticktickConnected } from "./ticktick";
 import { completeInTickTick } from "./todo-actions";
-import { importTickTick, listTodos, remainingMin, todosFor, type Todo } from "./todos";
+import { gmailLink, readMail } from "./gmail";
+import { readActions } from "./mail-actions";
+import { importEmailTasks, importTickTick, listTodos, remainingMin, todosFor, type Todo } from "./todos";
 
 // "Plan my day": fixed calendar events + open dashboard tasks + the vault's Daily Agenda priorities +
 // whatever Lind says → time blocks in the free gaps. Nothing is written until he applies the plan
@@ -76,11 +79,21 @@ export async function today(): Promise<Today> {
       errors.push(`TickTick: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  // Emails that ask Lind to do something become tasks (read by the runner, added here once each).
+  try {
+    const mails = new Map(readMail().messages.map((m) => [m.id, m]));
+    importEmailTasks(
+      Object.values(readActions()).map((a) => ({ ...a, link: mails.get(a.id) ? gmailLink(mails.get(a.id)!) : undefined, from: mails.get(a.id)?.from })),
+      day,
+    );
+  } catch (err) {
+    errors.push(`Email tasks: ${err instanceof Error ? err.message : String(err)}`);
+  }
   return { tz, today: day, events, tomorrow, todos: todosFor(day), priorities: vaultPriorities(), goals: activeGoals(), errors };
 }
 
 // Gaps between now (or the start of the day) and the end of the day, around timed events.
-export function freeSlots(t: Today, now = new Date()): { start: number; end: number }[] {
+export function freeSlots(t: Today, now = new Date(), extraBusy: { s: number; e: number }[] = []): { start: number; end: number }[] {
   const nowMin = Math.ceil(toMin(clock(t.tz, now)) / 15) * 15;
   let from = Math.max(nowMin, toMin(DAY_START()));
   const end = toMin(DAY_END());
@@ -89,6 +102,7 @@ export function freeSlots(t: Today, now = new Date()): { start: number; end: num
   const busy = t.events
     .filter((e) => !e.allDay && !e.planned)
     .map((e) => ({ s: toMin(clock(t.tz, new Date(e.start))), e: Math.min(toMin(clock(t.tz, new Date(e.end))) || 24 * 60, 24 * 60) }))
+    .concat(extraBusy)
     .sort((a, b) => a.s - b.s);
   const slots: { start: number; end: number }[] = [];
   for (const b of busy) {
@@ -99,10 +113,14 @@ export function freeSlots(t: Today, now = new Date()): { start: number; end: num
   return slots.filter((s) => s.end - s.start >= 15);
 }
 
-export async function planDay(note: string): Promise<{ blocks: PlanBlock[]; summary: string; day: string; tz: string }> {
+// opts.keep: blocks that stay as they are (done or running) — their time isn't free and they come back
+// unchanged, so a re-plan never touches what's already happened. opts.useSol: plan with gpt-6.1-sol
+// (Autopilot) instead of Groq; Groq is the fallback.
+export async function planDay(note: string, opts: { useSol?: boolean; keep?: PlanBlock[] } = {}): Promise<{ blocks: PlanBlock[]; summary: string; day: string; tz: string; model: string }> {
   const t = await today();
-  const slots = freeSlots(t);
-  if (!slots.length) return { blocks: [], summary: "No free time left today.", day: t.today, tz: t.tz };
+  const keep = opts.keep ?? [];
+  const slots = freeSlots(t, new Date(), keep.map((k) => ({ s: toMin(k.start), e: toMin(k.end) })));
+  if (!slots.length) return { blocks: keep, summary: "No free time left today.", day: t.today, tz: t.tz, model: "—" };
   const taskList: Todo[] = [...t.todos.overdue, ...t.todos.today].slice(0, 30);
   const pri = { 3: "high", 2: "medium", 1: "low", 0: "none" } as const;
   const dueOf = (x: Todo) => (!x.due ? "no deadline" : x.due.slice(0, 10) < t.today ? "overdue" : x.due.includes("T") ? `due ${x.due.slice(11)}` : x.due.slice(0, 10) === t.today ? "due today" : `due ${x.due}`);
@@ -121,10 +139,11 @@ export async function planDay(note: string): Promise<{ blocks: PlanBlock[]; summ
     `Open tasks (id | priority | deadline | minutes of work left | goal | title):\n${taskList.map((x) => `${x.id} | ${pri[x.priority]} | ${dueOf(x)} | ${remainingMin(x)} | ${x.goalId ?? "—"} | ${x.title}${x.subtasks.length ? ` (steps left: ${x.subtasks.filter((st) => !st.done).map((st) => st.title).join("; ")})` : ""}`).join("\n") || "none"}`,
     `Standing priorities from the vault: ${t.priorities.join(" / ") || "none"}`,
     `Active goals from the vault (id | horizon | next action | why | due | this week so far):\n${t.goals.map((g) => `${g.id} | ${g.horizon} | ${g.title} → ${g.next || "choose the next action"} | ${g.why || "—"} | ${g.due ?? "no date"} | ${weekly(g.id)}`).join("\n") || "none"}`,
+    ...(keep.length ? [`Already on the plan and staying (don't schedule over these): ${keep.map((k) => `${k.start}-${k.end} ${k.title}`).join("; ")}`] : []),
     `What Lind says about today: ${note || "(nothing — plan from the list)"}`,
   ].join("\n\n");
-  const out = await groqJSON<{ blocks: { start: string; end: string; title: string; kind: string; taskId?: string | null; goalId?: string | null }[]; summary: string }>(
-    `You plan Lind's day into time blocks. He's a CS student building AI products and running a news site.
+  type Out = { blocks: { start: string; end: string; title: string; kind: string; taskId?: string | null; goalId?: string | null }[]; summary: string };
+  const SYSTEM = `You plan Lind's day into time blocks. He's a CS student building AI products and running a news site.
 Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "title": string, "kind": "task"|"focus"|"break"|"routine", "taskId": string|null, "goalId": string|null}]}.
 - Only inside the free slots, never overlapping each other. Blocks in 15-minute steps.
 - Goals first: each active goal's next action gets a "focus" block long enough to make real progress (45–120 min) before generic tasks, unless Lind's note says otherwise. Goals furthest behind their weekly target get the earliest and longest block; the hardest goal block goes in the morning.
@@ -133,10 +152,17 @@ Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "
 - Group small tasks into one block ("Admin: x, y, z"). A 10–15 min break after ~2h of work, and a meal around 13:00 and 19:30 if free.
 - taskId: the id from the list when a block is for one task, else null. goalId: the id of the active goal when the block serves it, else null. Never invent ids.
 - Leave some slack; do not fill every minute. Titles short, in Lind's language.
-- summary: one sentence on the shape of the day.`,
-    context,
-    0.3,
-  );
+- summary: one sentence on the shape of the day.`;
+  let model = "groq";
+  let out: Partial<Out> | null = null;
+  if (opts.useSol) {
+    out = await solJSON<Out>(SYSTEM, context, 8 * 60_000).catch(() => null);
+    model = solLabel();
+  }
+  if (!out?.blocks) {
+    out = await groqJSON<Out>(SYSTEM, context, 0.3);
+    model = "groq";
+  }
   const ids = new Map(taskList.map((x) => [x.id, x]));
   const kinds = ["task", "focus", "break", "routine"];
   const blocks: PlanBlock[] = [];
@@ -165,10 +191,11 @@ Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "
     });
   }
   return {
-    blocks,
+    blocks: [...keep, ...blocks].sort((a, z) => a.start.localeCompare(z.start)),
     summary: out ? (out.summary ?? "") : "Groq is out of quota right now — try again in a few minutes.",
     day: t.today,
     tz: t.tz,
+    model,
   };
 }
 

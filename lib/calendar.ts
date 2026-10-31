@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { googleToken, listAccounts } from "./accounts";
 import { DATA_DIR } from "./config";
 
 // Google Calendar for the day's agenda and add-by-voice (developers.google.com/workspace/calendar/api/v3).
@@ -140,7 +141,21 @@ export async function agenda(days = 2): Promise<{ tz: string; today: string; eve
         );
     }),
   );
-  const events = all.flat().sort((a, b) => (a.allDay === b.allDay ? new Date(a.start).getTime() - new Date(b.start).getTime() : a.allDay ? -1 : 1));
+  // Extra Gmail accounts (v5.1): their primary calendar joins the day, labelled with the address.
+  const extra = await Promise.all(
+    listAccounts()
+      .filter((a) => a.provider === "google" && a.scopes?.some((x) => x.includes("calendar")))
+      .map(async (a) => {
+        const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", orderBy: "startTime", maxResults: "50", timeZone: tz });
+        const r = await fetch(`${API}/calendars/primary/events?${q}`, { headers: { Authorization: `Bearer ${await googleToken(a)}` }, cache: "no-store", signal: AbortSignal.timeout(15_000) })
+          .then((x) => (x.ok ? (x.json() as Promise<{ items?: GEvent[] }>) : { items: [] }))
+          .catch(() => ({ items: [] as GEvent[] }));
+        return (r.items ?? [])
+          .filter((e) => e.status !== "cancelled")
+          .map((e): CalEvent => ({ id: `${a.id}:${e.id}`, title: e.summary ?? "(busy)", start: e.start?.dateTime ?? e.start?.date ?? "", end: e.end?.dateTime ?? e.end?.date ?? "", allDay: !e.start?.dateTime, location: e.location, link: e.htmlLink, calendar: a.email }));
+      }),
+  ).catch(() => [] as CalEvent[][]);
+  const events = [...all.flat(), ...extra.flat()].sort((a, b) => (a.allDay === b.allDay ? new Date(a.start).getTime() - new Date(b.start).getTime() : a.allDay ? -1 : 1));
   return { tz, today, events };
 }
 

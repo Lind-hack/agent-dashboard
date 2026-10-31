@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { addDays, type PlanBlock } from "./calendar";
 import { DATA_DIR } from "./config";
+import { withLock } from "./file-lock";
 
 // The authoritative record of what Lind planned and what actually happened, one JSON file per day.
 // The vault note and the Google Calendar events are mirrors: replanning rewrites those, so ticks and
@@ -116,7 +117,7 @@ function writePlan(plan: DayPlan) {
 
 // Replanning: match by stable id so a ticked block stays ticked. Blocks that vanished from the new
 // plan are kept as "dropped" history (a done block stays done, so the week's numbers stay honest).
-export function savePlan(day: string, blocks: PlanBlock[], meta: { tz?: string; summary?: string; note?: string } = {}): DayPlan {
+function savePlanUnlocked(day: string, blocks: PlanBlock[], meta: { tz?: string; summary?: string; note?: string } = {}): DayPlan {
   const prev = readPlan(day);
   const before = new Map((prev?.blocks ?? []).map((b) => [b.id, b]));
   const seen = new Set<string>();
@@ -168,7 +169,7 @@ export type BlockAction = "start" | "done" | "blocked" | "planned" | "move";
 
 // Start / Done / Blocked / Move. Move carries the block to tomorrow at the same time and leaves a
 // tombstone in today's file, so today's consistency numbers aren't inflated by it.
-export function setBlockStatus(day: string, id: string, action: BlockAction): DayPlan | null {
+function setBlockStatusUnlocked(day: string, id: string, action: BlockAction): DayPlan | null {
   const plan = readPlan(day);
   const block = plan?.blocks.find((b) => b.id === id);
   if (!plan || !block) return null;
@@ -270,7 +271,7 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}
 const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 // A block added by hand ("Focus on this now", "Plan into today"): placed at `start`, `length` minutes.
-export function addBlock(day: string, b: { start: string; length: number; title: string; goalId?: string; taskId?: string; kind?: StoredBlock["kind"]; status?: BlockStatus }): StoredBlock {
+function addBlockUnlocked(day: string, b: { start: string; length: number; title: string; goalId?: string; taskId?: string; kind?: StoredBlock["kind"]; status?: BlockStatus }): StoredBlock {
   const at = new Date().toISOString();
   const plan = readPlan(day) ?? { day, createdAt: at, updatedAt: at, blocks: [] };
   const start = mins(b.start);
@@ -296,7 +297,7 @@ export function addBlock(day: string, b: { start: string; length: number; title:
 }
 
 // "Shrink it": the block becomes a 25-minute start from now — the smallest step that still counts.
-export function shrinkBlock(day: string, id: string, nowHHMM: string, length = 25): DayPlan | null {
+function shrinkBlockUnlocked(day: string, id: string, nowHHMM: string, length = 25): DayPlan | null {
   const plan = readPlan(day);
   const block = plan?.blocks.find((b) => b.id === id);
   if (!plan || !block) return null;
@@ -311,7 +312,7 @@ export function shrinkBlock(day: string, id: string, nowHHMM: string, length = 2
   return plan;
 }
 
-export function addCheckin(day: string, id: string, mood: Mood, note?: string): DayPlan | null {
+function addCheckinUnlocked(day: string, id: string, mood: Mood, note?: string): DayPlan | null {
   const plan = readPlan(day);
   const block = plan?.blocks.find((b) => b.id === id);
   if (!plan || !block) return null;
@@ -332,3 +333,32 @@ export function blockMinutes(b: StoredBlock): number {
 }
 
 export { addDays as shiftDay, daysOfWeek };
+
+export function savePlan(day: string, blocks: PlanBlock[], meta: { tz?: string; summary?: string; note?: string } = {}): DayPlan {
+  return withLock("plans", () => savePlanUnlocked(day, blocks, meta));
+}
+
+export function setBlockStatus(day: string, id: string, action: BlockAction): DayPlan | null {
+  return withLock("plans", () => setBlockStatusUnlocked(day, id, action));
+}
+
+export function addBlock(day: string, b: { start: string; length: number; title: string; goalId?: string; taskId?: string; kind?: StoredBlock["kind"]; status?: BlockStatus }): StoredBlock {
+  return withLock("plans", () => addBlockUnlocked(day, b));
+}
+
+export function shrinkBlock(day: string, id: string, nowHHMM: string, length = 25): DayPlan | null {
+  return withLock("plans", () => shrinkBlockUnlocked(day, id, nowHHMM, length));
+}
+
+export function addCheckin(day: string, id: string, mood: Mood, note?: string): DayPlan | null {
+  return withLock("plans", () => addCheckinUnlocked(day, id, mood, note));
+}
+
+// Undo (Autopilot): put a day's plan file back exactly as it was before a step, or remove it if there
+// was none.
+export function restorePlan(day: string, plan: DayPlan | null) {
+  withLock("plans", () => {
+    if (plan) writePlan({ ...plan, day });
+    else fs.rmSync(dayFile(day), { force: true });
+  });
+}

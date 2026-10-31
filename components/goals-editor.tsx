@@ -45,7 +45,7 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
       setRows(((body.goals ?? []) as Goal[]).map((g, i) => ({ ...g, key: `${g.id}-${i}` })));
-      setMsg("Saved to 100 - Me/Goals.md. The next plan will use them.");
+      setMsg(body.vault ? "Saved — and mirrored to 100 - Me/Goals.md in Obsidian. The next plan will use them." : "Saved. The next plan will use them. (The Obsidian copy catches up once the vault is writable.)");
       router.refresh();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
