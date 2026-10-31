@@ -3,8 +3,8 @@
 //
 //   node handoff/google-auth.mjs [path/to/google_credentials.json]
 //
-// Uses the same OAuth desktop client as the morning-news tools, asks only for Calendar access
-// (read your calendars + add events), and sends the refresh token straight to the dashboard
+// Uses the same OAuth desktop client as the morning-news tools, asks for Calendar access
+// (read your calendars + add events) and read-only Gmail for the Inbox, and sends the refresh token straight to the dashboard
 // (Bearer HANDOFF_TOKEN from ~/.agent-dashboard/handoff.env). Nothing is written to disk here.
 
 import { exec } from "node:child_process";
@@ -13,7 +13,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events"];
+const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/gmail.readonly"];
 const credsPath = process.argv[2] ?? path.join(os.homedir(), "Desktop", "claude", "tools", "google_credentials.json");
 
 const readEnv = (file) =>

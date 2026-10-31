@@ -10,6 +10,8 @@ import { pendingImports, releaseReservation } from "../lib/handoff";
 import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, type NewChat, type Turn } from "../lib/store";
 import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
+import { libraryTick } from "./library";
+import { mailTick } from "./mail";
 import { cancelRoom, createRoom, roomTick } from "./room";
 import { syncSkillsTick } from "./skills-sync";
 import { installSkillsFromGithub } from "./skills-github";
@@ -627,6 +629,13 @@ async function tick() {
       if (active.get("codex")?.id === "brain-weekly") active.delete("codex");
     },
   });
+  // Memory captures and mail sorting run beside the agents, never in their slots.
+  try {
+    libraryTick();
+    mailTick();
+  } catch (e) {
+    log("library", e instanceof Error ? e.message : e);
+  }
   if (Date.now() - lastSweep > SWEEP_MS) {
     lastSweep = Date.now();
     try {
