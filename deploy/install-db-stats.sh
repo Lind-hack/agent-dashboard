@@ -7,4 +7,4 @@ sudo install -m 644 /opt/agent-dashboard/deploy/agent-dashboard-db-stats.timer /
 sudo systemctl daemon-reload
 sudo systemctl enable --now agent-dashboard-db-stats.timer
 sudo systemctl start agent-dashboard-db-stats.service
-ls -la /var/lib/agent-dashboard/monitor/db.json && echo "DB stats installed."
+ls -la /var/lib/agent-dashboard-db/db.json && echo "DB stats installed."

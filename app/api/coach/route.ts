@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clockNow, coachNow, coachTz, goalProgress, nextFreeSlot } from "@/lib/coach";
+import { calendarBusy, clockNow, coachNow, coachTz, goalProgress, nextFreeSlot } from "@/lib/coach";
 import { goalById } from "@/lib/goals";
 import { groqJSON } from "@/lib/groq";
 import { addBlock, addCheckin, setBlockStatus, shrinkBlock, type BlockAction, type Mood } from "@/lib/plan-store";
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
     const goal = goalById(b?.goalId);
     if (!goal) return NextResponse.json({ error: "No such goal." }, { status: 404 });
     const minutes = Math.max(15, Math.min(180, Math.round(Number(b?.minutes) || 50)));
-    const start = action === "focus" ? clockNow(tz) : nextFreeSlot(minutes);
+    const start = action === "focus" ? clockNow(tz) : nextFreeSlot(minutes, new Date(), await calendarBusy());
     if (!start) return NextResponse.json({ error: `No ${minutes}-minute gap left today.` }, { status: 409 });
     const block = addBlock(day, { start, length: minutes, title: goal.next || goal.title, goalId: goal.id, kind: "focus", status: action === "focus" ? "running" : "planned" });
     return NextResponse.json({ ok: true, block, now: coachNow() });

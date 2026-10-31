@@ -76,8 +76,16 @@ async function run(tz: string, minute: string) {
     });
   }
 
+  // Work ticked after the recap was written still counts: refresh it quietly until midnight.
+  const old = readRecap(day);
+  if (old && plan && plan.updatedAt > old.createdAt) {
+    const r = buildRecap(day);
+    r.note = old.note;
+    saveRecap(r);
+  }
+
   // 21:30: the recap, once.
-  if (minute >= RECAP_AT() && !readRecap(day) && now.planned) {
+  if (minute >= RECAP_AT() && !old && now.planned) {
     const r = buildRecap(day);
     const tomorrow = activeBlocks(readPlan(addDays(day, 1))).length;
     const out = await groqJSON<{ note: string }>(

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { AGENT_LABELS, AGENT_META, VPS_AGENTS, type AgentKey } from "@/lib/agents";
 import { listRepos } from "@/lib/github";
-import { coachNow, nextFreeSlot } from "@/lib/coach";
+import { calendarBusy, coachNow, nextFreeSlot } from "@/lib/coach";
 import { addBlock } from "@/lib/plan-store";
 import { readRoom } from "@/lib/rooms";
 import { pushInbox } from "@/lib/store";
@@ -24,7 +24,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   // One action from the memo onto today's plan, in the next free 45-minute slot.
   if (body?.action === "plan") {
     if (!action) return NextResponse.json({ error: "Which action?" }, { status: 400 });
-    const start = nextFreeSlot(45);
+    const start = nextFreeSlot(45, new Date(), await calendarBusy());
     if (!start) return NextResponse.json({ error: "No 45-minute gap left today." }, { status: 409 });
     const block = addBlock(coachNow().day, { start, length: 45, title: action.slice(0, 160), kind: "focus" });
     return NextResponse.json({ ok: true, block });

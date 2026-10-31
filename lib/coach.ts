@@ -16,16 +16,22 @@ const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 export const clockNow = (tz = coachTz(), at = new Date()) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
 
-// "HH:MM" on a day in a time zone → epoch ms.
-export function zonedMs(day: string, hhmm: string, tz = coachTz()): number {
-  const guess = Date.parse(`${day}T${hhmm}:00Z`);
+// The zone's offset from UTC (ms) at an instant.
+function offsetAt(ms: number, tz: string): number {
   const p = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-      .formatToParts(new Date(guess))
+      .formatToParts(new Date(ms))
       .map((x) => [x.type, x.value]),
   );
-  const shown = Date.parse(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:00Z`);
-  return guess - (shown - guess);
+  return Date.parse(`${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:00Z`) - Math.floor(ms / 60_000) * 60_000;
+}
+
+// "HH:MM" on a day in a time zone → epoch ms. Two passes, so the offset is the one in force at the
+// resulting instant (right on DST change days); a time skipped by the change lands an hour later.
+export function zonedMs(day: string, hhmm: string, tz = coachTz()): number {
+  const wall = Date.parse(`${day}T${hhmm}:00Z`);
+  const first = wall - offsetAt(wall, tz);
+  return wall - offsetAt(first, tz);
 }
 
 export type NowBlock = StoredBlock & { startMs: number; endMs: number; goal?: { id: string; title: string; why: string } };
@@ -39,6 +45,7 @@ export type CoachNow = {
   done: number;
   total: number;
   focusMin: number; // done focus minutes today
+  blocks: NowBlock[]; // every block today that isn't done (what /focus?block= may open)
 };
 
 export function coachNow(at = new Date()): CoachNow {
@@ -65,6 +72,7 @@ export function coachNow(at = new Date()): CoachNow {
     current,
     next,
     planned: blocks.length > 0,
+    blocks: open,
     done: doneBlocks.length,
     total: blocks.length,
     focusMin: doneBlocks.filter((b) => b.kind !== "break").reduce((s, b) => s + blockMinutes(b), 0),
@@ -121,7 +129,8 @@ export function goalProgress(at = new Date()): GoalProgress[] {
 }
 
 // The first free slot today from now (or from the day's start) that fits `length` minutes.
-export function nextFreeSlot(length: number, at = new Date()): string | null {
+// `busy` = extra [startMin, endMin] intervals that aren't in the plan (calendar events).
+export function nextFreeSlot(length: number, at = new Date(), busyExtra: [number, number][] = []): string | null {
   const tz = coachTz();
   const day = dayString(tz, at);
   const now = Math.max(toMin(clockNow(tz, at)), toMin(DAY_START()));
@@ -130,7 +139,8 @@ export function nextFreeSlot(length: number, at = new Date()): string | null {
   let t = Math.ceil(now / 5) * 5;
   const busy = activeBlocks(readPlan(day))
     .filter((b) => b.status !== "done")
-    .map((b) => [toMin(b.start), toMin(b.end)] as const);
+    .map((b) => [toMin(b.start), toMin(b.end)] as const)
+    .concat(busyExtra);
   while (t + length <= end) {
     const clash = busy.find(([s, e]) => t < e && t + length > s);
     if (!clash) return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
@@ -194,4 +204,16 @@ export function saveRecap(r: Recap) {
   fs.mkdirSync(path.dirname(recapFile(r.day)), { recursive: true });
   fs.writeFileSync(`${recapFile(r.day)}.tmp`, JSON.stringify(r, null, 2));
   fs.renameSync(`${recapFile(r.day)}.tmp`, recapFile(r.day));
+}
+
+// Today's timed calendar events as busy minutes (so "Plan into today" never lands on a class).
+export async function calendarBusy(): Promise<[number, number][]> {
+  const { agenda, calendarConnected } = await import("./calendar");
+  if (!calendarConnected()) return [];
+  const tz = coachTz();
+  const day = dayString(tz);
+  const a = await agenda(1).catch(() => null);
+  return (a?.events ?? [])
+    .filter((e) => !e.allDay && !e.planned && dayString(tz, new Date(e.start)) === day)
+    .map((e) => [toMin(clockNow(tz, new Date(e.start))), Math.max(toMin(clockNow(tz, new Date(e.start))) + 5, dayString(tz, new Date(e.end)) === day ? toMin(clockNow(tz, new Date(e.end))) : 24 * 60)] as [number, number]);
 }

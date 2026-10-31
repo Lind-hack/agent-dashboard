@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Supabase DB health for the dashboard's Website page. Runs as root (it needs `docker exec`) from
 # agent-dashboard-db-stats.timer every 5 minutes and writes one JSON file the agent user can read:
-#   /var/lib/agent-dashboard/monitor/db.json
+#   /var/lib/agent-dashboard-db/db.json   (root-owned folder, world-readable file)
 # Read-only: SELECTs on pg_stat views, and `ls` of the encrypted backups folder. Nothing is changed.
 set -euo pipefail
 
-OUT_DIR=/var/lib/agent-dashboard/monitor
+OUT_DIR=/var/lib/agent-dashboard-db
 BACKUPS=/opt/383-supabase/encrypted-backups
-mkdir -p "$OUT_DIR"
+# Root owns the folder, so the agent user can't plant a symlink for root to write through.
+install -d -o root -g root -m 755 "$OUT_DIR"
+tmp=$(mktemp "$OUT_DIR/.db.json.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
 
 sql=$(cat <<'SQL'
 select json_build_object(
@@ -45,6 +48,6 @@ else
 fi
 unit=$(systemctl show 383-supabase-backup.service -p Result --value 2>/dev/null || echo unknown)
 
-printf '{"at":"%s","db":%s,"backup":%s,"backup_unit":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$json" "$backup" "$unit" > "$OUT_DIR/db.json.tmp"
-chown agent:agent "$OUT_DIR" "$OUT_DIR/db.json.tmp" 2>/dev/null || true
-mv "$OUT_DIR/db.json.tmp" "$OUT_DIR/db.json"
+printf '{"at":"%s","db":%s,"backup":%s,"backup_unit":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$json" "$backup" "$unit" > "$tmp"
+chmod 644 "$tmp"
+mv -f "$tmp" "$OUT_DIR/db.json"

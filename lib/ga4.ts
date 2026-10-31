@@ -59,7 +59,11 @@ export async function traffic(): Promise<Traffic | null> {
       ga("runReport", { dateRanges: [{ startDate: "today", endDate: "today" }], dimensions: [{ name: "pagePath" }, { name: "pageTitle" }], metrics: [{ name: "screenPageViews" }], orderBys: [{ metric: { metricName: "screenPageViews" }, desc: true }], limit: 6 }),
       ga("runReport", { dateRanges: [{ startDate: "today", endDate: "today" }], dimensions: [{ name: "sessionSource" }], metrics: [{ name: "activeUsers" }], orderBys: [{ metric: { metricName: "activeUsers" }, desc: true }], limit: 5 }),
     ]);
-    const byDay = days.map((r) => ({ day: `${dim(r).slice(0, 4)}-${dim(r).slice(4, 6)}-${dim(r).slice(6, 8)}`, users: num(r), views: num(r, 1) }));
+    // GA4 leaves out days with no traffic: place rows on explicit dates and fill gaps with zero.
+    const rows = new Map(days.map((r) => [`${dim(r).slice(0, 4)}-${dim(r).slice(4, 6)}-${dim(r).slice(6, 8)}`, { users: num(r), views: num(r, 1) }]));
+    const tz = process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
+    const iso = (n: number) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(Date.now() - n * 86_400_000));
+    const byDay = Array.from({ length: 7 }, (_, i) => iso(6 - i)).map((day) => ({ day, ...(rows.get(day) ?? { users: 0, views: 0 }) }));
     const t = byDay.at(-1);
     const y = byDay.at(-2);
     cache = {

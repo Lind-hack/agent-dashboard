@@ -211,7 +211,7 @@ const OUTCOME: Record<Verdict["outcome"], { text: string; tone: string }> = {
 };
 
 // The decision memo (v4 rooms). Older rooms fall back to the recommendation text.
-function MemoCard({ room, roster, repos, onRun, onPlan, busy }: { room: Room; roster: Roster; repos: string[]; onRun: (agent: AgentKey, repo: string, title?: string) => void; onPlan: (title: string) => void; busy: string }) {
+function MemoCard({ room, roster, repos, onRun, onPlan, busy }: { room: Room; roster: Roster; repos: string[]; onRun: (agent: AgentKey, repo: string, title?: string) => void; onPlan: (title: string) => Promise<boolean>; busy: string }) {
   const v = room.verdict!;
   const [repo, setRepo] = useState("");
   const [planned, setPlanned] = useState<Set<string>>(new Set());
@@ -310,9 +310,8 @@ function MemoCard({ room, roster, repos, onRun, onPlan, busy }: { room: Room; ro
                     {busy === `run:${a.title}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {AGENT_LABELS[runner]}
                   </button>
                   <button
-                    onClick={() => {
-                      onPlan(a.title);
-                      setPlanned((p) => new Set([...p, a.title]));
+                    onClick={async () => {
+                      if (await onPlan(a.title)) setPlanned((p) => new Set([...p, a.title]));
                     }}
                     disabled={!!busy || planned.has(a.title)}
                     className={cn("press flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-xs disabled:opacity-60", a.who === "lind" ? "bg-text font-medium text-bg" : "border border-line text-muted hover:text-text")}
@@ -407,16 +406,20 @@ export function RoomView({ initial, repos = [], seats = [] }: { initial: Room; r
     };
   }, [initial.id, live]);
 
-  async function act(body: Record<string, string>, tag: string) {
+  async function act(body: Record<string, string>, tag: string): Promise<boolean> {
     setError("");
     setNote("");
     setBusy(tag);
     const res = await fetch(`/api/rooms/${room.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     const b = await res?.json().catch(() => null);
     setBusy("");
-    if (!res?.ok) return setError(b?.error ?? "Couldn't reach the dashboard.");
+    if (!res?.ok) {
+      setError(b?.error ?? "Couldn't reach the dashboard.");
+      return false;
+    }
     if (b?.href) router.push(b.href);
     if (b?.block) setNote(`Added to today at ${b.block.start} — the Coach will remind you.`);
+    return true;
   }
 
   const scores = room.rounds.map((r) => r.judge?.agreement).filter((x): x is number => typeof x === "number");
@@ -494,7 +497,7 @@ export function RoomView({ initial, repos = [], seats = [] }: { initial: Room; r
         </div>
       </section>
 
-      {room.verdict && <MemoCard room={room} roster={roster} repos={repos} busy={busy} onRun={(a, repo, title) => void act({ action: "run", agent: a, repo, title: title ?? "" }, `run:${title ?? ""}`)} onPlan={(title) => void act({ action: "plan", title }, `plan:${title}`)} />}
+      {room.verdict && <MemoCard room={room} roster={roster} repos={repos} busy={busy} onRun={(a, repo, title) => void act({ action: "run", agent: a, repo, title: title ?? "" }, `run:${title ?? ""}`)} onPlan={(title) => act({ action: "plan", title }, `plan:${title}`)} />}
       {note && <p className="rounded-[12px] border border-ok/30 bg-ok/5 px-3 py-2 text-sm text-ok">{note}</p>}
       {error && <p className="rounded-[12px] border border-bad/30 bg-bad/5 px-3 py-2 text-sm text-bad">{error}</p>}
 

@@ -66,7 +66,7 @@ export function appendProbes(rows: Probe[]) {
 export function readProbes(days = 1): Probe[] {
   const out: Probe[] = [];
   const now = Date.now();
-  for (let i = days - 1; i >= 0; i--) {
+  for (let i = days; i >= 0; i--) {
     const d = new Date(now - i * 86_400_000).toISOString().slice(0, 10);
     try {
       for (const line of fs.readFileSync(probeFile(d), "utf8").split("\n")) {
@@ -101,7 +101,14 @@ export const readDeploys = () => readJSON<Deploy[]>("deploys.json", []);
 export const readIncidents = () => readJSON<Incident[]>("incidents.json", []);
 export const readPsi = () => readJSON<{ mobile?: Psi; desktop?: Psi; history: Psi[] }>("psi.json", { history: [] });
 export const readSeo = () => readJSON<SeoCheck | null>("seo.json", null);
-export const readDb = () => readJSON<DbStats | null>("db.json", null);
+// Written by root (deploy/db-stats.sh) into its own folder, outside the agent-writable data dir.
+export const readDb = (): DbStats | null => {
+  try {
+    return JSON.parse(fs.readFileSync(process.env.DB_STATS_FILE ?? "/var/lib/agent-dashboard-db/db.json", "utf8"));
+  } catch {
+    return null;
+  }
+};
 
 export type ProbeSummary = { key: string; label: string; uptime24h: number | null; uptime7d: number | null; p50: number | null; p95: number | null; last?: Probe; spark: (number | null)[] };
 

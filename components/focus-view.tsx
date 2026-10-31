@@ -29,7 +29,9 @@ export function FocusView() {
   if (!s) return <div className="grid min-h-[70dvh] place-items-center text-sm text-faint">Loading your day…</div>;
   const wanted = params.get("block");
   // The block from the push if it's still today's, else whatever this minute is for.
-  const b = (wanted && [s.current, s.next].find((x) => x?.id === wanted)) || s.current || s.next;
+  const asked = wanted ? (s.blocks ?? []).find((x) => x.id === wanted) : undefined;
+  const b = asked || s.current || s.next;
+  const gone = !!wanted && !asked; // the block from the push is done, moved or no longer today's
   const askCheckin = params.get("checkin") === "1" && !checked;
 
   const run = async (body: Record<string, unknown>) => {
@@ -70,6 +72,7 @@ export function FocusView() {
 
   return (
     <div className="mx-auto flex min-h-[78dvh] max-w-xl flex-col items-center justify-center py-6 text-center">
+      {gone && <p className="mb-4 rounded-[10px] border border-line px-3 py-1.5 text-xs text-muted">That block is already done or moved — here&apos;s what&apos;s on now.</p>}
       <p className="hud-label mb-3">{running ? "Focus · on it" : notYet ? `Up next · ${b.start}` : "It's time"}</p>
       <div className="relative grid aspect-square w-[min(78vw,340px)] place-items-center">
         <svg viewBox="0 0 100 100" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden>

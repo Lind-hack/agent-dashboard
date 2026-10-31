@@ -22,14 +22,17 @@ export function monitorTick() {
     lastProbe = now;
     jobs.push(probeAll);
   }
-  if (now - lastPsi >= PSI_EVERY && (readPsi().mobile?.at ?? "") < new Date(now - PSI_EVERY).toISOString()) {
+  // Due from the last saved result (so a restart neither repeats nor postpones a run); the in-memory
+  // stamp only stops a failing check from being retried every tick.
+  const due = (at: string | undefined, every: number) => !at || Date.parse(at) <= now - every;
+  if (now - lastPsi >= 10 * 60_000 && due(readPsi().mobile?.at, PSI_EVERY)) {
     lastPsi = now;
     jobs.push(pageSpeed);
-  } else if (now - lastPsi >= PSI_EVERY) lastPsi = now;
-  if (now - lastSeo >= SEO_EVERY && (readSeo()?.at ?? "") < new Date(now - SEO_EVERY).toISOString()) {
+  }
+  if (now - lastSeo >= 10 * 60_000 && due(readSeo()?.at, SEO_EVERY)) {
     lastSeo = now;
     jobs.push(seoCheck);
-  } else if (now - lastSeo >= SEO_EVERY) lastSeo = now;
+  }
   if (!jobs.length) return;
   busy = true;
   void (async () => {

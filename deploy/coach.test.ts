@@ -45,3 +45,21 @@ test("weekly targets parse hours and minutes", () => {
   assert.equal(parseWeekly("90"), 90);
   assert.equal(parseWeekly("lots"), undefined);
 });
+
+test("wall-clock → instant is right across DST changes in Europe/Belgrade", async () => {
+  const { zonedMs } = await import("../lib/coach");
+  // Summer (UTC+2) and winter (UTC+1)
+  assert.equal(new Date(zonedMs("2026-07-01", "09:00", "Europe/Belgrade")).toISOString(), "2026-07-01T07:00:00.000Z");
+  assert.equal(new Date(zonedMs("2026-12-01", "09:00", "Europe/Belgrade")).toISOString(), "2026-12-01T08:00:00.000Z");
+  // The morning after the switch to summer time, and an hour that is close to it.
+  assert.equal(new Date(zonedMs("2026-03-29", "01:30", "Europe/Belgrade")).toISOString(), "2026-03-29T00:30:00.000Z");
+  assert.equal(new Date(zonedMs("2026-03-29", "09:00", "Europe/Belgrade")).toISOString(), "2026-03-29T07:00:00.000Z");
+  assert.equal(new Date(zonedMs("2026-10-25", "09:00", "Europe/Belgrade")).toISOString(), "2026-10-25T08:00:00.000Z");
+});
+
+test("a block ticked done instantly counts zero focus minutes, not its planned length", async () => {
+  const { blockMinutes } = await import("../lib/plan-store");
+  const t = "2026-10-31T10:00:00.000Z";
+  assert.equal(blockMinutes({ id: "x", start: "10:00", end: "10:50", title: "x", kind: "focus", status: "done", startedAt: t, doneAt: t }), 0);
+  assert.equal(blockMinutes({ id: "x", start: "10:00", end: "10:50", title: "x", kind: "focus", status: "done" }), 50);
+});

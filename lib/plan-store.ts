@@ -199,6 +199,7 @@ export function setBlockStatus(day: string, id: string, action: BlockAction): Da
     block.status = "moved";
     block.movedTo = tomorrow;
   } else {
+    if (action === "start") pauseOthers(plan, block.id);
     block.status = action === "start" ? "running" : action;
     if (action === "start") block.startedAt ??= at;
     if (action === "done") {
@@ -260,6 +261,11 @@ export function planStats(day: string): PlanStats {
 
 // ---- Coach (v4) -----------------------------------------------------------------------------------
 
+// Only one block runs at a time: starting one puts any other running block back to "planned".
+function pauseOthers(plan: DayPlan, keep: string) {
+  for (const b of plan.blocks) if (b.status === "running" && b.id !== keep) b.status = "planned";
+}
+
 const hhmm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
@@ -282,6 +288,7 @@ export function addBlock(day: string, b: { start: string; length: number; title:
   const base = block.id;
   let n = 2;
   while (plan.blocks.some((x) => x.id === block.id)) block.id = `${base}-${n++}`;
+  if (block.status === "running") pauseOthers(plan, block.id);
   plan.blocks = [...plan.blocks, block].sort((a, z) => a.start.localeCompare(z.start));
   writePlan(plan);
   return block;
@@ -294,6 +301,7 @@ export function shrinkBlock(day: string, id: string, nowHHMM: string, length = 2
   if (!plan || !block) return null;
   block.start = nowHHMM;
   block.end = hhmm(Math.min(mins(nowHHMM) + length, 23 * 60 + 59));
+  pauseOthers(plan, block.id);
   block.status = "running";
   block.startedAt = new Date().toISOString();
   block.updatedAt = block.startedAt;
@@ -316,7 +324,8 @@ export function addCheckin(day: string, id: string, mood: Mood, note?: string): 
 export function blockMinutes(b: StoredBlock): number {
   if (b.startedAt && b.doneAt) {
     const m = Math.round((Date.parse(b.doneAt) - Date.parse(b.startedAt)) / 60_000);
-    if (m > 0 && m < 600) return m;
+    // Started and ticked at once = no focus; only a missing or broken interval falls back to the plan.
+    if (m >= 0 && m < 600) return m;
   }
   return Math.max(0, mins(b.end) - mins(b.start));
 }
