@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, Check, LoaderCircle, Mic, RotateCcw, Square, Target, TimerReset, ListTodo } from "lucide-react";
+import { CalendarPlus, Check, LoaderCircle, Mic, Repeat, RotateCcw, Square, Target, TimerReset, ListTodo } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SayResult } from "@/lib/say";
@@ -11,7 +11,7 @@ import { audioFilename, useRecorder } from "./use-recorder";
 // 383 pitch today, new goal: save 2k by March" — and it lands as time blocks, tasks, events and goals,
 // each listed with its own Undo.
 
-const ICON = { task: ListTodo, block: TimerReset, event: CalendarPlus, goal: Target } as const;
+const ICON = { task: ListTodo, block: TimerReset, event: CalendarPlus, goal: Target, habit: Repeat } as const;
 
 export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitch today, new goal…" }: { placeholder?: string }) {
   const router = useRouter();

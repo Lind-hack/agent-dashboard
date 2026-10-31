@@ -2,6 +2,7 @@ import { syncCalendar } from "./autopilot";
 import { addDays, calendarConnected, createEvent, gcal, replacePlan } from "./calendar";
 import { clockNow, coachNow, coachTz, nextFreeSlot, calendarBusy } from "./coach";
 import { readGoals, writeGoals, type GoalHorizon } from "./goals";
+import { archiveHabit, saveHabit } from "./habits";
 import { groqJSON } from "./groq";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { activeBlocks, addBlock, readPlan, removeBlock } from "./plan-store";
@@ -16,7 +17,8 @@ export type SayItem =
   | { kind: "task"; title: string; day: string; estimateMin?: number; priority?: 0 | 1 | 2 | 3; due?: string; goalId?: string }
   | { kind: "block"; title: string; day: string; start?: string; length: number; goalId?: string }
   | { kind: "event"; title: string; date: string; start?: string; end?: string }
-  | { kind: "goal"; title: string; horizon: GoalHorizon; next: string; why: string; due?: string; weeklyMin?: number };
+  | { kind: "goal"; title: string; horizon: GoalHorizon; next: string; why: string; due?: string; weeklyMin?: number }
+  | { kind: "habit"; title: string; icon: string; target: number; step: number; unit: string; days: number[] };
 export type Undo = { kind: SayItem["kind"]; id: string; day?: string };
 export type SayResult = { kind: SayItem["kind"]; label: string; undo?: Undo; error?: string };
 
@@ -36,6 +38,8 @@ const SYSTEM = `You turn what Lind just said (often spoken, maybe Albanian or En
   — an appointment with other people or a fixed thing ("dentist Thursday at 10", "meeting with Arben at 3", "exam on the 24th").
 {"kind":"goal","title":string,"horizon":"now"|"short"|"long","next":string,"why":string,"due":"YYYY-MM-DD"|null,"weeklyMin":number|null}
   — "new goal", "I want to … by …". horizon: now = this week, short = this month or quarter, long = beyond. next = the first concrete step. weeklyMin = time a week he names, else null.
+{"kind":"habit","title":string,"icon":one emoji,"target":number,"step":number,"unit":string,"days":[0-6]}
+  — something to do repeatedly ("new habit: drink 2 litres of water every day", "gym Monday Wednesday Friday", "read 20 minutes daily"). target = the daily amount (1 for a plain do-it), unit for it ("litres", "min", "" for plain), step = what one tap adds (e.g. 0.25 litres, 5 min, 1), days = weekdays with 0 = Sunday, [] = every day.
 Rules: resolve relative dates and times from "Now" ("tonight" = today, "at 6" in the evening = 18:00 unless clearly morning). goalId only from the goal list, and only when the item is plainly about that goal (same project or subject) — otherwise null. Titles short and clear, in his language, without filler ("I need to"). Nothing he didn't ask for. If it's not a request for any of these, return {"items": []}.`;
 
 export async function parseSay(text: string): Promise<SayItem[]> {
@@ -77,6 +81,11 @@ export function cleanItems(raw: unknown, today: string, goalIds: Set<string>): S
     } else if (x.kind === "event") {
       const date = typeof x.date === "string" && DAY.test(x.date) ? x.date : today;
       out.push({ kind: "event", title, date, start: hhmm(x.start), end: hhmm(x.end) });
+    } else if (x.kind === "habit") {
+      const target = Number(x.target) > 0 ? Math.min(1000, Number(x.target)) : 1;
+      const step = Number(x.step) > 0 ? Math.min(target, Number(x.step)) : target <= 10 ? 1 : target / 4;
+      const days = Array.isArray(x.days) ? [...new Set(x.days.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : [];
+      out.push({ kind: "habit", title, icon: str(x.icon, 8) || "✓", target, step, unit: str(x.unit, 16), days });
     } else if (x.kind === "goal") {
       const h = x.horizon === "now" || x.horizon === "long" ? x.horizon : "short";
       const wk = Number(x.weeklyMin);
@@ -131,6 +140,10 @@ export async function applySay(items: SayItem[]): Promise<SayResult[]> {
         }
         const e = await createEvent({ title: it.title, date: it.date, start: it.start, end: it.start ? (it.end ?? undefined) : undefined, allDay: !it.start });
         out.push({ kind: "event", label: `Event · ${it.title} · ${fmtDay(it.date, today)}${it.start ? ` ${it.start}` : ""}`, undo: { kind: "event", id: e.id } });
+      } else if (it.kind === "habit") {
+        const h = saveHabit({ title: it.title, icon: it.icon, target: it.target, step: it.step, unit: it.unit, days: it.days, hue: [150, 200, 265, 15, 38][out.length % 5] });
+        if (!h) throw new Error("couldn't save the habit");
+        out.push({ kind: "habit", label: `Habit · ${h.icon} ${h.title}${h.target !== 1 || h.unit ? ` · ${h.target} ${h.unit}`.trimEnd() : ""}`, undo: { kind: "habit", id: h.id } });
       } else {
         const all = readGoals();
         const r = writeGoals([...all, { id: "", title: it.title, horizon: it.horizon, next: it.next, why: it.why, due: it.due, weeklyMin: it.weeklyMin, done: false }]);
@@ -152,6 +165,7 @@ export async function undoSay(u: Undo): Promise<{ ok: boolean; error?: string }>
     if (!u.day || !DAY.test(u.day) || !removeBlock(u.day, u.id)) return { ok: false, error: "That block is already gone." };
     return { ok: true, error: await syncDay(u.day) };
   }
+  if (u.kind === "habit") return archiveHabit(u.id) ? { ok: true } : { ok: false, error: "That habit is already gone." };
   if (u.kind === "event") {
     if (!/^[\w-]{4,200}$/.test(u.id)) return { ok: false, error: "Unknown event." };
     await gcal(`/calendars/primary/events/${encodeURIComponent(u.id)}`, { method: "DELETE" });

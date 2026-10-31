@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { keptStreak, mirror, mirrorText, patterns, staleGoals } from "./accountability";
+import { habitsFor } from "./habits";
 import { agenda, calendarConnected } from "./calendar";
 import { clockNow, coachNow, coachTz, dayProgress, goalProgress } from "./coach";
 import { DATA_DIR } from "./config";
@@ -146,7 +147,9 @@ export function accountabilityLines(day: string): string[] {
   const s = keptStreak(day);
   const p = patterns(day);
   const idle = staleGoals(day);
+  const habits = habitsFor(day);
   return [
+    ...(habits.length ? [`Habits today (${habits.filter((h) => h.done).length}/${habits.length} done):\n${habits.map((h) => `- ${h.habit.title}: ${h.value}/${h.habit.target}${h.habit.unit ? ` ${h.habit.unit}` : ""}${h.done ? " ✓" : ""}${h.streak > 1 ? `, ${h.streak}-day streak` : ""}`).join("\n")}`] : []),
     `Accountability mirror, today (said vs did):\n${mirrorText(mirror(day))}`,
     `Kept-days streak (every block done, nothing missed, 80%+ started on time): ${s.days} day${s.days === 1 ? "" : "s"}; today ${s.todayKept ? "KEPT" : s.todayAlive ? "still alive" : "already broken"}.`,
     ...(p.lines.length ? [`His patterns (last 2 weeks):\n${p.lines.map((l) => `- ${l}`).join("\n")}`] : []),

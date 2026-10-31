@@ -101,7 +101,7 @@ export function ReckoningGate() {
           </p>
         )}
         <p className="tnum mt-2 font-mono text-[13px] text-white/60">
-          {r.done}/{r.blocks} blocks done · {r.missed} missed · {r.onTimeRate}% on time · streak {r.streak}
+          {r.done}/{r.blocks} blocks done · {r.missed} missed · {r.onTimeRate}% on time{r.habitsTotal ? ` · habits ${r.habitsDone}/${r.habitsTotal}` : ""} · streak {r.streak}
         </p>
 
         {failures.length > 0 && !closed && (

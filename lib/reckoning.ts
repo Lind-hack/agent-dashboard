@@ -4,6 +4,7 @@ import { keptStreak, mirror, type Mirror } from "./accountability";
 import { addDays } from "./calendar";
 import { clockNow, coachNow, coachTz } from "./coach";
 import { DATA_DIR } from "./config";
+import { habitProgress } from "./habits";
 import { VERDICT_WORDS, type DayVerdict } from "./verdict";
 
 export { VERDICT_WORDS, type DayVerdict };
@@ -25,6 +26,8 @@ export type Reckoning = {
   late: number;
   onTimeRate: number;
   streak: number;
+  habitsDone?: number;
+  habitsTotal?: number;
   answer?: string;
   answeredAt?: string;
   reply?: string;
@@ -55,6 +58,7 @@ export function verdictOf(m: Mirror): Pick<Reckoning, "verdict" | "saidMin" | "d
 
 export function snapshot(day: string, nowMs = Date.now()): Reckoning {
   const m = mirror(day, nowMs);
+  const hp = habitProgress(day);
   return {
     day,
     ...verdictOf(m),
@@ -64,6 +68,8 @@ export function snapshot(day: string, nowMs = Date.now()): Reckoning {
     late: m.late,
     onTimeRate: m.onTimeRate,
     streak: keptStreak(day, coachTz(), nowMs).days,
+    habitsDone: hp.done,
+    habitsTotal: hp.total,
   };
 }
 

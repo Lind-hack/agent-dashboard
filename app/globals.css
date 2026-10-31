@@ -672,3 +672,63 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .grain { animation: none; }
 }
+
+/* Phones (v5.3): iOS Safari zooms into any field under 16px when it's tapped and stays zoomed,
+   which pushes the whole layout off screen. Fields are 16px on touch-sized screens; taps never
+   double-tap-zoom; long links and ids wrap instead of widening the page. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: clip;
+}
+body {
+  overflow-wrap: break-word;
+}
+a,
+button,
+input,
+textarea,
+select,
+label,
+[role="button"] {
+  touch-action: manipulation;
+}
+@media (max-width: 1023px) {
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+}
+
+/* The day board (v5.3): sheets rise from the bottom; a finished row's check pops once. */
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+}
+@keyframes check-pop {
+  0% {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.12);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.sheet-up {
+  animation: sheet-up 380ms var(--ease-out-expo);
+}
+.check-pop {
+  animation: check-pop 360ms var(--ease-out-expo);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-up,
+  .check-pop {
+    animation: none;
+  }
+}

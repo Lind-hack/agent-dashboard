@@ -20,7 +20,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const u = ((await request.json().catch(() => null)) as { undo?: Undo } | null)?.undo;
-  if (!u || !["task", "block", "event", "goal"].includes(u.kind) || typeof u.id !== "string") return NextResponse.json({ error: "Nothing to undo." }, { status: 400 });
+  if (!u || !["task", "block", "event", "goal", "habit"].includes(u.kind) || typeof u.id !== "string") return NextResponse.json({ error: "Nothing to undo." }, { status: 400 });
   try {
     const r = await undoSay(u);
     return NextResponse.json(r, { status: r.ok ? 200 : 404 });

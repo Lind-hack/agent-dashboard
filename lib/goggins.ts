@@ -7,6 +7,7 @@ import { DATA_DIR } from "./config";
 import { groqJSON } from "./groq";
 import { readProfile } from "./buddy";
 import { readReckoning, VERDICT_WORDS, type Reckoning } from "./reckoning";
+import { habitsFor } from "./habits";
 import { recallMemory, recallText } from "./memory";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { activeBlocks, readPlan } from "./plan-store";
@@ -51,6 +52,7 @@ export async function writePush(day: string): Promise<Push> {
   const input = [
     `Yesterday (${y}), said vs did:\n${mirrorText(mirror(y, Number.MAX_SAFE_INTEGER))}`,
     `Kept-days streak: ${s.days} (a kept day = every block done, nothing missed, 80%+ started on time).`,
+    `Yesterday's habits: ${habitsFor(y).map((h) => `${h.habit.title} ${h.done ? "done" : `NOT done (${h.value}/${h.habit.target}${h.habit.unit ? ` ${h.habit.unit}` : ""})`}`).join("; ") || "none set"}`,
     ...(last?.answer ? [`Last night's reckoning (${last.day}): verdict ${last.verdict}, he did ${last.didMin} of ${last.saidMin} planned minutes. His answer: "${last.answer.slice(0, 600)}"`] : []),
     `His patterns, last two weeks:\n${patterns(day).lines.join("\n") || "(not enough blocks yet)"}`,
     `Today's plan:\n${plan.map((b) => `- ${b.start}–${b.end} ${b.title}`).join("\n") || "NO PLAN YET — he hasn't planned the day."}`,
