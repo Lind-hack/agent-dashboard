@@ -91,7 +91,7 @@ async function run(tz: string, minute: string) {
       title: `Missed: ${b.title}`,
       body: moved ? `${b.start}–${b.end} came and went. It's back at ${moved.start}–${moved.end}. You don't get to skip it twice.` : `${b.start}–${b.end} came and went and there's no free time left today. That one's on the mirror tonight.`,
       push: { title: `Missed: ${b.title}`, body: moved ? `It's back at ${moved.start}. Don't skip it twice.` : "No time left today — it's on tonight's mirror." },
-      href: moved ? `/focus?block=${encodeURIComponent(moved.id)}` : "/calendar#mirror",
+      href: moved ? `/focus?block=${encodeURIComponent(moved.id)}` : "/mirror",
       priority: 2,
       expiresAt: new Date(Date.now() + 4 * 3600_000).toISOString(),
     });
@@ -111,7 +111,7 @@ async function run(tz: string, minute: string) {
           title: p.title,
           body: p.text.slice(0, 280),
           push: { title: p.title, body: `${p.text.replace(/\s+/g, " ").slice(0, 150)}…` },
-          href: "/calendar#push",
+          href: "/mirror#push",
           priority: 3,
           expiresAt: new Date(Date.now() + 10 * 3600_000).toISOString(),
         });
@@ -168,8 +168,8 @@ async function run(tz: string, minute: string) {
       kind: "coach",
       title: `Mirror: ${r.kept ? "day kept" : "day not kept"} · ${r.score}/100`,
       body: r.note ?? `${r.done} of ${r.total} blocks, ${r.onTimeRate ?? 0}% on time, ${r.missed ?? 0} missed.`,
-      push: { title: `Mirror: ${r.kept ? `kept — ${r.streak}-day streak` : `not kept — ${r.missed ?? 0} missed`}`, body: `${r.done}/${r.total} blocks · ${r.onTimeRate ?? 0}% on time · ${fmtMin(r.focusMin)} focused. Look at it.` },
-      href: `/calendar#mirror`,
+      push: { title: `Mirror: ${r.kept ? `kept — ${r.streak}-day streak` : `not kept — ${r.missed ?? 0} missed`}`, body: `${r.done}/${r.total} blocks · ${r.onTimeRate ?? 0}% on time · ${fmtMin(r.focusMin)} focused. Face it and answer for it.` },
+      href: `/mirror`,
       priority: 3,
       expiresAt: new Date(Date.now() + 14 * 3600_000).toISOString(),
     });

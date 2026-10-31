@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, CalendarDays, ChevronRight, Globe, HeartHandshake, House, Inbox, LayoutGrid, MessageSquare, Mic, Search, Settings, Sparkles, Swords, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronRight, Globe, HeartHandshake, House, Inbox, LayoutGrid, MessageSquare, Mic, ScanFace, Search, Settings, Sparkles, Swords, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -9,6 +9,7 @@ import { FocusBar } from "@/components/coach";
 import { CommandPalette, openPalette } from "@/components/command-palette";
 import { Composer } from "@/components/composer";
 import { NebulaCard, Orb } from "@/components/orb";
+import { ReckoningGate } from "@/components/reckoning-gate";
 import { VoiceMode } from "@/components/voice-mode";
 import { AGENT_HEX, AGENT_LABELS, type AgentKey } from "@/lib/agents";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ export const WORKSPACE: NavItem[] = [
   { href: "/room", label: "Room", icon: Swords },
   { href: "/chat", label: "Chats", icon: MessageSquare },
   { href: "/calendar", label: "Today", icon: CalendarDays },
+  { href: "/mirror", label: "Mirror", icon: ScanFace },
   { href: "/goals", label: "Goals", icon: Sparkles },
   { href: "/buddy", label: "Buddy", icon: HeartHandshake },
   { href: "/memory", label: "Memory", icon: Sparkles },
@@ -33,7 +35,7 @@ export const TOOLS: NavItem[] = [
   { href: "/website", label: "Website", icon: Globe },
 ];
 // Sections still being built in this release stay out of the nav until they exist.
-const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/goals", "/buddy", "/memory", "/website", "/agents", "/settings", "/more"]);
+const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/mirror", "/goals", "/buddy", "/memory", "/website", "/agents", "/settings", "/more"]);
 
 const isActive = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 
@@ -243,6 +245,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <main id="main" tabIndex={-1} className="pb-tabbar mx-auto max-w-[1180px] min-w-0 overflow-x-clip px-4 pt-4 outline-none lg:px-8">
         {children}
       </main>
+      <ReckoningGate />
 
       {/* Phone tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-[#09090c]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden" aria-label="Main">

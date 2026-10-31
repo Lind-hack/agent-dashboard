@@ -6,6 +6,7 @@ import { goalProgress } from "./coach";
 import { DATA_DIR } from "./config";
 import { groqJSON } from "./groq";
 import { readProfile } from "./buddy";
+import { readReckoning, VERDICT_WORDS, type Reckoning } from "./reckoning";
 import { recallMemory, recallText } from "./memory";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { activeBlocks, readPlan } from "./plan-store";
@@ -29,19 +30,20 @@ export function readPush(day: string): Push | null {
   }
 }
 
-const SYSTEM = `You write Lind's morning push, in the spirit of David Goggins: raw, direct, demanding, zero excuses, built on accountability and callusing the mind — but every line about LIND, from the facts given, never generic.
-Lind is a first-year CS student in Pristina, Kosovo, building AI products, a 200k-follower TikTok (@building.ai) and the 383 news site.
-Rules:
-- Never quote David Goggins or present any sentence as his words. Don't use his signature catchphrases. Write original lines in that energy.
-- Use the record: name yesterday's misses and late starts by block and minute, the streak (kept or broken), the pattern that keeps beating him, and the goal he's been avoiding. Then today: the first block and its time, the hardest thing on the plan, and the exact moment he'll be tempted to quit.
-- Call out the excuse before he makes it. End with one concrete order for the next 10 minutes.
-- Every number, time and block name exactly as given — never compute or invent one. Don't recite who he is; he knows.
-- 180-260 words, short paragraphs, second person ("you"). No hashtags, no emojis, no profanity.
+const SYSTEM = `You are the voice Lind wakes up to, in the spirit of David Goggins: a reality check, not a pep talk. Raw, cold, direct, relentless. You don't care how he feels; you care what he DID. Every line is about Lind, built from the record given — never generic motivation, never "you've got this".
+How it hits:
+- Open with the verdict on yesterday in one blunt line, then the evidence: the blocks he said he'd do and didn't, the minutes he was late, the hours he planned vs the hours he actually worked, the streak he kept or killed. If he answered last night's reckoning, throw his own excuse back at him and take it apart.
+- Name the pattern that keeps beating him and the goal he keeps running from, with how long he's been running.
+- Call out the softness: comfort, scrolling, waiting to feel ready, feeling sorry for himself. Make him feel the gap between who he says he is (his goals) and what the record shows. Hard on the behaviour, never contempt for him as a person.
+- Then today: the first block and its time, the hardest thing on the plan, and the exact moment he'll want to quit — and what he does in that moment instead.
+- End with one order for the next 10 minutes. No sign-off.
+Rules: never quote David Goggins or present any sentence as his words; no catchphrases of his; original lines in that energy. Every number, time and block name exactly as given — never compute or invent one. Don't recite who he is. 200-300 words, short paragraphs, second person. Hard language is allowed sparingly; no slurs, no emojis, no hashtags.
 Return JSON {"title": string (≤8 words, the push notification title), "text": string}.`;
 
 export async function writePush(day: string): Promise<Push> {
   const y = addDays(day, -1);
   const s = keptStreak(day);
+  const last = readReckoning(y);
   const plan = activeBlocks(readPlan(day)).filter((b) => b.kind !== "break");
   const idle = staleGoals(day);
   const goals = goalProgress().slice(0, 4);
@@ -49,6 +51,7 @@ export async function writePush(day: string): Promise<Push> {
   const input = [
     `Yesterday (${y}), said vs did:\n${mirrorText(mirror(y, Number.MAX_SAFE_INTEGER))}`,
     `Kept-days streak: ${s.days} (a kept day = every block done, nothing missed, 80%+ started on time).`,
+    ...(last?.answer ? [`Last night's reckoning (${last.day}): verdict ${last.verdict}, he did ${last.didMin} of ${last.saidMin} planned minutes. His answer: "${last.answer.slice(0, 600)}"`] : []),
     `His patterns, last two weeks:\n${patterns(day).lines.join("\n") || "(not enough blocks yet)"}`,
     `Today's plan:\n${plan.map((b) => `- ${b.start}–${b.end} ${b.title}`).join("\n") || "NO PLAN YET — he hasn't planned the day."}`,
     `Goals this week:\n${goals.map((g) => `- ${g.goal.title}: ${g.weekMin} of ${g.targetMin} min${g.goal.why ? ` — why: ${g.goal.why}` : ""}`).join("\n") || "none set"}`,
@@ -56,7 +59,7 @@ export async function writePush(day: string): Promise<Push> {
     `What the Buddy knows about him:\n${readProfile().text.slice(0, 1500) || "(nothing yet)"}`,
     ...(why.length ? [`From his own notes about these goals:\n${recallText(why)}`] : []),
   ].join("\n\n");
-  let out = await groqJSON<{ title: string; text: string }>(SYSTEM, input, 0.6, { maxTokens: 900, timeoutMs: 45_000 }).catch(() => null);
+  let out = await groqJSON<{ title: string; text: string }>(SYSTEM, input, 0.7, { maxTokens: 1000, timeoutMs: 45_000 }).catch(() => null);
   let model = "groq";
   if (!out?.text && nvidiaReady()) {
     const raw = await nemotron(`${SYSTEM}\nReturn ONLY the JSON object.`, input, { maxTokens: 1200, temperature: 0.6 }).catch(() => "");
@@ -73,4 +76,19 @@ export async function writePush(day: string): Promise<Push> {
   fs.writeFileSync(`${file(day)}.tmp`, JSON.stringify(push, null, 2));
   fs.renameSync(`${file(day)}.tmp`, file(day));
   return push;
+}
+
+// The coach's answer to Lind's reckoning: his excuse, against the numbers. 2-4 sentences.
+export async function reckonReply(r: Reckoning, said: string, record: string): Promise<string> {
+  const system = `Lind just answered for his day in front of the accountability mirror. You answer him in the spirit of David Goggins: a reality check. If the day was ENOUGH, acknowledge it in one hard line and raise the bar for tomorrow. If not, take his answer apart against the numbers — separate the reason from the excuse, call out softness or self-pity if it's there — then give the one thing he does differently tomorrow, with a time. 2-4 sentences, second person, no quotes of anyone, no emojis. Return JSON {"reply": string}.`;
+  const user = `Verdict: ${VERDICT_WORDS[r.verdict]} He planned ${r.saidMin} minutes and did ${r.didMin}; ${r.missed} blocks missed, ${r.onTimeRate}% started on time, streak ${r.streak}.\nThe record:\n${record}\n\nHis answer: "${said}"`;
+  const out = await groqJSON<{ reply: string }>(system, user, 0.6, { maxTokens: 500, timeoutMs: 30_000 }).catch(() => null);
+  if (out?.reply) return out.reply.trim();
+  if (!nvidiaReady()) return "";
+  const raw = await nemotron(`${system}\nReturn ONLY the JSON object.`, user, { maxTokens: 600, temperature: 0.6 }).catch(() => "");
+  try {
+    return String(JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)).reply ?? "").trim();
+  } catch {
+    return "";
+  }
 }

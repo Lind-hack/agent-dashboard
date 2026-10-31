@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Mirror, Verdict } from "@/lib/accountability";
 import type { Push } from "@/lib/goggins";
 import { cn } from "@/lib/utils";
+import { FaceBackdrop } from "./face-backdrop";
 
 // Goggins mode on Today (v5.2): the morning push written from his own record, and the mirror —
 // every block he said he'd do, judged against the clock — with the kept-days streak.
@@ -16,21 +17,20 @@ const VERDICT: Record<Verdict, { label: string; tone: string }> = {
   unfinished: { label: "unfinished", tone: "text-bad" },
 };
 
-export function PushCard({ push }: { push: Push | null }) {
+export function PushCard({ push, face = false }: { push: Push | null; face?: boolean }) {
   if (!push) return null;
   const [first, ...rest] = push.text.split(/\n{2,}/);
   return (
-    <section id="push" aria-label="Morning push" className="panel mt-6 scroll-mt-20 overflow-hidden">
-      <div className="border-b border-line px-4 py-3">
-        <p className="font-mono text-[10.5px] tracking-[0.08em] text-faint uppercase">In the spirit of David Goggins · written for you, not his words</p>
-        <h2 className="mt-1 text-[17px] leading-snug font-semibold tracking-[-0.01em]">{push.title}</h2>
-      </div>
-      <div className="px-4 py-3.5 text-[14.5px] leading-relaxed">
-        <p>{first}</p>
+    <section id="push" aria-label="Morning push" className="relative isolate mt-6 scroll-mt-20 overflow-hidden rounded-[var(--radius-panel)] border border-white/10 text-white">
+      <FaceBackdrop face={face} strength="soft" />
+      <div className="relative px-5 pt-5 pb-5 sm:px-7 sm:pt-7">
+        <p className="font-mono text-[10.5px] tracking-[0.18em] text-white/50 uppercase">Morning push · in the spirit of David Goggins · not his words</p>
+        <h2 className="mt-3 text-[clamp(1.6rem,6vw,2.4rem)] leading-[0.95] font-black tracking-[-0.035em] uppercase">{push.title}</h2>
+        <p className="mt-4 text-[clamp(1.05rem,3.6vw,1.2rem)] leading-snug font-semibold">{first}</p>
         {rest.length > 0 && (
-          <details className="group mt-3">
-            <summary className="cursor-pointer list-none text-[13px] text-muted hover:text-text group-open:hidden">Read all of it</summary>
-            <div className="flex flex-col gap-3">
+          <details className="group mt-4">
+            <summary className="cursor-pointer list-none font-mono text-[11.5px] tracking-[0.12em] text-white/60 uppercase hover:text-white group-open:hidden">Read all of it →</summary>
+            <div className="flex flex-col gap-3 text-[15px] leading-relaxed text-white/90">
               {rest.map((p, i) => (
                 <p key={i}>{p}</p>
               ))}
