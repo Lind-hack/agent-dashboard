@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { agenda, calendarConnected, type CalEvent, type PlanBlock } from "./calendar";
+import { patterns, staleGoals } from "./accountability";
 import { activeGoals, type Goal } from "./goals";
+import { recallMemory } from "./memory";
 import { goalProgress } from "./coach";
 import { groqJSON } from "./groq";
 import { solJSON, solLabel } from "./sol";
@@ -116,6 +118,24 @@ export function freeSlots(t: Today, now = new Date(), extraBusy: { s: number; e:
 // opts.keep: blocks that stay as they are (done or running) — their time isn't free and they come back
 // unchanged, so a re-plan never touches what's already happened. opts.useSol: plan with gpt-6.1-sol
 // (Autopilot) instead of Groq; Groq is the fallback.
+// What the planner learns from (v5.2): two weeks of said-vs-did, goals left idle, and what his memory
+// says about each goal (so a block's title can name the real next step).
+async function learned(day: string, goals: Goal[]): Promise<string[]> {
+  const p = patterns(day);
+  const idle = staleGoals(day);
+  const notes = await Promise.all(
+    goals.slice(0, 4).map(async (g) => {
+      const hits = await recallMemory(`${g.title} ${g.next ?? ""}`, 2).catch(() => []);
+      return hits.length ? `- ${g.title}: ${hits.map((h) => `(${h.at}) ${h.text.slice(0, 240)}`).join(" / ")}` : "";
+    }),
+  );
+  return [
+    ...(p.lines.length ? [`His real pace (last 2 weeks of blocks):\n${p.lines.map((l) => `- ${l}`).join("\n")}`] : []),
+    ...(idle.length ? [`Goals with no work lately: ${idle.map((g) => `${g.id} (${g.idleDays === null ? "never" : `${g.idleDays} days`})`).join(", ")}`] : []),
+    ...(notes.some(Boolean) ? [`From his memory about the goals:\n${notes.filter(Boolean).join("\n")}`] : []),
+  ];
+}
+
 export async function planDay(note: string, opts: { useSol?: boolean; keep?: PlanBlock[] } = {}): Promise<{ blocks: PlanBlock[]; summary: string; day: string; tz: string; model: string }> {
   const t = await today();
   const keep = opts.keep ?? [];
@@ -139,6 +159,7 @@ export async function planDay(note: string, opts: { useSol?: boolean; keep?: Pla
     `Open tasks (id | priority | deadline | minutes of work left | goal | title):\n${taskList.map((x) => `${x.id} | ${pri[x.priority]} | ${dueOf(x)} | ${remainingMin(x)} | ${x.goalId ?? "—"} | ${x.title}${x.subtasks.length ? ` (steps left: ${x.subtasks.filter((st) => !st.done).map((st) => st.title).join("; ")})` : ""}`).join("\n") || "none"}`,
     `Standing priorities from the vault: ${t.priorities.join(" / ") || "none"}`,
     `Active goals from the vault (id | horizon | next action | why | due | this week so far):\n${t.goals.map((g) => `${g.id} | ${g.horizon} | ${g.title} → ${g.next || "choose the next action"} | ${g.why || "—"} | ${g.due ?? "no date"} | ${weekly(g.id)}`).join("\n") || "none"}`,
+    ...(await learned(t.today, t.goals)),
     ...(keep.length ? [`Already on the plan and staying (don't schedule over these): ${keep.map((k) => `${k.start}-${k.end} ${k.title}`).join("; ")}`] : []),
     `What Lind says about today: ${note || "(nothing — plan from the list)"}`,
   ].join("\n\n");
@@ -151,6 +172,7 @@ Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "
 - The point is finishing the day's list: if everything can't fit, schedule the most important and say in the summary which tasks won't fit.
 - Group small tasks into one block ("Admin: x, y, z"). A 10–15 min break after ~2h of work, and a meal around 13:00 and 19:30 if free.
 - taskId: the id from the list when a block is for one task, else null. goalId: the id of the active goal when the block serves it, else null. Never invent ids.
+- Plan for the Lind in "His real pace": if he starts mornings late, don't put the hardest block first thing; if a kind of block overruns, make it longer; if something is usually skipped, make it smaller and earlier. A goal with no work lately MUST get a block today.
 - Leave some slack; do not fill every minute. Titles short, in Lind's language.
 - summary: one sentence on the shape of the day.`;
   let model = "groq";

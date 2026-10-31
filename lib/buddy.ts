@@ -1,11 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
+import { mirror, mirrorText, patterns } from "./accountability";
 import { ACTIONS_SPEC, cleanActions, dayContext, type AssistantAction } from "./assistant";
 import { addDays } from "./calendar";
 import { coachNow, readRecap } from "./coach";
 import { DATA_DIR } from "./config";
 import { groqJSON } from "./groq";
 import { moodWord, recentJournal } from "./journal";
+import { recallMemory, recallText } from "./memory";
 import { nemotron, nvidiaReady } from "./nvidia";
 
 // The Buddy (v5.1): one long conversation with someone who knows Lind — his goals, his days, his
@@ -77,6 +79,7 @@ ${ACTIONS_SPEC}`;
     `His journal, last 7 days:\n${journalBlock(today)}`,
     `Recent day scores:\n${recapBlock(today)}`,
     `Today, live:\n${await dayContext()}`,
+    `From his memory (notes, chats, exports) about what he just said — cite it when it helps ("in your notes from…"):\n${recallText(await recallMemory(message, 4).catch(() => [])) || "(nothing relevant)"}`,
     `Your conversation so far:\n${history.map((h) => `${h.role === "lind" ? "Lind" : "You"} (${h.at.slice(0, 10)}): ${h.text.slice(0, 800)}`).join("\n") || "(this is your first chat)"}`,
     `Lind${voice ? " (spoken)" : ""}: ${message}`,
   ].join("\n\n");
@@ -105,6 +108,8 @@ export function profileInput(today: string): string {
     `Current profile:\n${readProfile().text || "(empty — write the first one)"}`,
     `Journal, last 7 days:\n${journalBlock(today)}`,
     `Day scores:\n${recapBlock(today)}`,
+    `Said vs did, block by block — today and yesterday:\n${[today, addDays(today, -1)].map((d) => `${d}:\n${mirrorText(mirror(d))}`).join("\n")}`,
+    `His patterns over two weeks of time blocks:\n${patterns(today).lines.join("\n") || "(not enough blocks yet)"}`,
     `Conversations with the Buddy, last 3 days:\n${readThread()
       .filter((t) => t.at >= since)
       .map((t) => `${t.role === "lind" ? "Lind" : "Buddy"}: ${t.text.slice(0, 600)}`)
@@ -113,5 +118,5 @@ export function profileInput(today: string): string {
 }
 
 export const PROFILE_SYSTEM = `You keep the Buddy's private notes about Lind: a living profile used in every conversation. Update it from the new journal entries, scores and conversations. Keep what's still true, change what changed, drop what's stale. Be concrete (names, numbers, dates). Never invent.
-Sections, as markdown with these headings: ## Right now (this week's focus, mood, energy), ## Goals and where they stand, ## What works for him, ## What trips him up, ## People and projects, ## Things to follow up on (with dates).
+Sections, as markdown with these headings: ## Right now (this week's focus, mood, energy), ## Goals and where they stand, ## What works for him, ## What trips him up (when he starts late, what he skips, what overruns — from the block-by-block record), ## People and projects, ## Things to follow up on (with dates).
 Under 450 words. Return ONLY the markdown.`;

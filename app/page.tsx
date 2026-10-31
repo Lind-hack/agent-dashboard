@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AgentLogo } from "@/components/agent-logo";
 import { CoreStage, type Dock } from "@/components/core-stage";
 import { MissionStrip } from "@/components/mission-strip";
+import { HomeDay } from "@/components/home-day";
 import { HeroLoop } from "@/components/motion";
 import { HudClock } from "@/components/hud-clock";
 import { InboxList } from "@/components/inbox-list";
@@ -109,6 +110,8 @@ export default async function Home() {
       </header>
 
       <MissionStrip now={coachNow()} goals={goalProgress()} />
+
+      {day && <HomeDay day={day} />}
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)_minmax(0,0.95fr)] lg:gap-5">
         {/* Centre on the phone comes first: the core and the agents. */}

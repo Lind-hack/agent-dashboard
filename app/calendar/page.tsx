@@ -2,6 +2,8 @@ import { ArrowUpRight, MapPin, NotebookPen, Target } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { AssistantPanel } from "@/components/assistant-panel";
+import { MirrorCard, PushCard } from "@/components/mirror";
+import { SayIt } from "@/components/say-it";
 import { AutopilotStrip } from "@/components/autopilot-strip";
 import { PushSwitch } from "@/components/coach";
 import { DayPulse } from "@/components/day-pulse";
@@ -12,7 +14,10 @@ import { CaptureBar, PlanDay, TickTickConnect } from "@/components/today";
 import { TodayPlan } from "@/components/today-plan";
 import { TodoBoard } from "@/components/todo-board";
 import { briefPending, readBrief, readChat, type BriefSlot } from "@/lib/assistant";
+import { keptStreak, mirror, staleGoals } from "@/lib/accountability";
 import { autopilotEnabled, readAutopilot } from "@/lib/autopilot";
+import { faceSet } from "@/lib/face";
+import { readPush } from "@/lib/goggins";
 import { addDays, calendarConnected, type CalEvent } from "@/lib/calendar";
 import { dayProgress, goalProgress } from "@/lib/coach";
 import { activeBlocks, planStats, readPlan } from "@/lib/plan-store";
@@ -23,7 +28,7 @@ import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-// Today (v5): how the day is going against pace, the Day assistant (Sol briefings + a quick chat with
+// Today (v5; v5.2 puts the plan and the calendar first, then the morning push and the mirror): how the day is going against pace, the Day assistant (Sol briefings + a quick chat with
 // one-tap actions), the task list, the plan, the calendar, and each goal's week.
 // "HH:MM" on a calendar day in a time zone → the ISO instant.
 function zoned(day: string, hhmm: string, tz: string): string {
@@ -101,33 +106,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
 
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
-      <DayPulse p={progress} />
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
-        <PushSwitch />
-        <span className="max-w-md text-xs leading-relaxed text-faint">Task deadlines, events 10 min before, block starts and the day&apos;s progress go to every device you turn on — your iPhone (from the Home Screen) and this PC&apos;s browser.</span>
-      </div>
+      <SayIt />
 
-      <AutopilotStrip initial={readAutopilot(t.today)} enabled={autopilotEnabled()} highlight={autopilot} />
-
-      <AssistantPanel
-        slotNow={slotNow}
-        initial={{ day: t.today, chat: readChat(t.today), briefs: { morning: readBrief(t.today, "morning"), midday: readBrief(t.today, "midday"), evening: readBrief(t.today, "evening") }, pending: briefPending() }}
-      />
-
-      {hour >= 18 && !readJournal(t.today).entries.length && (
-        <Link href="/buddy?journal=1" className="panel lift mt-6 flex items-center gap-3 px-4 py-3.5">
-          <NotebookPen className="h-4 w-4 shrink-0 text-hermes" aria-hidden />
-          <span className="min-w-0 flex-1">
-            <span className="block text-[15px]">How did today go?</span>
-            <span className="block text-[12px] text-muted">Tell your Buddy — type it or just talk. It shapes tomorrow&apos;s plan.</span>
-          </span>
-          <ArrowUpRight className="h-4 w-4 shrink-0 text-faint" aria-hidden />
-        </Link>
-      )}
-
-      <TodoBoard lists={t.todos} goals={t.goals.map((g) => ({ id: g.id, title: g.title }))} day={t.today} tomorrow={addDays(t.today, 1)} />
-
-      <div id="plan" className="mt-8 scroll-mt-20">
+      <div id="plan" className="mt-6 scroll-mt-20">
         <PlanDay canWrite={google} planned={planned} initialNote={replan} />
       </div>
 
@@ -159,6 +140,36 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
           </Panel>
         )}
       </section>
+
+      <PushCard push={readPush(t.today)} face={faceSet()} />
+
+      <MirrorCard m={mirror(t.today)} streak={keptStreak(t.today)} idle={staleGoals(t.today)} />
+
+      <DayPulse p={progress} />
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
+        <PushSwitch />
+        <span className="max-w-md text-xs leading-relaxed text-faint">Task deadlines, events 10 min before, block starts and the day&apos;s progress go to every device you turn on — your iPhone (from the Home Screen) and this PC&apos;s browser.</span>
+      </div>
+
+      <AutopilotStrip initial={readAutopilot(t.today)} enabled={autopilotEnabled()} highlight={autopilot} />
+
+      <AssistantPanel
+        slotNow={slotNow}
+        initial={{ day: t.today, chat: readChat(t.today), briefs: { morning: readBrief(t.today, "morning"), midday: readBrief(t.today, "midday"), evening: readBrief(t.today, "evening") }, pending: briefPending() }}
+      />
+
+      {hour >= 18 && !readJournal(t.today).entries.length && (
+        <Link href="/buddy?journal=1" className="panel lift mt-6 flex items-center gap-3 px-4 py-3.5">
+          <NotebookPen className="h-4 w-4 shrink-0 text-hermes" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px]">How did today go?</span>
+            <span className="block text-[12px] text-muted">Tell your Buddy — type it or just talk. It shapes tomorrow&apos;s plan.</span>
+          </span>
+          <ArrowUpRight className="h-4 w-4 shrink-0 text-faint" aria-hidden />
+        </Link>
+      )}
+
+      <TodoBoard lists={t.todos} goals={t.goals.map((g) => ({ id: g.id, title: g.title }))} day={t.today} tomorrow={addDays(t.today, 1)} />
 
       <section className="mt-8">
         <SectionTitle right={<Link href="/goals" className="hover:text-text">All goals</Link>}>Goals this week</SectionTitle>

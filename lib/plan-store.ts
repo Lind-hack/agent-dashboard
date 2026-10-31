@@ -21,6 +21,9 @@ export type StoredBlock = {
   projectId?: string;
   status: BlockStatus;
   movedTo?: string;
+  // Goggins mode (v5.2): a block missed and put into free time later the same day, and its new copy.
+  rescheduledTo?: string;
+  rescheduledFrom?: string;
   updatedAt?: string;
   // Coach (v4): when work really started/ended, and the check-ins answered during the block.
   startedAt?: string;
@@ -90,6 +93,8 @@ function clean(raw: Partial<DayPlan> | null): DayPlan | null {
         projectId: b.projectId || undefined,
         status: statuses.includes(b.status as BlockStatus) ? (b.status as BlockStatus) : "planned",
         movedTo: b.movedTo || undefined,
+        rescheduledTo: b.rescheduledTo || undefined,
+        rescheduledFrom: b.rescheduledFrom || undefined,
         updatedAt: b.updatedAt || undefined,
         startedAt: b.startedAt || undefined,
         doneAt: b.doneAt || undefined,
@@ -352,6 +357,38 @@ export function shrinkBlock(day: string, id: string, nowHHMM: string, length = 2
 
 export function addCheckin(day: string, id: string, mood: Mood, note?: string): DayPlan | null {
   return withLock("plans", () => addCheckinUnlocked(day, id, mood, note));
+}
+
+// Undo of a block added by voice ("Say it"): gone entirely, not a tombstone — it was never really planned.
+export function removeBlock(day: string, id: string): boolean {
+  return withLock("plans", () => {
+    const plan = readPlan(day);
+    if (!plan?.blocks.some((b) => b.id === id)) return false;
+    writePlan({ ...plan, blocks: plan.blocks.filter((b) => b.id !== id), updatedAt: new Date().toISOString() });
+    return true;
+  });
+}
+
+// Goggins mode: a block that came and went without being started is put into free time later the same
+// day — once. The original stays as a "moved" tombstone (so the mirror still counts the miss) pointing at
+// its new copy. Returns the new block, or null if it's gone, was started, or was already rescheduled.
+export function rescheduleBlock(day: string, id: string, start: string): StoredBlock | null {
+  return withLock("plans", () => {
+    const plan = readPlan(day);
+    const old = plan?.blocks.find((b) => b.id === id);
+    if (!plan || !old || old.status !== "planned" || old.startedAt || old.rescheduledFrom || old.rescheduledTo) return null;
+    const block = addBlockUnlocked(day, { start, length: mins(old.end) - mins(old.start), title: old.title, goalId: old.goalId, taskId: old.taskId, kind: old.kind });
+    const fresh = readPlan(day)!;
+    const was = fresh.blocks.find((b) => b.id === id)!;
+    const now = fresh.blocks.find((b) => b.id === block.id)!;
+    was.status = "moved";
+    was.movedTo = day;
+    was.rescheduledTo = block.id;
+    was.updatedAt = new Date().toISOString();
+    now.rescheduledFrom = id;
+    writePlan(fresh);
+    return { ...now };
+  });
 }
 
 // Undo (Autopilot): put a day's plan file back exactly as it was before a step, or remove it if there

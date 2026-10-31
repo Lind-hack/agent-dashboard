@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { keptStreak, mirror, mirrorText, patterns, staleGoals } from "./accountability";
 import { agenda, calendarConnected } from "./calendar";
 import { clockNow, coachNow, coachTz, dayProgress, goalProgress } from "./coach";
 import { DATA_DIR } from "./config";
@@ -135,7 +136,22 @@ export async function dayContext(): Promise<string> {
     `Done today: ${t.done.map((x) => x.title).join("; ") || "nothing yet"}`,
     `Email waiting on him (id | from | subject):\n${waitingMail().map((m) => `- [${m.id}] ${m.from}${m.account ? ` → ${m.account}` : ""} | ${m.subject}`).join("\n") || "none"}`,
     `Goals (id | title | next action | this week):\n${goals.map((g) => `- [${g.goal.id}] ${g.goal.title} | next: ${g.goal.next || "—"} | ${fmt(g.weekMin)} of ${fmt(g.targetMin)}, ${g.streak}-day streak`).join("\n") || "none"}`,
+    ...accountabilityLines(c.day),
   ].join("\n\n");
+}
+
+// Goggins mode (v5.2): said vs did today block by block, the kept-days streak, what two weeks of
+// blocks say about him, and goals nobody has touched for days.
+export function accountabilityLines(day: string): string[] {
+  const s = keptStreak(day);
+  const p = patterns(day);
+  const idle = staleGoals(day);
+  return [
+    `Accountability mirror, today (said vs did):\n${mirrorText(mirror(day))}`,
+    `Kept-days streak (every block done, nothing missed, 80%+ started on time): ${s.days} day${s.days === 1 ? "" : "s"}; today ${s.todayKept ? "KEPT" : s.todayAlive ? "still alive" : "already broken"}.`,
+    ...(p.lines.length ? [`His patterns (last 2 weeks):\n${p.lines.map((l) => `- ${l}`).join("\n")}`] : []),
+    ...(idle.length ? [`Goals with no work lately: ${idle.map((g) => `[${g.id}] ${g.title} (${g.idleDays === null ? "never worked on" : `${g.idleDays} days idle`})`).join("; ")}`] : []),
+  ];
 }
 
 export const ACTIONS_SPEC = `Actions Lind can apply with one tap (only use ids that appear above; never invent them):
