@@ -12,6 +12,7 @@ import { AGENT_HEX, AGENT_LABELS, AGENT_META, AGENT_PERSONA, type TaskAgent } fr
 import type { Job } from "@/lib/store";
 import { ago, cn } from "@/lib/utils";
 import { ContextPanel, EarlierOnPc, HandoffStrip } from "./handoff-panels";
+import { StepTracker } from "./step-tracker";
 
 type LogEvent = { t?: string; kind?: string; text?: string; ok?: boolean; costUsd?: number; sessionId?: string };
 
@@ -41,7 +42,10 @@ function toBlocks(log: LogEvent[]): Block[] {
       out.push(e.ok === false ? { kind: "error", text: e.text ?? "", at } : { kind: "result", text: e.text ?? "", cost: e.costUsd, at });
       continue;
     }
-    out.push({ kind: e.kind === "error" ? "error" : "agent", text: e.text ?? "", at });
+    // STEP / DONE marker lines drive the step tracker; they'd only be noise in the conversation.
+    const text = e.kind === "error" ? (e.text ?? "") : (e.text ?? "").replace(/^\s*(STEP\s+\d+\s*\/\s*\d+\s*:.*|DONE\s+\d+)\s*$/gim, "").trim();
+    if (!text) continue;
+    out.push({ kind: e.kind === "error" ? "error" : "agent", text, at });
   }
   return out;
 }
@@ -327,6 +331,7 @@ export function JobView({ initialJob, initialLog }: { initialJob: Job; initialLo
             </button>
           )}
         </div>
+        <StepTracker log={log} running={running} />
         {job.imported && <HandoffStrip imported={job.imported} status={job.status} owner={job.owner} onAction={(a) => void post({ action: a })} />}
         {job.imported && (
           <div className="mt-4 flex gap-1 rounded-[12px] border border-line p-1 text-sm" role="tablist" aria-label="Chat views">

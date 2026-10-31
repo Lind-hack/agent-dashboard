@@ -457,6 +457,7 @@ ${job.description || "(no description)"}
 - For changes: make them, run the relevant checks (typecheck, lint, tests) where the project has them, and commit with messages starting "${job.id}: ".
 - Lind's standing delivery preference (2026-10-27): a feature request authorizes verification, committing, pushing, merging the verified change as needed, and deploying through the repo's documented production workflow without asking him to repeat the request. Complete the delivery and verify the live result. Preserve unrelated work and running jobs. If credentials, permissions, failing checks, or an unknown deployment target prevent delivery, report the concrete blocker; never claim deployment succeeded without evidence. A newer task-specific instruction overrides this default. The runner can still push the branch and open a PR if delivery is blocked; report any PR already merged.
 - Lind replies between turns, not during one. If something is ambiguous, pick the safest reasonable option and say so.
+- Lind watches your progress live on his phone. For any task with more than one step: first print a line \`PLAN:\` followed by a numbered checklist of 3–7 short steps (one line each); print \`STEP n/N: <step>\` on its own line when you start a step and \`DONE n\` when it's finished. Keep the numbering if you add steps. Skip this for a plain question.
 - End with a short summary: what you changed, what you verified, anything left open.${relayNote(job)}`;
 }
 
