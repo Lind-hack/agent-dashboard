@@ -1,4 +1,4 @@
-import { BRIEF_PROMPT, BRIEF_SYSTEM, dayContext, latestBrief, parseBrief, readBrief, saveBrief, takeBriefRequest, type BriefSlot } from "../lib/assistant";
+import { BRIEF_PROMPT, BRIEF_SYSTEM, dayContext, finishBriefRequest, latestBrief, parseBrief, readBrief, saveBrief, takeBriefRequest, type BriefSlot } from "../lib/assistant";
 import { agenda, calendarConnected, type CalEvent } from "../lib/calendar";
 import { clockNow, coachNow, coachTz, dayProgress, zonedMs } from "../lib/coach";
 import { solJSON, solLabel } from "../lib/sol";
@@ -17,6 +17,8 @@ const AT: Record<BriefSlot, () => string> = {
   midday: () => process.env.BRIEF_MIDDAY_AT ?? "13:00",
   evening: () => process.env.BRIEF_EVENING_AT ?? "21:25",
 };
+// A task due on a date with no time is treated as due at this hour.
+const DUE_DEFAULT = () => process.env.TASK_DUE_DEFAULT ?? "18:00";
 const PROGRESS_AT = () => (process.env.PROGRESS_AT ?? "16:00,19:00").split(",").map((s) => s.trim());
 const fmt = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
@@ -47,14 +49,23 @@ async function writeBrief(slot: BriefSlot, push: boolean) {
     });
 }
 
-function startBrief(slot: BriefSlot, push: boolean) {
+// Scheduled briefings that didn't land (runner restart, Sol busy or failing) are retried for 3 hours
+// after their time, at most 3 tries a day, 15 minutes apart.
+const tries = new Map<string, { n: number; last: number }>();
+
+function startBrief(slot: BriefSlot, push: boolean, claimed = false) {
   if (briefing) return false;
   briefing = true;
   void writeBrief(slot, push)
     .catch((e) => log(slot, e instanceof Error ? e.message : e))
-    .finally(() => (briefing = false));
+    .finally(() => {
+      briefing = false;
+      if (claimed) finishBriefRequest();
+    });
   return true;
 }
+
+const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 async function todaysEvents(): Promise<CalEvent[]> {
   if (!calendarConnected()) return [];
@@ -72,11 +83,18 @@ export async function assistantTick(minute: string) {
 
   // Briefings: the scheduled ones, else an "Ask Sol" from the page.
   for (const slot of ["morning", "midday", "evening"] as BriefSlot[]) {
-    if (minute === AT[slot]() && !readBrief(day, slot)) startBrief(slot, slot !== "evening");
+    const late = toMin(minute) - toMin(AT[slot]());
+    if (late < 0 || late > 180 || briefing || readBrief(day, slot)) continue;
+    const key = `${day}:${slot}`;
+    const t = tries.get(key) ?? { n: 0, last: 0 };
+    if (t.n >= 3 || Date.now() - t.last < 15 * 60_000) continue;
+    tries.set(key, { n: t.n + 1, last: Date.now() });
+    // The evening review rides on the 21:30 recap push when there's a plan; without one it pushes itself.
+    startBrief(slot, slot !== "evening" || !coachNow().planned);
   }
   if (!briefing) {
     const req = takeBriefRequest();
-    if (req) startBrief(req.slot, false);
+    if (req) startBrief(req.slot, false, true);
   }
 
   const now = Date.now();
@@ -99,16 +117,17 @@ export async function assistantTick(minute: string) {
   // Task deadlines with a time: 30 minutes before, and when they pass.
   const t = todosFor(day);
   for (const x of [...t.overdue, ...t.today]) {
-    if (!x.due?.includes("T") || x.due.slice(0, 10) !== day) continue;
-    const due = zonedMs(day, x.due.slice(11, 16), tz);
+    if (!x.due || x.due.slice(0, 10) !== day) continue;
+    const time = x.due.includes("T") ? x.due.slice(11, 16) : DUE_DEFAULT();
+    const due = zonedMs(day, time, tz);
     const left = remainingMin(x);
     if (due - now <= 30 * 60_000 && due - now > 0)
       await notify({
         key: `coach:due30:${x.id}:${x.due}`,
         kind: "coach",
-        title: `Due at ${x.due.slice(11, 16)}: ${x.title}`,
+        title: `Due at ${time}: ${x.title}`,
         body: `About ${fmt(left)} of work left. Tap to start it now.`,
-        push: { title: `Due ${x.due.slice(11, 16)}: ${x.title}`, body: `~${fmt(left)} left — start now.` },
+        push: { title: `Due ${time}: ${x.title}`, body: `~${fmt(left)} left — start now.` },
         href: "/calendar#tasks",
         priority: 3,
         expiresAt: new Date(due + 2 * 3600_000).toISOString(),

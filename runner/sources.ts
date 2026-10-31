@@ -39,9 +39,20 @@ async function syncGithub() {
   if (!repos) return;
   const since = new Date(Date.now() - 90 * 86_400_000).toISOString();
   const items: GithubItem[] = [];
+  // A repo whose request fails keeps what was synced last time, so a GitHub hiccup never empties it.
+  let previous: GithubItem[] = [];
+  try {
+    previous = JSON.parse(fs.readFileSync(path.join(dir(), "github.json"), "utf8"))?.items ?? [];
+  } catch {
+    /* first run */
+  }
   for (const r of repos.filter((x) => !x.archived && x.pushed_at >= since).slice(0, 15)) {
     const list = await gh<GhIssue[]>(`/repos/${r.full_name}/issues?state=all&since=${since}&per_page=100&sort=updated`);
-    for (const i of list ?? []) {
+    if (!list) {
+      items.push(...previous.filter((p) => p.id.startsWith(`${r.full_name}#`)));
+      continue;
+    }
+    for (const i of list) {
       items.push({
         id: `${r.full_name}#${i.number}`,
         kind: i.pull_request ? "pr" : "issue",

@@ -25,7 +25,8 @@ function once(prompt: string, timeoutMs: number): Promise<string> {
     const out = path.join(dir, "last.txt");
     const child = spawn(
       codexBin(),
-      ["exec", "-m", SOL_MODEL(), "-c", `model_reasoning_effort=${SOL_EFFORT()}`, "-s", "read-only", ...TOOLS_OFF, "--skip-git-repo-check", "-o", out, "-"],
+      // mcp_servers={} drops any MCP servers from the shared Codex config: Sol gets no tools at all.
+      ["exec", "-m", SOL_MODEL(), "-c", `model_reasoning_effort=${SOL_EFFORT()}`, "-c", "mcp_servers={}", "-s", "read-only", ...TOOLS_OFF, "--skip-git-repo-check", "-o", out, "-"],
       { cwd: dir, env: process.env, stdio: ["pipe", "ignore", "pipe"] },
     );
     let err = "";

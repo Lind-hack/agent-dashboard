@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { coachNow } from "@/lib/coach";
-import { finishTodo, scheduleTodo } from "@/lib/todo-actions";
+import { deferTodoBlocks, finishTodo, scheduleTodo } from "@/lib/todo-actions";
 import { addTodo, removeTodo, todosFor, updateTodo, type TodoPatch } from "@/lib/todos";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +42,8 @@ export async function PATCH(request: Request) {
     return r.error ? NextResponse.json({ error: r.error }, { status: 409 }) : NextResponse.json(r);
   }
   let todo = Object.keys(patch).length ? updateTodo(id, patch) : null;
+  // Pushed to a later day: its blocks on today's plan go with it.
+  if (todo && patch.day && patch.day > coachNow().day) deferTodoBlocks(id);
   let warning: string | undefined;
   if (typeof done === "boolean") ({ todo, warning } = await finishTodo(id, done));
   if (!todo) return NextResponse.json({ error: "Task not found" }, { status: 404 });

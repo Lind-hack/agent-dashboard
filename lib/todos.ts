@@ -25,7 +25,7 @@ export type Todo = {
   createdAt: string;
   updatedAt: string;
   source: "dashboard" | "ticktick" | "assistant";
-  ticktick?: { id: string; projectId: string };
+  ticktick?: { id: string; projectId: string; pending?: boolean }; // pending: completing it in TickTick failed, retry
 };
 
 const file = () => path.join(DATA_DIR, "todos.json");
@@ -51,7 +51,7 @@ function clean(t: Partial<Todo> | null | undefined): Todo | null {
     createdAt: t.createdAt ?? new Date().toISOString(),
     updatedAt: t.updatedAt ?? new Date().toISOString(),
     source: t.source === "ticktick" || t.source === "assistant" ? t.source : "dashboard",
-    ticktick: t.ticktick?.id ? { id: String(t.ticktick.id), projectId: String(t.ticktick.projectId ?? "") } : undefined,
+    ticktick: t.ticktick?.id ? { id: String(t.ticktick.id), projectId: String(t.ticktick.projectId ?? ""), pending: t.ticktick.pending ? true : undefined } : undefined,
   };
 }
 
@@ -125,10 +125,31 @@ export function removeTodo(id: string): boolean {
   return true;
 }
 
+export function setTickTickPending(id: string, pending: boolean) {
+  const all = listTodos();
+  const t = all.find((x) => x.id === id);
+  if (!t?.ticktick) return;
+  t.ticktick.pending = pending || undefined;
+  writeTodos(all);
+}
+
+// Every TickTick id ever imported, kept apart from the tasks: a task deleted (or pruned) here must
+// not come back on the next import.
+const importedFile = () => path.join(DATA_DIR, "todos-imported.json");
+function readImported(): Set<string> {
+  try {
+    const v = JSON.parse(fs.readFileSync(importedFile(), "utf8"));
+    return new Set(Array.isArray(v) ? v.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
 // TickTick's open tasks, imported once each. A task already imported keeps its local edits.
 export function importTickTick(tasks: { id: string; projectId: string; title: string; content?: string; due?: string; allDay: boolean; priority: number }[], today: string, tz: string): number {
   const all = listTodos();
-  const known = new Set(all.map((t) => t.ticktick?.id).filter(Boolean));
+  const known = readImported();
+  for (const t of all) if (t.ticktick?.id) known.add(t.ticktick.id);
   const at = new Date().toISOString();
   const local = (iso: string) => {
     const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
@@ -137,6 +158,7 @@ export function importTickTick(tasks: { id: string; projectId: string; title: st
   let n = 0;
   for (const x of tasks) {
     if (known.has(x.id)) continue;
+    known.add(x.id);
     const d = x.due ? (DAY.test(x.due) ? { day: x.due, time: "" } : local(x.due)) : null;
     const t = clean({
       id: newId(),
@@ -158,7 +180,11 @@ export function importTickTick(tasks: { id: string; projectId: string; title: st
       n++;
     }
   }
-  if (n) writeTodos(all);
+  if (n) {
+    writeTodos(all);
+    fs.writeFileSync(`${importedFile()}.${process.pid}.tmp`, JSON.stringify([...known].slice(-5000)));
+    fs.renameSync(`${importedFile()}.${process.pid}.tmp`, importedFile());
+  }
   return n;
 }
 

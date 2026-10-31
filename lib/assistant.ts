@@ -69,13 +69,31 @@ export const latestBrief = (day: string): Brief | null => readBrief(day, "evenin
 // "Ask Sol now" from the page: the runner picks the request up (Sol takes a minute; the web request
 // can't wait that long behind the tunnel).
 export const requestBrief = (slot: BriefSlot) => writeJSON(requestFile(), { slot, at: new Date().toISOString() });
+// The runner claims a request by renaming it (atomic, so a newer request written meanwhile is never
+// lost) and removes the claim only when Sol has finished — the page shows "thinking" until then.
+const claimFile = () => path.join(dir(), "brief-claimed.json");
 export const takeBriefRequest = (): { slot: BriefSlot; at: string } | null => {
-  const r = readJSON<{ slot?: BriefSlot; at?: string } | null>(requestFile(), null);
-  if (!r?.slot || !r.at) return null;
-  fs.rmSync(requestFile(), { force: true });
+  try {
+    fs.renameSync(requestFile(), claimFile());
+  } catch {
+    return null;
+  }
+  const r = readJSON<{ slot?: BriefSlot; at?: string } | null>(claimFile(), null);
+  if (!r?.slot || !r.at) {
+    fs.rmSync(claimFile(), { force: true });
+    return null;
+  }
   return { slot: r.slot, at: r.at };
 };
-export const briefPending = () => fs.existsSync(requestFile());
+export const finishBriefRequest = () => fs.rmSync(claimFile(), { force: true });
+const fresh = (f: string) => {
+  try {
+    return Date.now() - fs.statSync(f).mtimeMs < 15 * 60_000;
+  } catch {
+    return false;
+  }
+};
+export const briefPending = () => fs.existsSync(requestFile()) || fresh(claimFile());
 
 const fmt = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
@@ -95,8 +113,8 @@ export async function dayContext(): Promise<string> {
   const task = (x: (typeof t.today)[number]) =>
     `- [${x.id}] ${x.title} | ${pri[x.priority]} | ${fmt(remainingMin(x))} left of ${fmt(x.estimateMin)}${x.due ? ` | due ${x.due.replace("T", " ")}` : ""}${x.goalId ? ` | goal ${x.goalId}` : ""}${x.subtasks.length ? ` | steps ${x.subtasks.filter((s) => s.done).length}/${x.subtasks.length}` : ""}`;
   return [
-    `Now ${clockNow(tz)} on ${c.day} (${tz}). Work day ends ${process.env.PLAN_DAY_END ?? "23:00"}: ${fmt(p.untilEndMin)} left.`,
-    `Progress: ${p.percent}% of today's work done (expected ~${p.expected}% by now → ${p.pace}). Tasks ${p.tasksDone}/${p.tasksTotal}. ${fmt(p.workLeftMin)} of task work left${p.overloadMin ? ` — ${fmt(p.overloadMin)} MORE than the time left` : ""}. Blocks ${p.blocksDone}/${p.blocksTotal}, ${fmt(p.focusMin)} focused.`,
+    `Now ${clockNow(tz)} on ${c.day} (${tz}). Work day ends ${process.env.PLAN_DAY_END ?? "23:00"}: ${fmt(p.untilEndMin)} left, ${fmt(p.freeMin)} of it free of calendar events.`,
+    `Progress: ${p.percent}% of today's work done (expected ~${p.expected}% by now → ${p.pace}). Tasks ${p.tasksDone}/${p.tasksTotal}. ${fmt(p.workLeftMin)} of task work left${p.overloadMin ? ` — ${fmt(p.overloadMin)} MORE than the free time left` : ""}. Blocks ${p.blocksDone}/${p.blocksTotal}, ${fmt(p.focusMin)} focused.`,
     `Current block: ${c.current ? `[${c.current.id}] ${c.current.start}-${c.current.end} ${c.current.title} (${c.current.status})` : "none"}. Next: ${c.next ? `[${c.next.id}] ${c.next.start} ${c.next.title}` : "none"}.`,
     `Plan blocks still open:\n${c.blocks.map((b) => `- [${b.id}] ${b.start}-${b.end} ${b.title} (${b.status}${b.goal ? `, goal ${b.goal.id}` : ""})`).join("\n") || "none"}`,
     `Calendar events today:\n${events.map((e) => `- ${e}`).join("\n") || "none"}`,

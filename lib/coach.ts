@@ -227,7 +227,8 @@ export type DayProgress = {
   tasksTotal: number;
   workLeftMin: number; // estimated minutes still to do on open tasks
   untilEndMin: number; // minutes from now to the end of the work day
-  overloadMin: number; // work left that can't fit before the day ends (0 = it fits)
+  freeMin: number; // of those, minutes not taken by calendar events
+  overloadMin: number; // work left that can't fit in the free time left today (0 = it fits)
   expected: number; // where the percent "should" be by now, from the share of the work day gone
   pace: "ahead" | "on-pace" | "behind" | "not-started";
   blocksDone: number;
@@ -251,7 +252,17 @@ export async function dayProgress(at = new Date()): Promise<DayProgress> {
   const nowMin = toMin(clockNow(tz, at));
   const start = toMin(DAY_START());
   const end = toMin(DAY_END());
-  const untilEndMin = Math.max(0, end - Math.max(nowMin, start));
+  const from = Math.max(nowMin, start);
+  const untilEndMin = Math.max(0, end - from);
+  // Calendar events between now and the end of the day aren't time for tasks.
+  const busy = (await calendarBusy().catch(() => [] as [number, number][])).map(([a, z]) => [Math.max(a, from), Math.min(z, end)] as const).filter(([a, z]) => z > a).sort((x, y) => x[0] - y[0]);
+  let taken = 0;
+  let edge = from;
+  for (const [a, z] of busy) {
+    taken += Math.max(0, z - Math.max(a, edge));
+    edge = Math.max(edge, z);
+  }
+  const freeMin = Math.max(0, untilEndMin - taken);
   const expected = Math.round(100 * Math.min(1, Math.max(0, (nowMin - start) / Math.max(1, end - start))));
   const any = total > 0 || c.total > 0;
   const pace = !any || (percent === 0 && nowMin < start + 60) ? "not-started" : percent >= expected + 10 ? "ahead" : percent >= expected - 10 ? "on-pace" : "behind";
@@ -263,7 +274,8 @@ export async function dayProgress(at = new Date()): Promise<DayProgress> {
     tasksTotal: t.done.length + open.length,
     workLeftMin,
     untilEndMin,
-    overloadMin: Math.max(0, workLeftMin - untilEndMin),
+    freeMin,
+    overloadMin: Math.max(0, workLeftMin - freeMin),
     expected,
     pace,
     blocksDone: c.done,

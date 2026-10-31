@@ -69,7 +69,7 @@ export function DayPulse({ p }: { p: DayProgress }) {
           </div>
           {p.overloadMin > 0 ? (
             <p className="mt-3 rounded-[10px] border border-warn/25 bg-warn/[0.07] px-3 py-2 text-[13px] text-warn">
-              {fmt(p.overloadMin)} more work than day left — cut, shrink or move something. Ask the assistant below.
+              {fmt(p.overloadMin)} more work than free time left ({fmt(p.freeMin)} outside your events) — cut, shrink or move something. Ask the assistant below.
             </p>
           ) : p.tasksTotal > 0 && p.workLeftMin === 0 ? (
             <p className="mt-3 text-[13px] text-ok">Everything on today&apos;s list is done.</p>

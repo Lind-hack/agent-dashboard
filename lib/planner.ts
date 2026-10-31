@@ -6,7 +6,8 @@ import { goalProgress } from "./coach";
 import { groqJSON } from "./groq";
 import { blockId } from "./plan-store";
 import { openTasks, ticktickConnected } from "./ticktick";
-import { importTickTick, remainingMin, todosFor, type Todo } from "./todos";
+import { completeInTickTick } from "./todo-actions";
+import { importTickTick, listTodos, remainingMin, todosFor, type Todo } from "./todos";
 
 // "Plan my day": fixed calendar events + open dashboard tasks + the vault's Daily Agenda priorities +
 // whatever Lind says → time blocks in the free gaps. Nothing is written until he applies the plan
@@ -69,6 +70,8 @@ export async function today(): Promise<Today> {
     try {
       const tt = await openTasks(tz, day);
       importTickTick([...tt.overdue, ...tt.today, ...tt.inbox], day, tz);
+      // Tasks ticked here whose TickTick completion failed earlier: try again.
+      for (const x of listTodos().filter((x) => x.done && x.ticktick?.pending).slice(0, 5)) await completeInTickTick(x);
     } catch (err) {
       errors.push(`TickTick: ${err instanceof Error ? err.message : String(err)}`);
     }
