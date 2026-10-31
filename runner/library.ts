@@ -7,11 +7,13 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { geminiJSON, geminiReady, type InlineImage } from "../lib/gemini";
 import { groqJSON, transcribe } from "../lib/groq";
+import { splitStep, startSplitIfDump, unsplitDump } from "./dump";
 import { addSection, listItems, mediaDir, mirrorItem, readItem, readSections, removeMirror, saveItem, type LibraryItem, type Section } from "../lib/library";
 
 // The Library automation (plan v3 §3): every queued capture is read — voice transcribed, images and
 // video frames described, links fetched — then the organiser files it into a section (making a new
 // one when nothing fits) and mirrors it as a note into the vault. One item at a time, off the tick.
+// Memory dumps (long pastes and text files) are split into one item per topic instead (./dump.ts).
 
 const run = promisify(execFile);
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "library:", ...a);
@@ -24,16 +26,17 @@ export function libraryTick() {
   const now = Date.now();
   const items = listItems();
   // A crash mid-item leaves it "processing"; after 15 minutes it's picked up again.
+  // A dump being split takes one window per turn and lets new captures go first.
   const next = items
     .filter((i) => (i.status === "queued" && (!i.nextAt || Date.parse(i.nextAt) <= now)) || (i.status === "processing" && now - Date.parse(i.updatedAt) > 15 * 60_000))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+    .sort((a, b) => Number(!!a.split) - Number(!!b.split) || a.createdAt.localeCompare(b.createdAt))[0];
   // Images saved while Gemini wasn't configured get their description once it is (ready ones only —
   // a failed vision pass goes back to "queued" with its backoff like anything else).
   const waiting = !next && geminiReady() ? items.find((i) => i.waiting === "vision" && i.status === "ready") : undefined;
-  const it = next ?? waiting;
+  const it = next ?? waiting ?? unsplitDump(items);
   if (!it) return;
   busy = true;
-  void processItem(it.id)
+  void (it.split?.state === "splitting" ? splitStep(it.id) : startSplitIfDump(it) ? Promise.resolve() : processItem(it.id))
     .catch((e) => log(it.id, e instanceof Error ? e.message : e))
     .finally(() => (busy = false));
 }

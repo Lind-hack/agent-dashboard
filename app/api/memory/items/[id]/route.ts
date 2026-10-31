@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
-import { deleteItem, mirrorItem, readItem, readSections, saveItem } from "@/lib/library";
+import { deleteItem, listItems, mirrorItem, readItem, readSections, saveItem } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
+
+// GET: the whole item (the list sends long texts cut short).
+export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+  const it = readItem((await ctx.params).id);
+  return it ? NextResponse.json({ item: it }) : NextResponse.json({ error: "not found" }, { status: 404 });
+}
 
 // PATCH { title?, section?, retry? } — rename, move to another section, or run the automation again.
 export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -16,6 +22,9 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     it.section = b.section;
   }
   if (b?.retry) {
+    // A dump is read and split again from the start.
+    if (it.split) for (const c of listItems()) if (c.parent === it.id) deleteItem(c.id);
+    it.split = undefined;
     it.status = "queued";
     it.error = undefined;
     it.attempts = 0;
