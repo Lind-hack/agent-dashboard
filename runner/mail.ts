@@ -14,8 +14,10 @@ export function mailTick() {
   void (async () => {
     const { messages, error } = await refreshMail();
     if (error) return log("refresh", error);
-    const { sorted } = await sortMail();
-    if (sorted) log(`sorted ${sorted} of ${messages.length}`);
+    const { sorted, left } = await sortMail();
+    if (sorted || left) log(`sorted ${sorted} of ${messages.length}${left ? `, ${left} still unsorted` : ""}`);
+    // Rate-limited with some left: come back in 2 minutes instead of 10.
+    if (left) last = Date.now() - EVERY + 2 * 60_000;
   })()
     .catch((e) => log(e instanceof Error ? e.message : e))
     .finally(() => (busy = false));

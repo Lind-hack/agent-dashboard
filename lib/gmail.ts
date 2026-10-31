@@ -130,23 +130,36 @@ export async function refreshMail(): Promise<{ messages: Mail[]; error?: string 
   }
 }
 
-// One Groq call per 30 unsorted messages. Returns how many were sorted and how long it took.
-export async function sortMail(all = false): Promise<{ sorted: number; ms: number }> {
+// Groq's free tier allows ~8k tokens a minute on this key, so mail goes in small, paced batches:
+// 12 at a time, a short pause between, one longer wait and retry when a batch is refused. `limit`
+// caps one call (the Sort button) so the request can't time out; the runner sorts the rest.
+const BATCH = 12;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export async function sortMail(all = false, limit = Infinity): Promise<{ sorted: number; ms: number; left: number }> {
   const t0 = Date.now();
   const piles = readPiles();
   const todo = readMail().messages.filter((m) => all || !piles[m.id]).filter((m) => piles[m.id]?.why !== "moved by Lind");
+  const take = todo.slice(0, limit);
   let sorted = 0;
-  for (let i = 0; i < todo.length; i += 30) {
-    const batch = todo.slice(i, i + 30);
-    const out = await groqJSON<{ items: { n: number; pile: string; why: string }[] }>(
+  for (let i = 0; i < take.length; i += BATCH) {
+    const batch = take.slice(i, i + BATCH);
+    if (i) await sleep(7_000);
+    const ask = () => groqJSON<{ items: { n: number; pile: string; why: string }[] }>(
       `You sort Lind's email into piles. Lind runs @building.ai (a 200k-follower AI/tech TikTok), an AI automation agency, and the 383 news site in Kosovo.
 Piles:
 ${PILES.map((p) => `- ${p.key}: ${p.hint}`).join("\n")}
 Return JSON {"items": [{"n": number, "pile": string, "why": string (≤10 words)}]} with one entry per message.`,
-      batch.map((m, n) => `[${n}] From: ${m.from} <${m.fromEmail}>\nSubject: ${m.subject}\n${m.snippet.slice(0, 300)}${m.attachments.length ? `\nAttachments: ${m.attachments.join(", ")}` : ""}`).join("\n\n"),
+      batch.map((m, n) => `[${n}] From: ${m.from} <${m.fromEmail}>\nSubject: ${m.subject}\n${m.snippet.slice(0, 200)}${m.attachments.length ? `\nAttachments: ${m.attachments.join(", ")}` : ""}`).join("\n\n"),
       0.1,
-      { maxTokens: 3000 },
+      { maxTokens: 1200 },
     );
+    let out = await ask();
+    if (!out?.items) {
+      await sleep(30_000); // the minute's token budget refills
+      out = await ask();
+    }
+    if (!out?.items) break; // still refused — the next run carries on from here
     for (const r of out?.items ?? []) {
       const m = batch[r?.n];
       if (!m || !PILE_KEYS.has(r.pile)) continue;
@@ -160,7 +173,7 @@ Return JSON {"items": [{"n": number, "pile": string, "why": string (≤10 words)
   write("piles.json", current);
   const stats = { sorted, ms: Date.now() - t0, at: new Date().toISOString() };
   if (sorted) write("sort-stats.json", stats);
-  return stats;
+  return { ...stats, left: todo.length - sorted };
 }
 
 export const gmailLink = (m: Mail) => `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`;
