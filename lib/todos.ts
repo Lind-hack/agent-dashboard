@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
+import { withLock } from "./file-lock";
 
 // Dashboard tasks (v5, Lind's pick: tasks live here, not in TickTick). One file, data/todos.json,
 // written only by the web app (the runner just reads it for reminders). TickTick's open tasks are
@@ -24,7 +25,8 @@ export type Todo = {
   doneAt?: string;
   createdAt: string;
   updatedAt: string;
-  source: "dashboard" | "ticktick" | "assistant";
+  source: "dashboard" | "ticktick" | "assistant" | "email" | "journal";
+  link?: string; // where it came from (the email, …)
   ticktick?: { id: string; projectId: string; pending?: boolean }; // pending: completing it in TickTick failed, retry
 };
 
@@ -50,7 +52,8 @@ function clean(t: Partial<Todo> | null | undefined): Todo | null {
     doneAt: t.doneAt || undefined,
     createdAt: t.createdAt ?? new Date().toISOString(),
     updatedAt: t.updatedAt ?? new Date().toISOString(),
-    source: t.source === "ticktick" || t.source === "assistant" ? t.source : "dashboard",
+    source: (["ticktick", "assistant", "email", "journal"] as const).includes(t.source as "email") ? (t.source as Todo["source"]) : "dashboard",
+    link: typeof t.link === "string" && /^https?:\/\//.test(t.link) ? t.link : undefined,
     ticktick: t.ticktick?.id ? { id: String(t.ticktick.id), projectId: String(t.ticktick.projectId ?? ""), pending: t.ticktick.pending ? true : undefined } : undefined,
   };
 }
@@ -73,9 +76,9 @@ function writeTodos(all: Todo[]) {
   fs.renameSync(`${file()}.${process.pid}.tmp`, file());
 }
 
-export type TodoInput = Partial<Pick<Todo, "title" | "notes" | "goalId" | "priority" | "estimateMin" | "day" | "due" | "source">> & { subtasks?: string[] };
+export type TodoInput = Partial<Pick<Todo, "title" | "notes" | "goalId" | "priority" | "estimateMin" | "day" | "due" | "source" | "link">> & { subtasks?: string[] };
 
-export function addTodo(input: TodoInput & { title: string; day: string }): Todo {
+function addTodoUnlocked(input: TodoInput & { title: string; day: string }): Todo {
   const at = new Date().toISOString();
   const t = clean({
     ...input,
@@ -96,7 +99,7 @@ export type TodoPatch = Partial<Pick<Todo, "title" | "notes" | "goalId" | "prior
   removeSubtask?: string;
 };
 
-export function updateTodo(id: string, p: TodoPatch): Todo | null {
+function updateTodoUnlocked(id: string, p: TodoPatch): Todo | null {
   const all = listTodos();
   const i = all.findIndex((t) => t.id === id);
   if (i < 0) return null;
@@ -117,7 +120,7 @@ export function updateTodo(id: string, p: TodoPatch): Todo | null {
   return c;
 }
 
-export function removeTodo(id: string): boolean {
+function removeTodoUnlocked(id: string): boolean {
   const all = listTodos();
   const next = all.filter((t) => t.id !== id);
   if (next.length === all.length) return false;
@@ -125,7 +128,7 @@ export function removeTodo(id: string): boolean {
   return true;
 }
 
-export function setTickTickPending(id: string, pending: boolean) {
+function setTickTickPendingUnlocked(id: string, pending: boolean) {
   const all = listTodos();
   const t = all.find((x) => x.id === id);
   if (!t?.ticktick) return;
@@ -146,7 +149,7 @@ function readImported(): Set<string> {
 }
 
 // TickTick's open tasks, imported once each. A task already imported keeps its local edits.
-export function importTickTick(tasks: { id: string; projectId: string; title: string; content?: string; due?: string; allDay: boolean; priority: number }[], today: string, tz: string): number {
+function importTickTickUnlocked(tasks: { id: string; projectId: string; title: string; content?: string; due?: string; allDay: boolean; priority: number }[], today: string, tz: string): number {
   const all = listTodos();
   const known = readImported();
   for (const t of all) if (t.ticktick?.id) known.add(t.ticktick.id);
@@ -188,6 +191,25 @@ export function importTickTick(tasks: { id: string; projectId: string; title: st
   return n;
 }
 
+// Tasks the runner read out of email (lib/mail-actions.ts), added once each — like TickTick, a task
+// deleted here never comes back.
+function importEmailTasksUnlocked(actions: { id: string; needsAction: boolean; title?: string; due?: string; estimateMin?: number; priority?: Priority; link?: string; from?: string }[], today: string): number {
+  const known = readImported();
+  const add = actions.filter((a) => a.needsAction && a.title && !known.has(`email:${a.id}`));
+  if (!add.length) return 0;
+  const all = listTodos();
+  const at = new Date().toISOString();
+  for (const a of add) {
+    known.add(`email:${a.id}`);
+    const t = clean({ id: newId(), title: a.title, notes: a.from ? `From ${a.from}` : undefined, priority: a.priority ?? 1, estimateMin: a.estimateMin ?? 15, day: a.due && a.due.slice(0, 10) > today ? a.due.slice(0, 10) : today, due: a.due, subtasks: [], done: false, createdAt: at, updatedAt: at, source: "email", link: a.link });
+    if (t) all.push(t);
+  }
+  writeTodos(all);
+  fs.writeFileSync(`${importedFile()}.${process.pid}.tmp`, JSON.stringify([...known].slice(-5000)));
+  fs.renameSync(`${importedFile()}.${process.pid}.tmp`, importedFile());
+  return add.length;
+}
+
 const dueDay = (t: Todo) => t.due?.slice(0, 10);
 const localDay = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" }).format(new Date(iso));
 
@@ -207,3 +229,62 @@ export function todosFor(day: string, all = listTodos()) {
 // Share of a task done: subtasks count when there are any.
 export const todoPercent = (t: Todo) => (t.done ? 100 : t.subtasks.length ? Math.round((100 * t.subtasks.filter((s) => s.done).length) / t.subtasks.length) : 0);
 export const remainingMin = (t: Todo) => (t.done ? 0 : Math.round((t.estimateMin * (100 - todoPercent(t))) / 100));
+
+export function addTodo(input: TodoInput & { title: string; day: string }): Todo {
+  return withLock("todos", () => addTodoUnlocked(input));
+}
+
+export function updateTodo(id: string, p: TodoPatch): Todo | null {
+  return withLock("todos", () => updateTodoUnlocked(id, p));
+}
+
+export function removeTodo(id: string): boolean {
+  return withLock("todos", () => removeTodoUnlocked(id));
+}
+
+export function setTickTickPending(id: string, pending: boolean) {
+  return withLock("todos", () => setTickTickPendingUnlocked(id, pending));
+}
+
+export function importTickTick(tasks: { id: string; projectId: string; title: string; content?: string; due?: string; allDay: boolean; priority: number }[], today: string, tz: string): number {
+  return withLock("todos", () => importTickTickUnlocked(tasks, today, tz));
+}
+
+export function importEmailTasks(actions: { id: string; needsAction: boolean; title?: string; due?: string; estimateMin?: number; priority?: Priority; link?: string; from?: string }[], today: string): number {
+  return withLock("todos", () => importEmailTasksUnlocked(actions, today));
+}
+
+// Autopilot's evening rollover and its undo: set each task's day (and deadline) in one locked write.
+export function setTodoDays(changes: { id: string; day: string; due?: string }[]) {
+  withLock("todos", () => {
+    const all = listTodos();
+    const by = new Map(changes.map((c) => [c.id, c]));
+    const at = new Date().toISOString();
+    for (const t of all) {
+      const c = by.get(t.id);
+      if (!c || !DAY.test(c.day)) continue;
+      t.day = c.day;
+      t.due = c.due;
+      t.updatedAt = at;
+    }
+    writeTodos(all);
+  });
+}
+
+// Autopilot's evening rollover in one locked step: pick the open tasks on or before `day`, remember
+// their days for Undo, move them to `tomorrow`.
+export function rolloverOpen(day: string, tomorrow: string): { id: string; title: string; day: string; due?: string }[] {
+  return withLock("todos", () => {
+    const all = listTodos();
+    const moved: { id: string; title: string; day: string; due?: string }[] = [];
+    const at = new Date().toISOString();
+    for (const t of all) {
+      if (t.done || t.day > day) continue;
+      moved.push({ id: t.id, title: t.title, day: t.day, due: t.due });
+      t.day = tomorrow;
+      t.updatedAt = at;
+    }
+    if (moved.length) writeTodos(all);
+    return moved;
+  });
+}

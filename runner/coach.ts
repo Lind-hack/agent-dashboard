@@ -4,6 +4,8 @@ import { coachMoments } from "../lib/coach-moments";
 import { groqJSON } from "../lib/groq";
 import { activeBlocks, readPlan } from "../lib/plan-store";
 import { assistantTick, eveningNote } from "./assistant";
+import { autopilotTick } from "./autopilot";
+import { buddyTick } from "./buddy";
 import { notify, sweepNotices } from "./notify";
 
 // The Coach, runner side (Lind chose "Coach", 2026-10-31): a push when a block starts, a nudge when
@@ -63,7 +65,9 @@ async function run(tz: string, minute: string) {
     if (sent) log(m.kind, b.id);
   }
 
+  autopilotTick(minute);
   await assistantTick(minute).catch((e) => log("assistant", e instanceof Error ? e.message : e));
+  await buddyTick(minute).catch((e) => log("buddy", e instanceof Error ? e.message : e));
 
   // Still nothing planned after the morning briefing: one reminder.
   if (minute === PLAN_REMINDER() && !now.planned) {

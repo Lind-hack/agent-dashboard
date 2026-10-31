@@ -145,3 +145,9 @@ permissions, Bluetooth routing, iOS playback restrictions, and perceived Albania
 - The Day assistant: `SOL_MODEL` (gpt-6.1-sol), `SOL_EFFORT` (medium), `SOL_ENABLED=0` to fall back to Nemotron/Groq everywhere. Briefings at `BRIEF_MORNING_AT` (07:30), `BRIEF_MIDDAY_AT` (13:00), `BRIEF_EVENING_AT` (21:25); progress pushes at `PROGRESS_AT` (16:00,19:00). The "still no plan" nudge moved to `COACH_PLAN_AT` 08:15. Sol runs through the agent user's Codex login (`CODEX_HOME`), one call at a time.
 - The Roast room judge is Sol first, then Nemotron, then Groq.
 - Memory sources: `runner/sources.ts` syncs GitHub PRs/issues (`GITHUB_READ_TOKEN`) and calendar history into `data/sources/` hourly (`SOURCES_ENABLED=0` stops it). Saved links use `FIRECRAWL_API_KEY` (article text) and `SUPADATA_API_KEY` (YouTube transcripts, native captions only).
+
+### v5.1 settings (all optional, in /etc/agent-dashboard.env)
+- Goals live in `data/goals.md`; the vault's `100 - Me/Goals.md` is a mirror once `deploy/vault-access.sh` has granted `100 - Me` (safe to re-run).
+- Autopilot: `AUTOPILOT_ENABLED=0` (or the switch on Today) turns it off; times `AUTOPILOT_MORNING_AT` (07:30), `AUTOPILOT_MIDDAY_AT` (13:00), `AUTOPILOT_EVENING_AT` (21:20). Every step can be undone from Today.
+- Buddy + journal: `JOURNAL_AT` (21:00), `JOURNAL_NUDGE_AT` (22:30), `BUDDY_PROFILE_AT` (03:30, Sol rewrites `data/buddy/profile.md`). Date-only task deadlines count as `TASK_DUE_DEFAULT` (18:00).
+- More email: Gmail with `node handoff/google-auth.mjs --add` (also re-run it once without `--add` for the new `gmail.compose` scope — drafts only, never sends); Outlook needs `OUTLOOK_CLIENT_ID` from your own Entra app registration (personal + org accounts, public client flows on); other providers use IMAP with an app password from Settings.

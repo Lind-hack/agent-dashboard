@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { accessToken, gmailConnected } from "./calendar";
 import { DATA_DIR } from "./config";
+import { listAccounts } from "./accounts";
 import { groqJSON } from "./groq";
+import { extraMail } from "./mail-sources";
 
 // Gmail in the Inbox (developers.google.com/workspace/gmail/api/reference/rest): read-only. The last
 // week of the inbox is cached in data/mail/messages.json; piles (what the Core sorted each message
@@ -31,6 +33,8 @@ export type Mail = {
   at: string;
   unread: boolean;
   attachments: string[];
+  account?: string; // set for extra accounts (v5.1); unset = the main Gmail
+  link?: string; // where to open it, for extra accounts
 };
 export type Sorted = { pile: PileKey; why: string; at: string };
 
@@ -50,6 +54,8 @@ const write = (name: string, v: unknown) => {
 };
 
 export { gmailConnected };
+// Mail is worth fetching when the main Gmail or any extra account is connected.
+export const mailConnected = () => gmailConnected() || listAccounts().length > 0;
 export const readMail = () => json<{ at?: string; messages: Mail[]; error?: string }>("messages.json", { messages: [] });
 export const readPiles = () => json<Record<string, Sorted>>("piles.json", {});
 export const readDone = () => json<Record<string, string>>("done.json", {});
@@ -79,9 +85,23 @@ async function gmail<T>(url: string): Promise<T> {
 type Part = { filename?: string; parts?: Part[] };
 const files = (p?: Part): string[] => [...(p?.filename ? [p.filename] : []), ...(p?.parts ?? []).flatMap(files)];
 
-// The last 7 days of the inbox (≤60 messages), metadata only — subject, sender, snippet.
+// The last 7 days of every inbox — the main Gmail plus the extra accounts — metadata only.
 export async function refreshMail(): Promise<{ messages: Mail[]; error?: string }> {
-  if (!gmailConnected()) return { messages: [], error: "not connected" };
+  if (!mailConnected()) return { messages: [], error: "not connected" };
+  const old = new Map(readMail().messages.map((m) => [m.id, m]));
+  const extra = await extraMail(old);
+  const main = gmailConnected() ? await refreshMainGmail(old) : { messages: [] as Mail[] };
+  const out = [...main.messages, ...extra.messages].sort((a, b) => b.at.localeCompare(a.at));
+  const error = [main.error, ...extra.errors].filter(Boolean).join(" · ") || undefined;
+  if (main.error && !main.messages.length && !extra.messages.length) {
+    write("messages.json", { ...readMail(), error });
+    return { messages: readMail().messages, error };
+  }
+  write("messages.json", { at: new Date().toISOString(), messages: out, ...(error ? { error } : {}) });
+  return { messages: out };
+}
+
+async function refreshMainGmail(old: Map<string, Mail>): Promise<{ messages: Mail[]; error?: string }> {
   try {
     const ids: string[] = [];
     let page = "";
@@ -90,7 +110,6 @@ export async function refreshMail(): Promise<{ messages: Mail[]; error?: string 
       ids.push(...(list.messages ?? []).map((m) => m.id));
       page = list.nextPageToken ?? "";
     } while (page && ids.length < 150);
-    const old = new Map(readMail().messages.map((m) => [m.id, m]));
     const out: Mail[] = [];
     // Unchanged messages come from the cache except for the unread flag, which is cheap to refetch.
     for (let i = 0; i < ids.length; i += 8) {
@@ -120,13 +139,10 @@ export async function refreshMail(): Promise<{ messages: Mail[]; error?: string 
       );
       out.push(...batch.filter((x): x is Mail => !!x));
     }
-    out.sort((a, b) => b.at.localeCompare(a.at));
-    write("messages.json", { at: new Date().toISOString(), messages: out });
     return { messages: out };
   } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    write("messages.json", { ...readMail(), error });
-    return { messages: readMail().messages, error };
+    // The main inbox failed: keep its last good copy so the merge doesn't drop it.
+    return { messages: [...old.values()].filter((m) => !m.account), error: e instanceof Error ? e.message : String(e) };
   }
 }
 
@@ -150,7 +166,7 @@ export async function sortMail(all = false, limit = Infinity): Promise<{ sorted:
 Piles:
 ${PILES.map((p) => `- ${p.key}: ${p.hint}`).join("\n")}
 Return JSON {"items": [{"n": number, "pile": string, "why": string (≤10 words)}]} with one entry per message.`,
-      batch.map((m, n) => `[${n}] From: ${m.from} <${m.fromEmail}>\nSubject: ${m.subject}\n${m.snippet.slice(0, 200)}${m.attachments.length ? `\nAttachments: ${m.attachments.join(", ")}` : ""}`).join("\n\n"),
+      batch.map((m, n) => `[${n}]${m.account ? ` (to ${m.account})` : ""} From: ${m.from} <${m.fromEmail}>\nSubject: ${m.subject}\n${m.snippet.slice(0, 200)}${m.attachments.length ? `\nAttachments: ${m.attachments.join(", ")}` : ""}`).join("\n\n"),
       0.1,
       { maxTokens: 1200 },
     );
@@ -176,4 +192,18 @@ Return JSON {"items": [{"n": number, "pile": string, "why": string (≤10 words)
   return { ...stats, left: todo.length - sorted };
 }
 
-export const gmailLink = (m: Mail) => `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`;
+export const gmailLink = (m: Mail) => m.link ?? `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`;
+
+// The main account's address (for labels), asked once and remembered.
+let mainEmail: string | null = null;
+export async function primaryEmail(): Promise<string | null> {
+  if (mainEmail || !gmailConnected()) return mainEmail;
+  const cached = json<{ email?: string }>("profile.json", {});
+  if (cached.email) return (mainEmail = cached.email);
+  const p = await gmail<{ emailAddress?: string }>("/profile").catch(() => null);
+  if (p?.emailAddress) {
+    write("profile.json", { email: p.emailAddress });
+    mainEmail = p.emailAddress;
+  }
+  return mainEmail;
+}

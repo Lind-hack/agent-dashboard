@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readGoals, writeGoals, type Goal } from "@/lib/goals";
 
-// The goals live in 100 - Me/Goals.md in the Syncthing vault; this route is the phone-side editor.
+// The goals live in data/goals.md (mirrored to 100 - Me/Goals.md in the vault); this route is the editor.
 export async function GET() {
   return NextResponse.json({ goals: readGoals(), file: "100 - Me/Goals.md" });
 }
@@ -19,8 +19,10 @@ export async function POST(request: Request) {
       next: typeof g.next === "string" ? g.next.slice(0, 200) : "",
       why: typeof g.why === "string" ? g.why.slice(0, 200) : "",
       due: typeof g.due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(g.due) ? g.due : undefined,
+      weeklyMin: typeof g.weeklyMin === "number" && g.weeklyMin > 0 ? Math.round(g.weeklyMin) : undefined,
       done: !!g.done,
     })) satisfies Goal[];
-  if (!writeGoals(clean)) return NextResponse.json({ ok: false, error: "The vault isn't writable right now." }, { status: 500 });
-  return NextResponse.json({ ok: true, goals: readGoals() });
+  const r = writeGoals(clean);
+  if (!r.ok) return NextResponse.json({ ok: false, error: `Couldn't save the goals: ${r.error}` }, { status: 500 });
+  return NextResponse.json({ ok: true, vault: r.vault, goals: readGoals() });
 }

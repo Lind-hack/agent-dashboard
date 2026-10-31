@@ -49,7 +49,13 @@ export function AssistantPanel({ initial, slotNow }: { initial: State; slotNow: 
     return () => clearInterval(id);
   }, [s.pending, s.briefs, refresh]);
 
+  // Follow new messages, but never on load (it would pull the page away from a #section link).
+  const loaded = useRef(false);
   useEffect(() => {
+    if (!loaded.current) {
+      loaded.current = true;
+      return;
+    }
     if (s.chat.length) end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [s.chat.length]);
 

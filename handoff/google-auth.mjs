@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // One-time Google sign-in for the dashboard's Calendar page. Run on the PC (it opens your browser):
 //
-//   node handoff/google-auth.mjs [path/to/google_credentials.json]
+//   node handoff/google-auth.mjs [path/to/google_credentials.json]          the main account
+//   node handoff/google-auth.mjs --add [path/to/google_credentials.json]    another Gmail account
 //
 // Uses the same OAuth desktop client as the morning-news tools, asks for Calendar access
 // (read your calendars + add events) and read-only Gmail for the Inbox, and sends the refresh token straight to the dashboard
@@ -13,8 +14,16 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-const SCOPES = ["https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/analytics.readonly"];
-const credsPath = process.argv[2] ?? path.join(os.homedir(), "Desktop", "claude", "tools", "google_credentials.json");
+// gmail.compose lets the assistant put reply drafts in your Drafts folder; it never sends them.
+const add = process.argv.includes("--add");
+const SCOPES = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.compose",
+  ...(add ? [] : ["https://www.googleapis.com/auth/analytics.readonly"]),
+];
+const credsPath = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? path.join(os.homedir(), "Desktop", "claude", "tools", "google_credentials.json");
 
 const readEnv = (file) =>
   Object.fromEntries(
@@ -56,11 +65,13 @@ const server = http.createServer(async (req, res) => {
   const sent = await fetch(`${env.AGENT_DASHBOARD_URL ?? "https://agents.383ks.com"}/api/calendar/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.HANDOFF_TOKEN}` },
-    body: JSON.stringify({ client_id: client.client_id, client_secret: client.client_secret, refresh_token: tok.refresh_token, scopes: tok.scope?.split(" ") }),
+    body: JSON.stringify({ client_id: client.client_id, client_secret: client.client_secret, refresh_token: tok.refresh_token, scopes: tok.scope?.split(" "), add }),
   });
   const ok = sent.ok;
-  res.end(ok ? "Calendar connected — you can close this tab." : `The dashboard refused it (${sent.status}).`);
-  console.log(ok ? "Calendar connected to the dashboard." : `Dashboard refused the token (${sent.status}).`);
+  const out = await sent.json().catch(() => ({}));
+  const done = add ? `Added ${out.email ?? "the account"} to the dashboard.` : "Google connected to the dashboard.";
+  res.end(ok ? `${done} You can close this tab.` : `The dashboard refused it (${sent.status}).`);
+  console.log(ok ? done : `Dashboard refused the token (${sent.status}).`);
   server.close();
   process.exit(ok ? 0 : 1);
 });
@@ -73,7 +84,8 @@ server.listen(0, "127.0.0.1", () => {
     response_type: "code",
     scope: SCOPES.join(" "),
     access_type: "offline",
-    prompt: "consent",
+    // --add: let Google show the account chooser, so the other account can be picked.
+    prompt: add ? "consent select_account" : "consent",
   }).toString();
   console.log("Opening Google sign-in… if nothing opens, paste this into your browser:\n" + auth);
   exec(process.platform === "win32" ? `start "" "${auth}"` : `open "${auth}" || xdg-open "${auth}"`);

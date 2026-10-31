@@ -1,7 +1,8 @@
-import { ArrowUpRight, MapPin, Target } from "lucide-react";
+import { ArrowUpRight, MapPin, NotebookPen, Target } from "lucide-react";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { AssistantPanel } from "@/components/assistant-panel";
+import { AutopilotStrip } from "@/components/autopilot-strip";
 import { PushSwitch } from "@/components/coach";
 import { DayPulse } from "@/components/day-pulse";
 import { Empty, Panel, SectionTitle, StatusPill } from "@/components/kit";
@@ -11,9 +12,11 @@ import { CaptureBar, PlanDay, TickTickConnect } from "@/components/today";
 import { TodayPlan } from "@/components/today-plan";
 import { TodoBoard } from "@/components/todo-board";
 import { briefPending, readBrief, readChat, type BriefSlot } from "@/lib/assistant";
+import { autopilotEnabled, readAutopilot } from "@/lib/autopilot";
 import { addDays, calendarConnected, type CalEvent } from "@/lib/calendar";
 import { dayProgress, goalProgress } from "@/lib/coach";
 import { activeBlocks, planStats, readPlan } from "@/lib/plan-store";
+import { readJournal } from "@/lib/journal";
 import { freeSlots, today } from "@/lib/planner";
 import { ticktickConnected } from "@/lib/ticktick";
 import { cn } from "@/lib/utils";
@@ -32,8 +35,8 @@ function zoned(day: string, hhmm: string, tz: string): string {
 
 const fmtMin = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
-export default async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_error?: string; replan?: string }> }) {
-  const { ticktick_error, replan } = await searchParams;
+export default async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_error?: string; replan?: string; autopilot?: string }> }) {
+  const { ticktick_error, replan, autopilot } = await searchParams;
   const t = await today();
   const host = (await headers()).get("x-forwarded-host");
   const callback = `${host ? `https://${host}` : "https://agents.383ks.com"}/api/ticktick/callback`;
@@ -104,10 +107,23 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         <span className="max-w-md text-xs leading-relaxed text-faint">Task deadlines, events 10 min before, block starts and the day&apos;s progress go to every device you turn on — your iPhone (from the Home Screen) and this PC&apos;s browser.</span>
       </div>
 
+      <AutopilotStrip initial={readAutopilot(t.today)} enabled={autopilotEnabled()} highlight={autopilot} />
+
       <AssistantPanel
         slotNow={slotNow}
         initial={{ day: t.today, chat: readChat(t.today), briefs: { morning: readBrief(t.today, "morning"), midday: readBrief(t.today, "midday"), evening: readBrief(t.today, "evening") }, pending: briefPending() }}
       />
+
+      {hour >= 18 && !readJournal(t.today).entries.length && (
+        <Link href="/buddy?journal=1" className="panel lift mt-6 flex items-center gap-3 px-4 py-3.5">
+          <NotebookPen className="h-4 w-4 shrink-0 text-hermes" aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px]">How did today go?</span>
+            <span className="block text-[12px] text-muted">Tell your Buddy — type it or just talk. It shapes tomorrow&apos;s plan.</span>
+          </span>
+          <ArrowUpRight className="h-4 w-4 shrink-0 text-faint" aria-hidden />
+        </Link>
+      )}
 
       <TodoBoard lists={t.todos} goals={t.goals.map((g) => ({ id: g.id, title: g.title }))} day={t.today} tomorrow={addDays(t.today, 1)} />
 

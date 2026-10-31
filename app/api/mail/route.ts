@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { markMailDone, movePile, refreshMail, sortMail } from "@/lib/gmail";
 import { invalidateInboxCount } from "@/lib/inbox";
+import { draftReply } from "@/lib/mail-actions";
 import { invalidateMemory } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 // POST { action: "sort" } fetches the inbox and sorts every message into a pile;
 // { action: "refresh" } only fetches; { action: "done", ids } hides; { action: "move", id, pile }.
 export async function POST(request: Request) {
-  const b = (await request.json().catch(() => null)) as { action?: string; ids?: string[]; id?: string; pile?: string; all?: boolean } | null;
+  const b = (await request.json().catch(() => null)) as { action?: string; ids?: string[]; id?: string; pile?: string; all?: boolean; note?: string } | null;
   try {
     if (b?.action === "sort" || b?.action === "refresh") {
       const { messages, error } = await refreshMail();
@@ -23,6 +24,11 @@ export async function POST(request: Request) {
       markMailDone(b.ids.filter((x) => typeof x === "string").slice(0, 200));
       invalidateInboxCount();
       return NextResponse.json({ ok: true });
+    }
+    // A reply drafted into that account's Gmail Drafts (never sent).
+    if (b?.action === "draft" && typeof b.id === "string") {
+      const r = await draftReply(b.id, typeof b.note === "string" ? b.note.slice(0, 1000) : "");
+      return r.ok ? NextResponse.json(r) : NextResponse.json({ error: r.error }, { status: 409 });
     }
     if (b?.action === "move" && typeof b.id === "string" && typeof b.pile === "string") {
       return movePile(b.id, b.pile) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "no such pile" }, { status: 400 });

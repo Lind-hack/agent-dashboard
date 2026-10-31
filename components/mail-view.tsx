@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, LoaderCircle, Paperclip, RefreshCw, Wand2 } from "lucide-react";
+import { Check, LoaderCircle, Paperclip, PenLine, RefreshCw, Wand2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Mail, PileKey, Sorted } from "@/lib/gmail";
@@ -102,6 +102,18 @@ export function MailList({ messages, piles, labels, empty }: { messages: Mail[];
   const [gone, setGone] = useState<Set<string>>(new Set());
   const [moved, setMoved] = useState<Record<string, PileKey>>({});
   const shown = messages.filter((m) => !gone.has(m.id));
+  const [drafting, setDrafting] = useState("");
+  const [drafted, setDrafted] = useState<Record<string, { link?: string; error?: string }>>({});
+  async function draft(m: Mail) {
+    setDrafting(m.id);
+    try {
+      const res = await fetch("/api/mail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "draft", id: m.id }) });
+      const out = await res.json().catch(() => null);
+      setDrafted((d) => ({ ...d, [m.id]: res.ok ? { link: out?.link } : { error: out?.error ?? "Couldn't draft it." } }));
+    } finally {
+      setDrafting("");
+    }
+  }
   const post = (body: unknown) => fetch("/api/mail", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), keepalive: true }).catch(() => null);
 
   if (!shown.length) return <p className="px-5 py-8 text-sm text-muted">{empty}</p>;
@@ -112,7 +124,7 @@ export function MailList({ messages, piles, labels, empty }: { messages: Mail[];
         return (
           <li key={m.id} className="group flex items-center border-b border-line last:border-0">
             <a
-              href={`https://mail.google.com/mail/u/0/#inbox/${m.threadId}`}
+              href={m.link ?? `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`}
               target="_blank"
               rel="noreferrer"
               className="flex min-h-[64px] min-w-0 flex-1 items-center gap-3 py-2.5 pl-4 transition-colors hover:bg-white/[0.025]"
@@ -131,6 +143,7 @@ export function MailList({ messages, piles, labels, empty }: { messages: Mail[];
                   <span className="hidden text-muted sm:inline"> · {m.snippet}</span>
                 </span>
                 <span className="mt-0.5 flex items-center gap-2 text-[11px] text-faint">
+                  {m.account && <span className="max-w-[160px] truncate rounded bg-white/[0.05] px-1.5 font-mono text-[10px]">{m.account}</span>}
                   {pile && (
                     <span className="flex items-center gap-1" title={piles[m.id]?.why}>
                       <span className="h-1.5 w-1.5 rounded-full" style={{ background: PILE_HUE[pile] }} />
@@ -163,6 +176,21 @@ export function MailList({ messages, piles, labels, empty }: { messages: Mail[];
                 </option>
               ))}
             </select>
+            {drafted[m.id]?.link ? (
+              <a href={drafted[m.id].link} target="_blank" rel="noreferrer" className="mr-1 flex h-8 shrink-0 items-center gap-1 rounded-[8px] border border-ok/30 px-2 text-[11.5px] text-ok">
+                <Check className="h-3.5 w-3.5" /> Draft ready
+              </a>
+            ) : (
+              <button
+                onClick={() => void draft(m)}
+                disabled={!!drafting}
+                title={drafted[m.id]?.error ?? "Write a reply into Gmail Drafts (not sent)"}
+                aria-label={`Draft a reply to "${m.subject}"`}
+                className={cn("mr-1 grid h-10 w-10 shrink-0 place-items-center rounded-full hover:bg-white/5 hover:text-text", drafted[m.id]?.error ? "text-bad" : "text-faint")}
+              >
+                {drafting === m.id ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <PenLine className="h-4 w-4" />}
+              </button>
+            )}
             <button
               onClick={() => {
                 setGone((g) => new Set([...g, m.id]));

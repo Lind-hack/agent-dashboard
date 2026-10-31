@@ -235,7 +235,30 @@ export type DayProgress = {
   blocksTotal: number;
   focusMin: number;
   next?: { id: string; title: string; dueAt?: string }; // most urgent open task
+  // Time blocking (v5.1): when there's a plan, pace comes from it — the block minutes that should be
+  // behind you by now vs the ones you actually did.
+  blocks?: { dueMin: number; doneMin: number; behindMin: number; missed: { id: string; title: string; start: string; end: string }[] };
 };
+
+// Planned block minutes due by `nowMin` vs. done: a running block counts its real minutes so far, a done
+// block its real length (both capped at what was planned to have passed), breaks don't count.
+export function blockPace(blocks: StoredBlock[], nowMin: number, nowMs: number): NonNullable<DayProgress["blocks"]> {
+  let dueMin = 0;
+  let doneMin = 0;
+  const missed: { id: string; title: string; start: string; end: string }[] = [];
+  for (const b of blocks) {
+    if (b.kind === "break") continue;
+    const s = toMin(b.start);
+    const e = toMin(b.end);
+    if (s >= nowMin) continue;
+    const due = Math.min(nowMin, e) - s;
+    dueMin += due;
+    if (b.status === "done") doneMin += Math.min(due, blockMinutes(b) || due);
+    else if (b.status === "running") doneMin += Math.min(due, Math.max(0, Math.round((nowMs - Date.parse(b.startedAt ?? new Date(nowMs).toISOString())) / 60_000)));
+    else if (e <= nowMin && b.status === "planned") missed.push({ id: b.id, title: b.title, start: b.start, end: b.end });
+  }
+  return { dueMin, doneMin, behindMin: Math.max(0, dueMin - doneMin), missed };
+}
 
 export async function dayProgress(at = new Date()): Promise<DayProgress> {
   const { todosFor, remainingMin } = await import("./todos");
@@ -265,7 +288,21 @@ export async function dayProgress(at = new Date()): Promise<DayProgress> {
   const freeMin = Math.max(0, untilEndMin - taken);
   const expected = Math.round(100 * Math.min(1, Math.max(0, (nowMin - start) / Math.max(1, end - start))));
   const any = total > 0 || c.total > 0;
-  const pace = !any || (percent === 0 && nowMin < start + 60) ? "not-started" : percent >= expected + 10 ? "ahead" : percent >= expected - 10 ? "on-pace" : "behind";
+  const bp = blockPace(activeBlocks(readPlan(day)), nowMin, at.getTime());
+  const timeBlocked = bp.dueMin >= 15;
+  const pace = timeBlocked
+    ? bp.doneMin >= bp.dueMin * 1.1 && bp.doneMin - bp.dueMin >= 10
+      ? "ahead"
+      : bp.behindMin <= Math.max(15, bp.dueMin * 0.15)
+        ? "on-pace"
+        : "behind"
+    : !any || (percent === 0 && nowMin < start + 60)
+      ? "not-started"
+      : percent >= expected + 10
+        ? "ahead"
+        : percent >= expected - 10
+          ? "on-pace"
+          : "behind";
   const urgent = open.slice().sort((a, z) => (a.due ?? "9999").localeCompare(z.due ?? "9999") || z.priority - a.priority)[0];
   return {
     day,
@@ -282,5 +319,6 @@ export async function dayProgress(at = new Date()): Promise<DayProgress> {
     blocksTotal: c.total,
     focusMin: c.focusMin,
     next: urgent ? { id: urgent.id, title: urgent.title, dueAt: urgent.due } : undefined,
+    blocks: timeBlocked ? bp : undefined,
   };
 }

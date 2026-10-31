@@ -1,6 +1,9 @@
 import { ArrowUpRight } from "lucide-react";
 import { PageHeader, Panel, SectionTitle, StatusPill } from "@/components/kit";
+import { MailAccounts } from "@/components/mail-accounts";
+import { outlookClientId, publicAccounts } from "@/lib/accounts";
 import { listRepos } from "@/lib/github";
+import { primaryEmail } from "@/lib/gmail";
 import { readSkillsStatus, skillsFor } from "@/lib/skills";
 import { readHeartbeat } from "@/lib/store";
 import { ago } from "@/lib/utils";
@@ -38,6 +41,11 @@ export default async function SettingsPage() {
         sub="What the OS is connected to, and what agents may touch."
         readout={[/^[0-9a-f]{7,40}$/.test(process.env.COMMIT_SHA ?? "") && `build ${process.env.COMMIT_SHA!.slice(0, 7)}`, `${connected}/${CONNECTIONS.length} connected`, alive ? "runner online" : "runner offline"]}
       />
+
+      <SectionTitle right="mail + calendar, merged into the Inbox and Today">Email accounts</SectionTitle>
+      <div className="mb-8">
+        <MailAccounts initial={publicAccounts()} outlookReady={!!outlookClientId()} mainEmail={await primaryEmail()} />
+      </div>
 
       <SectionTitle>System</SectionTitle>
       <div className="mb-8 grid grid-cols-1 gap-2 sm:grid-cols-2">

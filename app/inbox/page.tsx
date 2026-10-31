@@ -4,7 +4,7 @@ import { InboxList, MarkAllDone } from "@/components/inbox-list";
 import { Panel } from "@/components/kit";
 import { MailList, SortHero } from "@/components/mail-view";
 import { SectionHero } from "@/components/motion";
-import { gmailConnected, PILES, readDone, readMail, readPiles, readSortStats } from "@/lib/gmail";
+import { mailConnected, PILES, readDone, readMail, readPiles, readSortStats } from "@/lib/gmail";
 import { inboxItems, type InboxItem } from "@/lib/inbox";
 import { PILE_HUE } from "@/lib/piles";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,7 @@ type Group = keyof typeof GROUPS;
 export default async function InboxPage({ searchParams }: { searchParams: Promise<{ k?: string }> }) {
   const raw = (await searchParams)?.k ?? "all";
   const items = await inboxItems().catch(() => [] as InboxItem[]);
-  const connected = gmailConnected();
+  const connected = mailConnected();
   const done = readDone();
   const piles = readPiles();
   const mail = readMail();

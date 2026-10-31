@@ -3,6 +3,7 @@ import path from "node:path";
 import { agenda, calendarConnected } from "./calendar";
 import { clockNow, coachNow, coachTz, dayProgress, goalProgress } from "./coach";
 import { DATA_DIR } from "./config";
+import { readDone, readMail, readPiles } from "./gmail";
 import { groqJSON } from "./groq";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { remainingMin, todosFor } from "./todos";
@@ -19,7 +20,9 @@ export type AssistantAction =
   | { type: "done"; taskId: string }
   | { type: "move_block"; blockId: string }
   | { type: "focus"; blockId: string }
-  | { type: "replan"; note?: string };
+  | { type: "replan"; note?: string }
+  | { type: "add_event"; title: string; date: string; start?: string; end?: string }
+  | { type: "draft_reply"; mailId: string; note?: string };
 
 export type ChatTurn = { role: "lind" | "assistant"; text: string; at: string; actions?: (AssistantAction & { label: string })[]; model?: string };
 export type BriefSlot = "morning" | "midday" | "evening";
@@ -95,6 +98,15 @@ const fresh = (f: string) => {
 };
 export const briefPending = () => fs.existsSync(requestFile()) || fresh(claimFile());
 
+// The emails sorted into "Reply today" / "Leads" that aren't done yet (newest 6).
+function waitingMail() {
+  const piles = readPiles();
+  const done = readDone();
+  return readMail()
+    .messages.filter((m) => !done[m.id] && (piles[m.id]?.pile === "reply" || piles[m.id]?.pile === "leads"))
+    .slice(0, 6);
+}
+
 const fmt = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
 // Everything the assistant needs about today, as compact text with the ids actions refer to.
@@ -114,13 +126,14 @@ export async function dayContext(): Promise<string> {
     `- [${x.id}] ${x.title} | ${pri[x.priority]} | ${fmt(remainingMin(x))} left of ${fmt(x.estimateMin)}${x.due ? ` | due ${x.due.replace("T", " ")}` : ""}${x.goalId ? ` | goal ${x.goalId}` : ""}${x.subtasks.length ? ` | steps ${x.subtasks.filter((s) => s.done).length}/${x.subtasks.length}` : ""}`;
   return [
     `Now ${clockNow(tz)} on ${c.day} (${tz}). Work day ends ${process.env.PLAN_DAY_END ?? "23:00"}: ${fmt(p.untilEndMin)} left, ${fmt(p.freeMin)} of it free of calendar events.`,
-    `Progress: ${p.percent}% of today's work done (expected ~${p.expected}% by now → ${p.pace}). Tasks ${p.tasksDone}/${p.tasksTotal}. ${fmt(p.workLeftMin)} of task work left${p.overloadMin ? ` — ${fmt(p.overloadMin)} MORE than the free time left` : ""}. Blocks ${p.blocksDone}/${p.blocksTotal}, ${fmt(p.focusMin)} focused.`,
+    `Progress: ${p.percent}% of today's work done (expected ~${p.expected}% by now → ${p.pace}). Tasks ${p.tasksDone}/${p.tasksTotal}. ${fmt(p.workLeftMin)} of task work left${p.overloadMin ? ` — ${fmt(p.overloadMin)} MORE than the free time left` : ""}. Blocks ${p.blocksDone}/${p.blocksTotal}, ${fmt(p.focusMin)} focused.${p.blocks ? ` Time blocking: ${fmt(p.blocks.doneMin)} of the ${fmt(p.blocks.dueMin)} planned so far actually done (${p.blocks.behindMin ? `${fmt(p.blocks.behindMin)} behind` : "on track"})${p.blocks.missed.length ? `; missed blocks: ${p.blocks.missed.map((m) => `[${m.id}] ${m.start} ${m.title}`).join(", ")}` : ""}.` : ""}`,
     `Current block: ${c.current ? `[${c.current.id}] ${c.current.start}-${c.current.end} ${c.current.title} (${c.current.status})` : "none"}. Next: ${c.next ? `[${c.next.id}] ${c.next.start} ${c.next.title}` : "none"}.`,
     `Plan blocks still open:\n${c.blocks.map((b) => `- [${b.id}] ${b.start}-${b.end} ${b.title} (${b.status}${b.goal ? `, goal ${b.goal.id}` : ""})`).join("\n") || "none"}`,
     `Calendar events today:\n${events.map((e) => `- ${e}`).join("\n") || "none"}`,
     `Overdue tasks:\n${t.overdue.map(task).join("\n") || "none"}`,
     `Today's open tasks:\n${t.today.map(task).join("\n") || "none"}`,
     `Done today: ${t.done.map((x) => x.title).join("; ") || "nothing yet"}`,
+    `Email waiting on him (id | from | subject):\n${waitingMail().map((m) => `- [${m.id}] ${m.from}${m.account ? ` → ${m.account}` : ""} | ${m.subject}`).join("\n") || "none"}`,
     `Goals (id | title | next action | this week):\n${goals.map((g) => `- [${g.goal.id}] ${g.goal.title} | next: ${g.goal.next || "—"} | ${fmt(g.weekMin)} of ${fmt(g.targetMin)}, ${g.streak}-day streak`).join("\n") || "none"}`,
   ].join("\n\n");
 }
@@ -132,12 +145,14 @@ export const ACTIONS_SPEC = `Actions Lind can apply with one tap (only use ids t
 {"type":"move_block","blockId":string}  — moves a plan block to tomorrow
 {"type":"focus","blockId":string}  — opens focus mode on it
 {"type":"replan","note":string}  — re-plans the rest of today
+{"type":"add_event","title":string,"date":"YYYY-MM-DD","start":"HH:MM","end":"HH:MM"}  — puts an event on his Google Calendar (with alarms)
+{"type":"draft_reply","mailId":string,"note":string}  — writes a reply into his Gmail Drafts (never sends); note = what to say
 Each action also has "label": the button text, 2-5 words.`;
 
 const VOICE = `You are Lind's day assistant. He's a first-year CS student in Pristina running AI products, a 200k-follower TikTok and a news site, and he wants to finish everything he planned today and move his goals every day. Be a sharp, warm coach: short, concrete, honest about time. Prefer the smallest next step that starts now. Reply in the language he writes in.`;
 
-function cleanActions(raw: unknown): (AssistantAction & { label: string })[] {
-  const types = ["add_task", "schedule", "done", "move_block", "focus", "replan"];
+export function cleanActions(raw: unknown): (AssistantAction & { label: string })[] {
+  const types = ["add_task", "schedule", "done", "move_block", "focus", "replan", "add_event", "draft_reply"];
   return (Array.isArray(raw) ? raw : [])
     .filter((a) => a && typeof a === "object" && types.includes((a as { type?: string }).type ?? ""))
     .map((a) => ({ ...(a as AssistantAction), label: String((a as { label?: string }).label ?? "Apply").slice(0, 40) }))

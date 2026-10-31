@@ -51,7 +51,11 @@ const HORIZONS: Record<string, GoalHorizon> = {
   longterm: "long",
 };
 
+// The goals live in the dashboard's own data (data/goals.md) and are mirrored to the vault's
+// "100 - Me/Goals.md" for Obsidian whenever the vault folder is writable. Before v5.1 the vault file
+// was the only copy, so it's still read when the data copy doesn't exist yet.
 export const goalsFile = () => path.join(vaultDir(), "100 - Me", "Goals.md");
+const dataGoalsFile = () => path.join(process.env.DATA_DIR ?? "/var/lib/agent-dashboard", "goals.md");
 
 const clip = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const validDate = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined);
@@ -123,7 +127,7 @@ function withUniqueIds(goals: Goal[]): Goal[] {
 
 export function readGoals(): Goal[] {
   try {
-    const md = fs.readFileSync(goalsFile(), "utf8");
+    const md = fs.existsSync(dataGoalsFile()) ? fs.readFileSync(dataGoalsFile(), "utf8") : fs.readFileSync(goalsFile(), "utf8");
     return withUniqueIds(md.split("\n").map(parseLine).filter((g): g is Goal => g !== null));
   } catch {
     return [];
@@ -144,7 +148,8 @@ export function goalById(id: string | undefined): Goal | undefined {
   return readGoals().find((g) => g.id === id);
 }
 
-export function writeGoals(goals: Goal[]): boolean {
+// Saves the goals; `vault` says whether the Obsidian copy was updated too.
+export function writeGoals(goals: Goal[]): { ok: boolean; vault: boolean; error?: string } {
   const clean = withUniqueIds(
     goals
       .map((g): Goal | null => {
@@ -179,13 +184,20 @@ export function writeGoals(goals: Goal[]): boolean {
     ),
     "",
   ].join("\n");
-  const file = goalsFile();
-  try {
+  const save = (file: string) => {
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(`${file}.tmp`, md);
-    fs.renameSync(`${file}.tmp`, file);
-    return true;
+    fs.writeFileSync(`${file}.${process.pid}.tmp`, md);
+    fs.renameSync(`${file}.${process.pid}.tmp`, file);
+  };
+  try {
+    save(dataGoalsFile());
+  } catch (e) {
+    return { ok: false, vault: false, error: e instanceof Error ? e.message : String(e) };
+  }
+  try {
+    save(goalsFile());
+    return { ok: true, vault: true };
   } catch {
-    return false;
+    return { ok: true, vault: false };
   }
 }

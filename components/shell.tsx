@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, CalendarDays, ChevronRight, Globe, House, Inbox, LayoutGrid, MessageSquare, Mic, Search, Settings, Sparkles, Swords, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronRight, Globe, HeartHandshake, House, Inbox, LayoutGrid, MessageSquare, Mic, Search, Settings, Sparkles, Swords, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -25,6 +25,7 @@ export const WORKSPACE: NavItem[] = [
   { href: "/chat", label: "Chats", icon: MessageSquare },
   { href: "/calendar", label: "Today", icon: CalendarDays },
   { href: "/goals", label: "Goals", icon: Sparkles },
+  { href: "/buddy", label: "Buddy", icon: HeartHandshake },
   { href: "/memory", label: "Memory", icon: Sparkles },
 ];
 export const TOOLS: NavItem[] = [
@@ -32,7 +33,7 @@ export const TOOLS: NavItem[] = [
   { href: "/website", label: "Website", icon: Globe },
 ];
 // Sections still being built in this release stay out of the nav until they exist.
-const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/goals", "/memory", "/website", "/agents", "/settings", "/more"]);
+const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/goals", "/buddy", "/memory", "/website", "/agents", "/settings", "/more"]);
 
 const isActive = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 

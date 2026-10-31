@@ -210,7 +210,7 @@ function mailDocs(): Doc[] {
     group: piles[m.id]?.pile ?? "mail",
     title: `${m.subject} — ${m.from}`,
     people: m.from ? [m.from] : [],
-    href: `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`,
+    href: m.link ?? `https://mail.google.com/mail/u/0/#inbox/${m.threadId}`,
     at: m.at,
     text: `From: ${m.from} <${m.fromEmail}>\nSubject: ${m.subject}\n${m.snippet}${m.attachments?.length ? `\nAttachments: ${m.attachments.join(", ")}` : ""}`,
   }));
@@ -305,7 +305,21 @@ function calendarDocs(): Doc[] {
     at: String(json.createdAt ?? new Date().toISOString()),
     text: `${json.headline}\n${(Array.isArray(json.focus) ? json.focus : []).join("; ")}\n\n${json.body ?? ""}`,
   }));
-  return [...events, ...plans, ...recaps, ...briefs];
+  // The journal (v5.1): Lind's own words about each day.
+  const journal = readDir(path.join(DATA_DIR, "journal"), /^\d{4}-\d{2}-\d{2}\.json$/).map(({ name, json }) => {
+    const day = name.slice(0, 10);
+    const entries = (Array.isArray(json.entries) ? json.entries : []) as { text?: string; at?: string }[];
+    return {
+      id: `calendar:journal:${day}`,
+      kind: "calendar" as const,
+      group: "journal",
+      title: `Journal · ${day}`,
+      href: "/buddy",
+      at: entries.at(-1)?.at ?? `${day}T21:00:00Z`,
+      text: entries.map((e) => e.text ?? "").join("\n\n"),
+    };
+  });
+  return [...events, ...plans, ...recaps, ...briefs, ...journal];
 }
 
 // ~900-char chunks on paragraph boundaries; the title rides along so it counts in every chunk.
@@ -552,6 +566,7 @@ export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: Graph
     { key: "mail:mail", label: "Mail · unsorted", kind: "mail" },
     { key: "calendar:events", label: "Calendar", kind: "calendar" },
     { key: "calendar:plans", label: "Plans & recaps", kind: "calendar" },
+    { key: "calendar:journal", label: "Journal", kind: "calendar" },
   ];
   const known = new Set(fixed.map((g) => g.key));
   // Everything else gets a group named after its source (or vault folder) in the order it appears.

@@ -59,7 +59,13 @@ export function DayPulse({ p }: { p: DayProgress }) {
         <div className="min-w-0 flex-1 basis-[220px]">
           <p className={cn("flex items-center gap-2 text-[15px] font-medium", pace.tone)}>
             <Gauge className="h-4 w-4" aria-hidden /> {pace.label}
-            {p.pace !== "not-started" && <span className="font-mono text-[11px] font-normal text-faint">aim ~{p.expected}% by now</span>}
+            {p.blocks ? (
+              <span className="font-mono text-[11px] font-normal text-faint">
+                {fmt(p.blocks.doneMin)} of {fmt(p.blocks.dueMin)} blocked time done{p.blocks.behindMin ? ` · ${fmt(p.blocks.behindMin)} behind` : ""}
+              </span>
+            ) : (
+              p.pace !== "not-started" && <span className="font-mono text-[11px] font-normal text-faint">aim ~{p.expected}% by now</span>
+            )}
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Stat icon={<ListChecks className="h-3.5 w-3.5" />} label="tasks" value={`${p.tasksDone}/${p.tasksTotal}`} />
@@ -67,6 +73,12 @@ export function DayPulse({ p }: { p: DayProgress }) {
             <Stat icon={<Hourglass className="h-3.5 w-3.5" />} label="day left" value={fmt(p.untilEndMin)} />
             <Stat icon={<Flame className="h-3.5 w-3.5" />} label="focused" value={fmt(p.focusMin)} />
           </div>
+          {p.blocks && p.blocks.missed.length > 0 && (
+            <p className="mt-3 text-[13px] text-warn">
+              Missed: {p.blocks.missed.slice(0, 3).map((m) => `${m.start} ${m.title}`).join(" · ")}
+              {p.blocks.missed.length > 3 ? ` · +${p.blocks.missed.length - 3}` : ""}
+            </p>
+          )}
           {p.overloadMin > 0 ? (
             <p className="mt-3 rounded-[10px] border border-warn/25 bg-warn/[0.07] px-3 py-2 text-[13px] text-warn">
               {fmt(p.overloadMin)} more work than free time left ({fmt(p.freeMin)} outside your events) — cut, shrink or move something. Ask the assistant below.
