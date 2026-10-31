@@ -270,3 +270,21 @@ export function setTodoDays(changes: { id: string; day: string; due?: string }[]
     writeTodos(all);
   });
 }
+
+// Autopilot's evening rollover in one locked step: pick the open tasks on or before `day`, remember
+// their days for Undo, move them to `tomorrow`.
+export function rolloverOpen(day: string, tomorrow: string): { id: string; title: string; day: string; due?: string }[] {
+  return withLock("todos", () => {
+    const all = listTodos();
+    const moved: { id: string; title: string; day: string; due?: string }[] = [];
+    const at = new Date().toISOString();
+    for (const t of all) {
+      if (t.done || t.day > day) continue;
+      moved.push({ id: t.id, title: t.title, day: t.day, due: t.due });
+      t.day = tomorrow;
+      t.updatedAt = at;
+    }
+    if (moved.length) writeTodos(all);
+    return moved;
+  });
+}

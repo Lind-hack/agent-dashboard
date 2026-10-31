@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { outlookClientId, outlookPoll, outlookStart, publicAccounts, removeAccount, saveAccount } from "@/lib/accounts";
 import { testImap } from "@/lib/mail-sources";
+import { IMAP_PORTS } from "@/lib/net-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,9 @@ export async function POST(request: Request) {
       if (/@(outlook|hotmail|live|msn)\./.test(email)) return NextResponse.json({ error: "Outlook doesn't take passwords over IMAP any more — use “Connect Outlook”." }, { status: 400 });
       const host = String(b.host || IMAP_HOSTS[email.split("@")[1]] || "").trim();
       if (!host || host === "127.0.0.1") return NextResponse.json({ error: "Which IMAP server? (e.g. imap.example.com)" }, { status: 400 });
-      const acc = { email, host, port: Number(b.port) || 993, user: String(b.user || email), password: String(b.password) };
+      const port = Number(b.port) || 993;
+      if (!IMAP_PORTS.has(port)) return NextResponse.json({ error: "IMAP uses port 993 (or 143)." }, { status: 400 });
+      const acc = { email, host, port, user: String(b.user || email), password: String(b.password) };
       await testImap(acc).catch((e) => {
         throw new Error(`Couldn't sign in to ${host}: ${e instanceof Error ? e.message : e}`);
       });

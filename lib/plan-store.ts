@@ -362,3 +362,13 @@ export function restorePlan(day: string, plan: DayPlan | null) {
     else fs.rmSync(dayFile(day), { force: true });
   });
 }
+
+// Save a plan only if it still makes sense against the plan as it is now, under the lock: `guard` sees
+// the current file and returns the blocks to save (adjusted), or null to leave it alone. Autopilot uses
+// this so a block Lind started or added while Sol was thinking is never lost.
+export function savePlanIf(day: string, guard: (current: DayPlan | null) => PlanBlock[] | null, meta: { tz?: string; summary?: string; note?: string } = {}): DayPlan | null {
+  return withLock("plans", () => {
+    const blocks = guard(readPlan(day));
+    return blocks ? savePlanUnlocked(day, blocks, meta) : null;
+  });
+}

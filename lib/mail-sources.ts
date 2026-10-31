@@ -1,6 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { googleToken, listAccounts, outlookToken, type Account } from "./accounts";
 import type { Mail } from "./gmail";
+import { IMAP_PORTS, publicAddress } from "./net-guard";
 
 // The last week of the inbox from every extra account (lib/accounts.ts), in the same shape as the main
 // Gmail's. Ids carry the account ("<account>:<message>") so piles and "done" never collide; `link`
@@ -20,9 +21,15 @@ async function gmailFor(a: Account, old: Map<string, Mail>): Promise<Mail[]> {
     if (!res.ok || !b) throw new Error(`${a.email}: ${b?.error?.message ?? res.status}`);
     return b;
   };
-  const list = await get<{ messages?: { id: string }[] }>(`/messages?maxResults=100&q=${encodeURIComponent("in:inbox newer_than:7d")}`);
+  // Every page of the week (up to 200 messages), like the main inbox.
+  const ids: string[] = [];
+  let page = "";
+  do {
+    const list = await get<{ messages?: { id: string }[]; nextPageToken?: string }>(`/messages?maxResults=100&q=${encodeURIComponent("in:inbox newer_than:7d")}${page ? `&pageToken=${page}` : ""}`);
+    ids.push(...(list.messages ?? []).map((m) => m.id));
+    page = list.nextPageToken ?? "";
+  } while (page && ids.length < 200);
   const out: Mail[] = [];
-  const ids = (list.messages ?? []).map((m) => m.id);
   for (let i = 0; i < ids.length; i += 8) {
     const batch = await Promise.all(
       ids.slice(i, i + 8).map(async (raw) => {
@@ -65,10 +72,17 @@ async function outlookFor(a: Account): Promise<Mail[]> {
     $orderby: "receivedDateTime desc",
     $select: "id,conversationId,subject,from,receivedDateTime,isRead,bodyPreview,hasAttachments,webLink",
   });
-  const res = await fetch(`https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?${q}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(20_000) });
-  const b = (await res.json().catch(() => null)) as { value?: GraphMsg[]; error?: { message?: string } } | null;
-  if (!res.ok || !b) throw new Error(`${a.email}: ${b?.error?.message ?? res.status}`);
-  return (b.value ?? []).map((m) => ({
+  // Follow @odata.nextLink through the whole week (up to 300 messages).
+  const all: GraphMsg[] = [];
+  let url: string | undefined = `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?${q}`;
+  while (url && all.length < 300) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    const b = (await res.json().catch(() => null)) as { value?: GraphMsg[]; "@odata.nextLink"?: string; error?: { message?: string } } | null;
+    if (!res.ok || !b) throw new Error(`${a.email}: ${b?.error?.message ?? res.status}`);
+    all.push(...(b.value ?? []));
+    url = b["@odata.nextLink"]?.startsWith("https://graph.microsoft.com/") ? b["@odata.nextLink"] : undefined;
+  }
+  return all.map((m) => ({
     id: `${a.id}:${m.id}`,
     threadId: m.conversationId ?? m.id,
     from: m.from?.emailAddress?.name || m.from?.emailAddress?.address || "",
@@ -83,16 +97,29 @@ async function outlookFor(a: Account): Promise<Mail[]> {
   }));
 }
 
-async function imapFor(a: Account): Promise<Mail[]> {
-  const client = new ImapFlow({ host: a.host ?? "", port: a.port ?? 993, secure: true, auth: { user: a.user ?? a.email, pass: a.password ?? "" }, logger: false, socketTimeout: 30_000 });
+// IMAP only to public servers on the IMAP ports: the address is resolved and checked first and the
+// connection goes to that address (TLS still verifies the server's name).
+async function imapClient(a: Pick<Account, "host" | "port" | "user" | "password" | "email">, timeout: number): Promise<ImapFlow> {
+  const port = a.port ?? 993;
+  if (!IMAP_PORTS.has(port)) throw new Error("IMAP uses port 993 (or 143).");
+  const host = a.host ?? "";
+  const ip = await publicAddress(host);
+  const client = new ImapFlow({ host: ip, port, secure: port === 993, servername: host, tls: { servername: host }, auth: { user: a.user ?? a.email, pass: a.password ?? "" }, logger: false, socketTimeout: timeout });
   await client.connect();
+  return client;
+}
+
+async function imapFor(a: Account): Promise<Mail[]> {
+  const client = await imapClient(a, 30_000);
   const out: Mail[] = [];
   const lock = await client.getMailboxLock("INBOX");
+  // UIDs are only unique within one UIDVALIDITY; a reset mailbox must not inherit old decisions.
+  const validity = client.mailbox ? String(client.mailbox.uidValidity) : "0";
   try {
     for await (const m of client.fetch({ since: WEEK() }, { envelope: true, flags: true, uid: true, bodyStructure: true })) {
       const f = m.envelope?.from?.[0];
       out.push({
-        id: `${a.id}:${m.uid}`,
+        id: `${a.id}:${validity}.${m.uid}`,
         threadId: String(m.envelope?.messageId ?? m.uid),
         from: f?.name || f?.address || "",
         fromEmail: f?.address ?? "",
@@ -130,7 +157,6 @@ export async function extraMail(old: Map<string, Mail>): Promise<{ messages: Mai
 
 // Checks IMAP credentials before they're saved.
 export async function testImap(a: Pick<Account, "host" | "port" | "user" | "password" | "email">): Promise<void> {
-  const client = new ImapFlow({ host: a.host ?? "", port: a.port ?? 993, secure: true, auth: { user: a.user ?? a.email, pass: a.password ?? "" }, logger: false, socketTimeout: 20_000 });
-  await client.connect();
+  const client = await imapClient(a, 20_000);
   await client.logout().catch(() => {});
 }

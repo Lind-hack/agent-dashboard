@@ -27,5 +27,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const u = new URL(request.url);
   const day = u.searchParams.get("day") ?? "";
-  return removeEntry(day, u.searchParams.get("id") ?? "") ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "not found" }, { status: 404 });
+  if (!removeEntry(day, u.searchParams.get("id") ?? "")) return NextResponse.json({ error: "not found" }, { status: 404 });
+  invalidateMemory();
+  return NextResponse.json({ ok: true });
 }

@@ -1,4 +1,4 @@
-import { autopilotEnabled, readAutopilot, runEvening, runMidday, runMorning, type Step, type StepLog } from "../lib/autopilot";
+import { autopilotEnabled, markStep, readAutopilot, runEvening, runMidday, runMorning, syncCalendar, type Step, type StepLog } from "../lib/autopilot";
 import { coachNow } from "../lib/coach";
 import { notify } from "./notify";
 
@@ -23,22 +23,41 @@ const PUSH: Record<Step, (l: StepLog) => { title: string; body: string } | null>
   evening: (l) => (l.moved ? { title: `${l.moved} task${l.moved > 1 ? "s" : ""} moved to tomorrow`, body: "Tap to see them or undo." } : null),
 };
 
+// A step is settled once it has a result that isn't waiting for a retry.
+const settled = (l: StepLog | undefined) => !!l && !l.failed;
+
 export function autopilotTick(minute: string) {
   if (running || !autopilotEnabled()) return;
   const day = coachNow().day;
   const done = readAutopilot(day).steps;
   for (const step of ["morning", "midday", "evening"] as Step[]) {
     const late = toMin(minute) - toMin(AT[step]());
-    if (late < 0 || late > 180 || done[step]) continue;
+    const prev = done[step];
+    if (late < 0 || settled(prev) && !prev?.calendarPending) continue;
     const key = `${day}:${step}`;
     const t = tries.get(key) ?? { n: 0, last: 0 };
-    if (t.n >= 3 || Date.now() - t.last < 15 * 60_000) continue;
+    // Out of time or out of tries: record that it gave up, so the briefing goes ahead without it.
+    if (late > 180 || t.n >= 3) {
+      if (!settled(prev)) markStep(day, step, { ...(prev ?? { at: new Date().toISOString() }), summary: prev?.summary || (late > 180 ? "Missed — the runner wasn't up in time." : "Gave up after 3 tries."), failed: false, skipped: prev?.skipped ?? "gave-up" });
+      else if (prev?.calendarPending) markStep(day, step, { ...prev, calendarPending: false });
+      continue;
+    }
+    if (Date.now() - t.last < 15 * 60_000) continue;
     tries.set(key, { n: t.n + 1, last: Date.now() });
     running = true;
-    void Promise.resolve(RUN[step]())
+    // The plan is saved but the calendar write failed: only that is tried again.
+    if (prev && settled(prev) && prev.calendarPending) {
+      void syncCalendar(day)
+        .then((err) => (err ? log(step, "calendar still failing", err) : markStep(day, step, { ...prev, calendarPending: false, error: undefined })))
+        .finally(() => (running = false));
+      return;
+    }
+    // Inside .then, so a step that throws synchronously still releases `running`.
+    void Promise.resolve()
+      .then(() => RUN[step]())
       .then(async (l) => {
         log(step, l.skipped ? `skipped (${l.skipped})` : l.error ? `error: ${l.error}` : l.summary);
-        const p = l.error && !l.blocks ? null : PUSH[step](l);
+        const p = l.failed ? null : PUSH[step](l);
         if (p)
           await notify({
             key: `coach:autopilot:${day}:${step}`,
@@ -58,4 +77,4 @@ export function autopilotTick(minute: string) {
 }
 
 // The briefing for a slot waits for that slot's Autopilot step (when Autopilot is on).
-export const stepSettled = (day: string, step: Step) => !autopilotEnabled() || !!readAutopilot(day).steps[step];
+export const stepSettled = (day: string, step: Step) => !autopilotEnabled() || settled(readAutopilot(day).steps[step]);

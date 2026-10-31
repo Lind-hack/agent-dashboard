@@ -90,3 +90,25 @@ test("evening rollover moves open tasks to tomorrow, and undo puts them back", a
   assert.ok(readAutopilot(day).steps.evening?.undoneAt);
   assert.equal((await undoStep(day, "evening")).ok, false); // only once
 });
+
+test("a stale lock left by a crashed process is taken over; a live one is not", () => {
+  const lockFile = path.join(process.env.DATA_DIR!, "locks", "stale.lock");
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  fs.writeFileSync(lockFile, "dead:owner");
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(lockFile, old, old);
+  assert.equal(withLock("stale", () => "took it"), "took it");
+  assert.equal(fs.existsSync(lockFile), false);
+  fs.writeFileSync(lockFile, "live:owner"); // fresh
+  assert.throws(() => withLock("stale", () => "never"), /busy/);
+  assert.equal(fs.readFileSync(lockFile, "utf8"), "live:owner");
+  fs.rmSync(lockFile);
+});
+
+test("savePlanIf leaves the plan alone when the guard sees it changed", async () => {
+  const { savePlanIf, savePlan, readPlan } = await import("../lib/plan-store");
+  savePlan("2026-11-04", [{ blockId: "mine", start: "09:00", end: "10:00", title: "Mine", kind: "focus" }]);
+  const r = savePlanIf("2026-11-04", (cur) => ((cur?.blocks.length ?? 0) ? null : [{ blockId: "auto", start: "09:00", end: "10:00", title: "Auto", kind: "focus" }]));
+  assert.equal(r, null);
+  assert.deepEqual(readPlan("2026-11-04")!.blocks.map((b) => b.id), ["mine"]);
+});

@@ -15,7 +15,9 @@ export function mailTick() {
   busy = true;
   void (async () => {
     const { messages, error } = await refreshMail();
-    if (error) return log("refresh", error);
+    // One broken account must not stop the others: log it and carry on with what came in.
+    if (error) log("refresh", error);
+    if (error && !messages.length) return;
     const { sorted, left } = await sortMail();
     if (sorted || left) log(`sorted ${sorted} of ${messages.length}${left ? `, ${left} still unsorted` : ""}`);
     // What the sorted mail asks Lind to do (the web app turns these into tasks).

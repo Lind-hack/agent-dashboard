@@ -55,16 +55,16 @@ export function AutopilotStrip({ initial, enabled: initialEnabled, highlight }: 
         {STEPS.map((s) => {
           const l = day.steps[s.key];
           const undone = !!l?.undoneAt;
-          const canUndo = l && !l.skipped && !undone && !(l.error && !l.blocks && !l.moved);
+          const canUndo = l && !l.skipped && !l.failed && !undone && !!(l.blocks || l.moved);
           return (
             <li key={s.key} className={cn("flex flex-col gap-1.5 border-line px-4 py-3 sm:border-r sm:last:border-r-0 max-sm:border-b max-sm:last:border-b-0", highlight === s.key && "bg-hud/[0.05]")}>
               <p className="flex items-center gap-2 text-[13px]">
-                {!l ? <CircleDashed className="h-3.5 w-3.5 text-faint" /> : l.error && !l.blocks && !l.moved ? <TriangleAlert className="h-3.5 w-3.5 text-warn" /> : <Check className="h-3.5 w-3.5 text-ok" />}
+                {!l ? <CircleDashed className="h-3.5 w-3.5 text-faint" /> : l.failed || l.skipped === "gave-up" ? <TriangleAlert className="h-3.5 w-3.5 text-warn" /> : <Check className="h-3.5 w-3.5 text-ok" />}
                 <span className="font-medium">{s.label}</span>
                 <span className="ml-auto font-mono text-[10.5px] text-faint">{l ? new Date(l.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : s.at}</span>
               </p>
               <p className={cn("line-clamp-3 text-[12.5px] leading-snug", l ? "text-muted" : "text-faint")}>
-                {!l ? (enabled ? `Runs at ${s.at}.` : "Off.") : undone ? "Undone." : l.summary}
+                {!l ? (enabled ? `Runs at ${s.at}.` : "Off.") : undone ? "Undone." : l.failed ? `${l.summary} Trying again shortly.` : l.summary}
               </p>
               {l?.error && (l.blocks || l.moved) ? <p className="text-[11px] text-warn">{l.error}</p> : null}
               {canUndo && (

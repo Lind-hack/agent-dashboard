@@ -1,5 +1,4 @@
 import { PROFILE_SYSTEM, profileInput, readProfile, saveProfile } from "../lib/buddy";
-import { addDays } from "../lib/calendar";
 import { coachNow } from "../lib/coach";
 import { readJournal } from "../lib/journal";
 import { sol } from "../lib/sol";
@@ -44,15 +43,11 @@ export async function buddyTick(minute: string) {
       expiresAt: new Date(Date.now() + 3 * 3600_000).toISOString(),
     });
 
-  // Nightly profile — once, and only when something new happened since the last one.
+  // Nightly profile, once a night.
   if (minute === PROFILE_AT() && !profiling) {
-    const yesterday = addDays(day, -1);
+    // Every night (one Sol call): the journal, the conversations and the scores all feed it.
     const last = readProfile().at ?? "";
-    if (last.slice(0, 10) >= day) return;
-    if (!readJournal(yesterday).entries.length && last) {
-      // Nothing written yesterday: the profile still gets the chats and scores, but at most every 3 days.
-      if (Date.now() - Date.parse(last) < 3 * 86_400_000) return;
-    }
+    if (last && Date.now() - Date.parse(last) < 20 * 3600_000) return;
     profiling = true;
     void sol(PROFILE_SYSTEM, profileInput(day), 8 * 60_000)
       .then((md) => {

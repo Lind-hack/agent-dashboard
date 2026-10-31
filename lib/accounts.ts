@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
+import { withLock } from "./file-lock";
 
 // Extra mail accounts (v5.1). The main Google account stays in data/google.json; every other one is a
 // file in data/accounts/ (mode 600, never sent to the browser):
@@ -62,16 +63,20 @@ export const publicAccounts = (): PublicAccount[] =>
     drafts: a.provider === "google" && !!a.scopes?.some((s) => s.includes("gmail.compose")),
   }));
 
+// The web app and the runner can both save an account (Outlook rotates its refresh token on use), so
+// writes are locked and each process uses its own temp file.
 export function saveAccount(a: Omit<Account, "id" | "addedAt"> & { id?: string }): Account {
-  fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
-  const id = a.id ?? `${a.provider}-${slug(a.email)}`;
-  const prev = listAccounts().find((x) => x.id === id);
-  const full: Account = { ...prev, ...a, id, addedAt: prev?.addedAt ?? new Date().toISOString() };
-  const f = path.join(dir(), `${id}.json`);
-  fs.writeFileSync(`${f}.tmp`, JSON.stringify(full), { mode: 0o600 });
-  fs.renameSync(`${f}.tmp`, f);
-  tokens.delete(id);
-  return full;
+  return withLock("accounts", () => {
+    fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
+    const id = a.id ?? `${a.provider}-${slug(a.email)}`;
+    const prev = listAccounts().find((x) => x.id === id);
+    const full: Account = { ...prev, ...a, id, addedAt: prev?.addedAt ?? new Date().toISOString() };
+    const f = path.join(dir(), `${id}.json`);
+    fs.writeFileSync(`${f}.${process.pid}.tmp`, JSON.stringify(full), { mode: 0o600 });
+    fs.renameSync(`${f}.${process.pid}.tmp`, f);
+    tokens.delete(id);
+    return full;
+  });
 }
 
 export function removeAccount(id: string): boolean {
