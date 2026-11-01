@@ -5,7 +5,6 @@ import { goalById } from "@/lib/goals";
 import { groqJSON } from "@/lib/groq";
 import { addBlock, addCheckin, setBlockStatus, shrinkBlock, type BlockAction, type Mood } from "@/lib/plan-store";
 import { finishTodo } from "@/lib/todo-actions";
-import { listTodos } from "@/lib/todos";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +24,7 @@ const STATUS: BlockAction[] = ["start", "done", "blocked", "move", "planned"];
 const MOODS: Mood[] = ["on-track", "stuck", "distracted"];
 
 export async function POST(request: Request) {
-  const b = (await request.json().catch(() => null)) as { action?: string; id?: string; mood?: string; note?: string; goalId?: string; minutes?: number } | null;
+  const b = (await request.json().catch(() => null)) as { action?: string; id?: string; mood?: string; note?: string; goalId?: string; minutes?: number; completeTask?: boolean } | null;
   const tz = coachTz();
   const { day } = coachNow();
   const action = b?.action ?? "";
@@ -52,8 +51,9 @@ export async function POST(request: Request) {
           : setBlockStatus(day, b.id, action as BlockAction);
     if (!plan) return NextResponse.json({ error: "That block isn't in today's plan any more." }, { status: 404 });
     const taskId = plan.blocks.find((x) => x.id === b.id)?.taskId;
-    if (action === "done" && taskId && listTodos().some((t) => t.id === taskId && !t.done)) await finishTodo(taskId, true);
-    return NextResponse.json({ ok: true, now: coachNow() });
+    let warning: string | undefined;
+    if (action === "done" && b.completeTask && taskId) ({ warning } = await finishTodo(taskId, true));
+    return NextResponse.json({ ok: true, now: coachNow(), warning });
   }
   if (action === "focus" || action === "plan") {
     const goal = goalById(b?.goalId);

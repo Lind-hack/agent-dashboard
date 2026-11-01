@@ -35,7 +35,7 @@ export function zonedMs(day: string, hhmm: string, tz = coachTz()): number {
   return wall - offsetAt(first, tz);
 }
 
-export type NowBlock = StoredBlock & { startMs: number; endMs: number; goal?: { id: string; title: string; why: string } };
+export type NowBlock = StoredBlock & { startMs: number; endMs: number; taskDone?: boolean; goal?: { id: string; title: string; why: string } };
 export type CoachNow = {
   day: string;
   tz: string;
@@ -54,10 +54,11 @@ export function coachNow(at = new Date()): CoachNow {
   const day = dayString(tz, at);
   const plan = readPlan(day);
   const goals = new Map(readGoals().map((g) => [g.id, g]));
+  const completedTasks = new Set(listTodos().filter((t) => t.done).map((t) => t.id));
   const blocks: NowBlock[] = activeBlocks(plan)
     .map((b) => {
       const g = b.goalId ? goals.get(b.goalId) : undefined;
-      return { ...b, startMs: zonedMs(day, b.start, tz), endMs: zonedMs(day, b.end, tz), goal: g ? { id: g.id, title: g.title, why: g.why } : undefined };
+      return { ...b, taskDone: b.taskId ? completedTasks.has(b.taskId) : undefined, startMs: zonedMs(day, b.start, tz), endMs: zonedMs(day, b.end, tz), goal: g ? { id: g.id, title: g.title, why: g.why } : undefined };
     })
     .sort((a, z) => a.startMs - z.startMs);
   const now = at.getTime();

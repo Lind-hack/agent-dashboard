@@ -78,6 +78,14 @@ bash deploy/update.sh    # pull main, build, restart both services
 journalctl -u agent-dashboard-runner -f
 ```
 
+When a feature must go live while runner jobs are active, build and verify a clean checkout of
+`origin/main`, then run `bash deploy/update-web.sh /path/to/verified-checkout` as `agent`. This
+stages the build, retains old static assets, fast-forwards the clean production source and restarts
+only the owned web process through systemd's existing `Restart=always` policy. The runner and its
+jobs stay running; new runner code takes effect at its next normal restart. Task/calendar sync also
+runs from the web process. The script refuses changed production files or a different dependency
+lockfile. It prints the backup path; verify the authenticated live API after promotion.
+
 ## PC hand-off
 
 `handoff/SKILL.md` is installed to `~/.claude/skills/handoff/` and `~/.codex/skills/handoff/`,
@@ -141,7 +149,8 @@ permissions, Bluetooth routing, iOS playback restrictions, and perceived Albania
 - Council seats for the Roast room live in `council/` (copied from the roast-room skill: roster, personas, brain excerpts) and run on Nemotron.
 
 ### v5 settings (all optional, in /etc/agent-dashboard.env)
-- Tasks live in the dashboard (`data/todos.json`); TickTick's open tasks are imported once each and ticking one completes it there too.
+- Tasks live in the dashboard (`data/todos.json`). With TickTick connected, every task source (voice, planner, manual, email and journal) exports automatically. The runner and web server check every 30 seconds under a shared lock; Today shows sync status, failures and **Sync now**. Title, notes, priority, dates, checklist items and explicit completion/reopening sync both ways. If both apps edit the same field between checks, the dashboard wins that field; independent remote edits are preserved. Failures stay visible and retry. Deleting/undoing a dashboard task deletes its linked TickTick copy. A missing remote task raises an error and never marks local work complete.
+- Planner work blocks link to a task (reused on replanning); appointments, routines and breaks stay distinct. Google Calendar holds tagged time reservations and TickTick holds the work to finish. **Finish block** records a session only; **Complete task** explicitly completes the linked work. Elapsed time never completes a task. Task deadlines stay separate from work sessions, which appear in TickTick notes with their full time ranges. Replanning updates tagged reservations in place and preserves appointments and past sessions. Background sync repairs missing future reservations and mirrors moved blocks.
 - The Day assistant: `SOL_MODEL` (gpt-6.1-sol), `SOL_EFFORT` (medium), `SOL_ENABLED=0` to fall back to Nemotron/Groq everywhere. Briefings at `BRIEF_MORNING_AT` (07:30), `BRIEF_MIDDAY_AT` (13:00), `BRIEF_EVENING_AT` (21:25); progress pushes at `PROGRESS_AT` (16:00,19:00). The "still no plan" nudge moved to `COACH_PLAN_AT` 08:15. Sol runs through the agent user's Codex login (`CODEX_HOME`), one call at a time.
 - The Roast room judge is Sol first, then Nemotron, then Groq.
 - Memory sources: `runner/sources.ts` syncs GitHub PRs/issues (`GITHUB_READ_TOKEN`) and calendar history into `data/sources/` hourly (`SOURCES_ENABLED=0` stops it). Saved links use `FIRECRAWL_API_KEY` (article text) and `SUPADATA_API_KEY` (YouTube transcripts, native captions only).

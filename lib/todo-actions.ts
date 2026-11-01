@@ -1,18 +1,13 @@
 import { mirrorBlock } from "./calendar";
 import { calendarBusy, clockNow, coachNow, coachTz, DAY_END, DAY_START, nextFreeSlot } from "./coach";
-import { activeBlocks, addBlock, readPlan, setBlockStatus, shiftDay, type StoredBlock } from "./plan-store";
+import { activeBlocks, addBlock, readPlan, setBlockStatus, type StoredBlock } from "./plan-store";
 import { completeTask } from "./ticktick";
 import { listTodos, remainingMin, setTickTickPending, updateTodo, type Todo } from "./todos";
 
-// Task actions shared by the Today page, the Day assistant and the coach: tick a task (its plan blocks
-// and its TickTick original follow), and put a task on today's plan in a free slot.
+// Task actions shared by Today, the Day assistant and the coach. Task completion syncs to TickTick;
+// calendar sessions keep their own status and actual worked time.
 
 const open = (b: StoredBlock) => b.status === "planned" || b.status === "running" || b.status === "blocked";
-
-// The task's open blocks from today through the next week (a block moved to tomorrow counts too).
-function linkedBlocks(taskId: string, from: string): { day: string; block: StoredBlock }[] {
-  return Array.from({ length: 8 }, (_, i) => shiftDay(from, i)).flatMap((day) => activeBlocks(readPlan(day)).filter((b) => b.taskId === taskId && open(b)).map((block) => ({ day, block })));
-}
 
 // TickTick completion, remembered as pending when it fails so the next Today load retries it.
 export async function completeInTickTick(todo: Todo): Promise<string | undefined> {
@@ -30,7 +25,7 @@ export async function finishTodo(id: string, done = true): Promise<{ todo: Todo 
   const before = listTodos().find((t) => t.id === id);
   const todo = updateTodo(id, { done });
   if (!todo || !done) return { todo };
-  for (const { day, block } of linkedBlocks(todo.id, coachNow().day)) setBlockStatus(day, block.id, "done");
+  // Completing work does not claim that unworked calendar sessions were spent on it.
   if (before?.done && !todo.ticktick?.pending) return { todo };
   return { todo, warning: await completeInTickTick(todo) };
 }
@@ -51,7 +46,10 @@ export async function scheduleTodo(id: string, opts: { start?: string; length?: 
   const day = coachNow().day;
   // Once per task per day: a second tap (or a second device) gets the block that's already there.
   const already = activeBlocks(readPlan(day)).find((b) => b.taskId === id && open(b));
-  if (already) return { block: already, existing: true };
+  if (already) {
+    const calendar = await mirrorBlock(day, { ...already, blockId: already.id }).catch(() => false);
+    return { block: already, existing: true, calendar };
+  }
   const length = Math.max(15, Math.min(240, Math.round((opts.length ?? (remainingMin(todo) || 30)) / 5) * 5));
   const busy = await calendarBusy();
   // A requested start must be a real time, today, inside the work day and clear of plan blocks and events;

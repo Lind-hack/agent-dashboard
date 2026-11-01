@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { googleToken, listAccounts } from "./accounts";
 import { DATA_DIR } from "./config";
+import { tryFileLease } from "./async-file-lease";
 
 // Google Calendar for the day's agenda and add-by-voice (developers.google.com/workspace/calendar/api/v3).
 // The refresh token comes from handoff/google-auth.mjs on Lind's PC, which posts it to
@@ -57,6 +58,7 @@ export async function accessToken(): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: c.client_id, client_secret: c.client_secret, refresh_token: c.refresh_token, grant_type: "refresh_token" }),
+    signal: AbortSignal.timeout(15_000),
   });
   const body = (await res.json().catch(() => null)) as { access_token?: string; expires_in?: number; error_description?: string } | null;
   if (!res.ok || !body?.access_token) throw new Error(`Google sign-in expired — run google-auth again (${body?.error_description ?? res.status}).`);
@@ -69,6 +71,7 @@ export async function gcal<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": "application/json" },
     cache: "no-store",
+    signal: init?.signal ?? AbortSignal.timeout(15_000),
   });
   if (res.status === 204) return null as T; // DELETE answers with no body
   const body = (await res.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
@@ -102,6 +105,7 @@ type GEvent = {
   extendedProperties?: { private?: Record<string, string> };
   status?: string;
   summary?: string;
+  description?: string;
   location?: string;
   htmlLink?: string;
   start?: { date?: string; dateTime?: string };
@@ -174,43 +178,70 @@ export type PlanBlock = {
 };
 const PLAN_COLOR: Record<PlanBlock["kind"], string> = { task: "9", focus: "3", break: "2", routine: "8" }; // blueberry, grape, sage, graphite
 
-// Removes this day's earlier plan (only the blocks still in the future) and writes the new one.
+// Reconcile only our tagged time blocks. Keep appointments and past/started sessions intact.
+// Upsert before removing superseded blocks, so a failed request cannot erase the whole day's plan.
 export async function replacePlan(day: string, blocks: PlanBlock[]) {
-  const tz = await timeZone();
-  const from = `${day}T00:00:00${offset(tz, new Date(`${day}T12:00:00Z`))}`;
-  const to = `${addDays(day, 1)}T00:00:00${offset(tz, new Date(`${day}T12:00:00Z`))}`;
-  const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", privateExtendedProperty: `${PLAN_KEY}=${day}`, maxResults: "100" });
-  const old = await gcal<{ items?: GEvent[] }>(`/calendars/primary/events?${q}`);
-  const now = Date.now();
-  for (const e of old.items ?? []) {
-    if (new Date(e.start?.dateTime ?? 0).getTime() > now) await gcal(`/calendars/primary/events/${encodeURIComponent(e.id)}`, { method: "DELETE" });
-  }
-  for (const b of blocks) await insertBlock(day, b, tz);
+  const release = tryFileLease(`calendar-${day}`);
+  if (!release) throw new Error("Calendar sync is already running; it will retry.");
+  try { await reconcilePlan(day, blocks); } finally { release(); }
 }
 
-// One plan block on Google Calendar, tagged so a re-plan replaces it, with phone/PC alarms 10 minutes
-// before and at the start (v5: "Calendar alarms" — they fire even when web push doesn't).
-async function insertBlock(day: string, b: PlanBlock, tz: string) {
-  await gcal("/calendars/primary/events", {
-    method: "POST",
+async function reconcilePlan(day: string, blocks: PlanBlock[]) {
+  const tz = await timeZone();
+  const from = `${day}T00:00:00${offset(tz, new Date(`${day}T12:00:00Z`))}`;
+  const last = addDays(day, 1);
+  const to = `${last}T00:00:00${offset(tz, new Date(`${last}T12:00:00Z`))}`;
+  const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", privateExtendedProperty: `${PLAN_KEY}=${day}`, maxResults: "250" });
+  const old: GEvent[] = [];
+  let page: string | undefined;
+  do {
+    if (page) q.set("pageToken", page);
+    const data = await gcal<{ items?: GEvent[]; nextPageToken?: string }>(`/calendars/primary/events?${q}`);
+    old.push(...(data.items ?? []).filter((e) => e.status !== "cancelled")); page = data.nextPageToken;
+  } while (page);
+  const keep = new Set<string>();
+  for (const b of blocks) {
+    const existing = old.find((e) => e.extendedProperties?.private?.blockId === b.blockId);
+    if (existing) keep.add(existing.id);
+    // A running or past session is history, not a future reservation to rewrite or recreate.
+    if (`${day}T${b.start}` < new Intl.DateTimeFormat("sv-SE", { timeZone: tz, dateStyle: "short", timeStyle: "short" }).format(new Date()).replace(" ", "T")) continue;
+    await insertBlock(day, b, tz, existing);
+  }
+  for (const e of old) if (!keep.has(e.id) && new Date(e.start?.dateTime ?? 0).getTime() > Date.now()) {
+    await gcal(`/calendars/primary/events/${encodeURIComponent(e.id)}`, { method: "DELETE" });
+  }
+}
+
+async function insertBlock(day: string, b: PlanBlock, tz: string, existing?: GEvent) {
+  const endDay = b.end > b.start ? day : addDays(day, 1);
+  const description = b.taskId
+    ? `Task time block · reserve time for work; complete the task separately.\nTask: ${b.taskId}\nhttps://agents.383ks.com/calendar`
+    : `${b.kind === "break" ? "Break" : b.kind === "routine" ? "Routine" : "Focus time"} · planned on agents.383ks.com`;
+  if (existing && existing.summary === b.title && existing.description === description &&
+      existing.start?.dateTime?.slice(0, 16) === `${day}T${b.start}` && existing.end?.dateTime?.slice(0, 16) === `${endDay}T${b.end}` &&
+      (existing.extendedProperties?.private?.taskId || undefined) === b.taskId) return;
+  await gcal(existing ? `/calendars/primary/events/${encodeURIComponent(existing.id)}` : "/calendars/primary/events", {
+    method: existing ? "PATCH" : "POST",
     body: JSON.stringify({
-      summary: b.title,
-      colorId: PLAN_COLOR[b.kind] ?? "9",
-      description: b.taskId ? "A task from your list · planned on agents.383ks.com" : "Planned on agents.383ks.com",
+      summary: b.title, colorId: PLAN_COLOR[b.kind] ?? "9", description,
       start: { dateTime: `${day}T${b.start}:00`, timeZone: tz },
-      end: { dateTime: `${b.end > b.start ? day : addDays(day, 1)}T${b.end}:00`, timeZone: tz },
+      end: { dateTime: `${endDay}T${b.end}:00`, timeZone: tz },
       reminders: { useDefault: false, overrides: b.kind === "break" ? [] : [{ method: "popup", minutes: 10 }, { method: "popup", minutes: 0 }] },
-      extendedProperties: { private: { [PLAN_KEY]: day, blockId: b.blockId, ...(b.taskId ? { taskId: b.taskId } : {}) } },
+      extendedProperties: { private: { [PLAN_KEY]: day, blockId: b.blockId, taskId: b.taskId ?? "" } },
     }),
   });
 }
 
-// A block added after the plan was applied ("Schedule this task", "Plan into today"): onto the
-// calendar too, when it's connected. Failures are the caller's to ignore — the plan file is the truth.
 export async function mirrorBlock(day: string, b: PlanBlock) {
   if (!calendarConnected()) return false;
-  await insertBlock(day, b, await timeZone());
-  return true;
+  const release = tryFileLease(`calendar-${day}`);
+  if (!release) throw new Error("Calendar sync is already running; it will retry.");
+  try {
+    const q = new URLSearchParams({ privateExtendedProperty: `blockId=${b.blockId}`, maxResults: "10" });
+    const old = await gcal<{ items?: GEvent[] }>(`/calendars/primary/events?${q}`);
+    await insertBlock(day, b, await timeZone(), old.items?.find((e) => e.status !== "cancelled"));
+    return true;
+  } finally { release(); }
 }
 
 export async function createEvent(d: EventDraft): Promise<CalEvent> {

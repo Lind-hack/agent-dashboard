@@ -87,6 +87,7 @@ async function apply(day: string, guard: (current: DayPlan | null) => PlanBlock[
     { tz: coachTz(), summary, note },
   );
   if (!plan) return null;
+  saved = activeBlocks(plan).map(asPlanBlock);
   writePlanNote(day, saved, summary, note);
   return { blocks: saved, calendarError: await syncCalendar(day) };
 }

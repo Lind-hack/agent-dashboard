@@ -3,6 +3,7 @@ import path from "node:path";
 import { addDays, type PlanBlock } from "./calendar";
 import { DATA_DIR } from "./config";
 import { withLock } from "./file-lock";
+import { linkPlanTasks } from "./plan-tasks";
 
 // The authoritative record of what Lind planned and what actually happened, one JSON file per day.
 // The vault note and the Google Calendar events are mirrors: replanning rewrites those, so ticks and
@@ -127,7 +128,7 @@ function savePlanUnlocked(day: string, blocks: PlanBlock[], meta: { tz?: string;
   const before = new Map((prev?.blocks ?? []).map((b) => [b.id, b]));
   const seen = new Set<string>();
   const next: StoredBlock[] = [];
-  for (const b of blocks) {
+  for (const b of linkPlanTasks(day, blocks)) {
     let id = b.blockId?.trim() || blockId(day, b.start, b.title);
     const base = id;
     let n = 2;
@@ -287,7 +288,7 @@ function addBlockUnlocked(day: string, b: { start: string; length: number; title
     title: b.title.slice(0, 200),
     kind: b.kind ?? "focus",
     goalId: b.goalId,
-    taskId: b.taskId,
+    taskId: linkPlanTasks(day, [{ blockId: "", start: b.start, end: hhmm(start + b.length), title: b.title, kind: b.kind ?? "focus", taskId: b.taskId, goalId: b.goalId }])[0].taskId,
     status: b.status ?? "planned",
     updatedAt: at,
     startedAt: b.status === "running" ? at : undefined,

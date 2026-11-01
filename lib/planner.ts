@@ -170,7 +170,8 @@ Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "
 - Goals first: each active goal's next action gets a "focus" block long enough to make real progress (45–120 min) before generic tasks, unless Lind's note says otherwise. Goals furthest behind their weekly target get the earliest and longest block; the hardest goal block goes in the morning.
 - Then every task with a deadline today must land BEFORE its deadline; then overdue and high-priority tasks, sized to their minutes of work left; then the standing priorities as deep "focus" blocks (60–120 min).
 - The point is finishing the day's list: if everything can't fit, schedule the most important and say in the summary which tasks won't fit.
-- Group small tasks into one block ("Admin: x, y, z"). A 10–15 min break after ~2h of work, and a meal around 13:00 and 19:30 if free.
+- Give every task its own linked block; never group different task IDs into an unlinked admin block. Reuse the same taskId for multiple sessions of one task. A 10–15 min break after ~2h of work, and a meal around 13:00 and 19:30 if free.
+- Appointments are fixed events and never become tasks or get duplicated in the plan. Breaks and routines are not tasks. Planning or finishing a time block does not complete its task.
 - taskId: the id from the list when a block is for one task, else null. goalId: the id of the active goal when the block serves it, else null. Never invent ids.
 - Plan for the Lind in "His real pace": if he starts mornings late, don't put the hardest block first thing; if a kind of block overruns, make it longer; if something is usually skipped, make it smaller and earlier. A goal with no work lately MUST get a block today.
 - Leave some slack; do not fill every minute. Titles short, in Lind's language.
