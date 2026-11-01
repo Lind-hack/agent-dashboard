@@ -107,10 +107,10 @@ export function widgetContent(data: WidgetData, view: WidgetView) {
   const rows = view === "goals" ? goalRows : view === "focus" ? [...focusRows, ...taskRows] : [...focusRows, ...taskRows, ...data.calendar.events.map((e) => ({ title: e.title, detail: e.allDay ? "ALL DAY" : clock(e.start, data.tz) }))];
   const nextAction = view === "goals" && data.goals.length ? { title: data.goals[0].goal.next || data.goals[0].goal.title, detail: "GOAL · NEXT ACTION" }
     : current ? { title: current.title, detail: `${current.start}–${current.end}` }
-    : taskRows[0] ?? (upcoming[0] ? { title: upcoming[0].title, detail: `${upcoming[0].start}–${upcoming[0].end}` } : nextEvent ? { title: nextEvent.title, detail: clock(nextEvent.start, data.tz) } : { title: "Your day is open", detail: "No next action scheduled" });
+    : tasks[0] ? { title: tasks[0].title, detail: tasks[0].due ? `Due ${tasks[0].due.length === 10 ? tasks[0].due : dateTime(tasks[0].due, data.tz)}` : "Today · Unscheduled" } : (upcoming[0] ? { title: upcoming[0].title, detail: `${upcoming[0].start}–${upcoming[0].end}` } : nextEvent ? { title: nextEvent.title, detail: clock(nextEvent.start, data.tz) } : { title: "Your day is open", detail: "No next action scheduled" });
   const alerts = [
-    ...(p.overloadMin > 0 ? [`${duration(p.overloadMin)} more work than free time`] : []),
-    ...(p.pace === "behind" ? [p.blocks?.behindMin ? `${duration(Math.round(p.blocks.behindMin))} behind the plan` : `${p.percent}% complete · ${p.expected}% expected`] : []),
+    ...(p.overloadMin > 0 ? [`${duration(p.overloadMin)} over capacity`] : []),
+    ...(p.pace === "behind" ? [p.blocks?.behindMin ? `${duration(Math.round(p.blocks.behindMin))} behind schedule` : `${p.percent}% complete · ${p.expected}% expected`] : []),
     ...(data.blocks.some((b) => b.status === "blocked") ? ["A planned block is blocked"] : []),
   ];
   return { tasks, taskRows, rows, nextAction, current, upcoming, nextEvent, allDay, alerts,
