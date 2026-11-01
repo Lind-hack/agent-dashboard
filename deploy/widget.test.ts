@@ -218,6 +218,9 @@ test("empty, long-title, missing-source and dense goal layouts render in every s
   dense.progress = { ...dense.progress, percent: 65, tasksDone: 4, tasksTotal: 7 };
   const missing = structuredClone(dense);
   missing.calendar = { syncedAt: null, events: [] }; missing.goals = [];
+  const dueTask = structuredClone(empty);
+  dueTask.tasks.today = [{ ...base.tasks.today[0], title: "Next action", due: "2026-11-01T17:00:00Z", priority: 3 }];
+  assert.equal(widgetContent(dueTask, "today").nextAction.detail, "Due 01 Nov, 18:00");
   const zeroTarget = structuredClone(dense); zeroTarget.goals[0].targetMin = 0;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error("Widget snapshot rendering must stay offline"); };
