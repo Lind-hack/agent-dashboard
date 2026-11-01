@@ -77,6 +77,7 @@ async function tt<T>(url: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
   });
   if (res.status === 401) throw new Error("TickTick sign-in expired — connect it again on the Today page.");
   if (!res.ok) throw new Error(`TickTick: ${res.status}`);
@@ -84,7 +85,7 @@ async function tt<T>(url: string, init?: RequestInit): Promise<T> {
   return (text ? JSON.parse(text) : null) as T;
 }
 
-type RawTask = {
+export type RawTask = {
   id: string;
   projectId: string;
   title?: string;
@@ -96,6 +97,7 @@ type RawTask = {
   status?: number;
   tags?: string[];
   timeZone?: string;
+  items?: { id?: string; title: string; status: number; sortOrder?: number }[];
 };
 
 let projCache: { at: number; names: Map<string, string> } | null = null;
@@ -181,4 +183,22 @@ export function tzOffsetMinutes(tz: string, at: Date): number {
   const name = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "longOffset" }).formatToParts(at).find((p) => p.type === "timeZoneName")?.value ?? "GMT";
   const m = name.match(/GMT([+-])(\d{2}):?(\d{2})?/);
   return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0)) : 0;
+}
+
+// Full task records for durable dashboard sync. Missing tasks are errors, never completions.
+export const getTask = (projectId: string, id: string) =>
+  tt<RawTask>(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(id)}`);
+export const putTask = (body: Partial<RawTask> & { title: string; projectId: string }) =>
+  tt<RawTask>(body.id ? `/task/${encodeURIComponent(body.id)}` : "/task", { method: "POST", body: JSON.stringify(body) });
+
+// Project data avoids the filter endpoint's 200-task cap. The filter discovers the account's Inbox.
+export async function syncTasks(inboxIds: string[]): Promise<RawTask[]> {
+  const filtered = await tt<RawTask[]>("/task/filter", { method: "POST", body: JSON.stringify({ status: [0] }) });
+  const ids = new Set([...(await projects()).map((p) => p.id), ...inboxIds, ...(filtered ?? []).map((t) => t.projectId)]);
+  const tasks = new Map((filtered ?? []).map((t) => [t.id, t]));
+  for (const id of ids) {
+    const data = await tt<{ tasks?: RawTask[] }>(`/project/${encodeURIComponent(id)}/data`);
+    for (const t of data.tasks ?? []) tasks.set(t.id, t);
+  }
+  return [...tasks.values()];
 }

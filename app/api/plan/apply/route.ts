@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { calendarConnected, replacePlan, type PlanBlock } from "@/lib/calendar";
-import { blockId, savePlan } from "@/lib/plan-store";
+import { activeBlocks, blockId, savePlan } from "@/lib/plan-store";
 import { writePlanNote } from "@/lib/planner";
 
 // { day, blocks, summary, note } → time blocks on Google Calendar (replacing today's earlier plan)
@@ -15,11 +15,12 @@ export async function POST(request: Request) {
   try {
     // The JSON store is authoritative; the calendar events and vault note are mirrors of it. A plan
     // is useful even without Google Calendar — Today can still tick and move blocks.
-    savePlan(day, withIds, { tz: b?.tz, summary: b?.summary ?? "", note: b?.note ?? "" });
-    const vault = writePlanNote(day, withIds, b?.summary ?? "", b?.note ?? "");
+    const stored = savePlan(day, withIds, { tz: b?.tz, summary: b?.summary ?? "", note: b?.note ?? "" });
+    const linked = activeBlocks(stored).map((x) => ({ ...x, blockId: x.id }));
+    const vault = writePlanNote(day, linked, b?.summary ?? "", b?.note ?? "");
     if (!calendarConnected()) return NextResponse.json({ ok: true, vault, calendar: false });
     try {
-      await replacePlan(day, withIds);
+      await replacePlan(day, linked);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       const hint = /insufficient|scope|permission/i.test(msg) ? " Re-run google-auth on your PC to allow adding events." : "";

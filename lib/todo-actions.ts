@@ -1,6 +1,6 @@
 import { mirrorBlock } from "./calendar";
 import { calendarBusy, clockNow, coachNow, coachTz, DAY_END, DAY_START, nextFreeSlot } from "./coach";
-import { activeBlocks, addBlock, readPlan, setBlockStatus, shiftDay, type StoredBlock } from "./plan-store";
+import { activeBlocks, addBlock, readPlan, setBlockStatus, type StoredBlock } from "./plan-store";
 import { completeTask } from "./ticktick";
 import { listTodos, remainingMin, setTickTickPending, updateTodo, type Todo } from "./todos";
 
@@ -8,11 +8,6 @@ import { listTodos, remainingMin, setTickTickPending, updateTodo, type Todo } fr
 // and its TickTick original follow), and put a task on today's plan in a free slot.
 
 const open = (b: StoredBlock) => b.status === "planned" || b.status === "running" || b.status === "blocked";
-
-// The task's open blocks from today through the next week (a block moved to tomorrow counts too).
-function linkedBlocks(taskId: string, from: string): { day: string; block: StoredBlock }[] {
-  return Array.from({ length: 8 }, (_, i) => shiftDay(from, i)).flatMap((day) => activeBlocks(readPlan(day)).filter((b) => b.taskId === taskId && open(b)).map((block) => ({ day, block })));
-}
 
 // TickTick completion, remembered as pending when it fails so the next Today load retries it.
 export async function completeInTickTick(todo: Todo): Promise<string | undefined> {
@@ -30,7 +25,7 @@ export async function finishTodo(id: string, done = true): Promise<{ todo: Todo 
   const before = listTodos().find((t) => t.id === id);
   const todo = updateTodo(id, { done });
   if (!todo || !done) return { todo };
-  for (const { day, block } of linkedBlocks(todo.id, coachNow().day)) setBlockStatus(day, block.id, "done");
+  // Completing work does not claim that unworked calendar sessions were spent on it.
   if (before?.done && !todo.ticktick?.pending) return { todo };
   return { todo, warning: await completeInTickTick(todo) };
 }
