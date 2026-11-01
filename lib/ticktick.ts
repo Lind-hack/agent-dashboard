@@ -70,6 +70,12 @@ export async function finishConnect(code: string, state: string) {
   write({ client_id: c.client_id, client_secret: c.client_secret, access_token: body.access_token });
 }
 
+export class TickTickRateLimitError extends Error {
+  constructor(public retryAt: number) {
+    super(`TickTick is rate limiting requests. Sync will retry after ${new Date(retryAt).toLocaleTimeString("en-GB", { timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" })}.`);
+  }
+}
+
 async function tt<T>(url: string, init?: RequestInit): Promise<T> {
   const token = read()?.access_token;
   if (!token) throw new Error("TickTick isn't connected.");
@@ -79,6 +85,11 @@ async function tt<T>(url: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   });
+  if (res.status === 429) {
+    const hint = res.headers.get("retry-after");
+    const delay = hint && /^\d+$/.test(hint) ? Number(hint) * 1000 : hint ? Date.parse(hint) - Date.now() : 60_000;
+    throw new TickTickRateLimitError(Date.now() + Math.max(30_000, Number.isFinite(delay) ? delay : 60_000));
+  }
   if (res.status === 401) throw new Error("TickTick sign-in expired — connect it again on the Today page.");
   if (!res.ok) throw new Error(`TickTick: ${res.status}`);
   const text = await res.text();
@@ -186,8 +197,12 @@ export function tzOffsetMinutes(tz: string, at: Date): number {
 }
 
 // Full task records for durable dashboard sync. Missing tasks are errors, never completions.
-export const getTask = (projectId: string, id: string) =>
-  tt<RawTask>(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(id)}`);
+export async function getTask(projectId: string, id: string): Promise<RawTask> {
+  const task = await tt<RawTask | null>(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(id)}`);
+  // TickTick can return HTTP 200 with null for a deleted task, rather than a 404.
+  if (!task?.id || !task.projectId) throw new Error("TickTick task no longer exists. Your local task is still saved.");
+  return task;
+}
 export const putTask = (body: Partial<RawTask> & { title: string; projectId: string }) =>
   tt<RawTask>(body.id ? `/task/${encodeURIComponent(body.id)}` : "/task", { method: "POST", body: JSON.stringify(body) });
 
