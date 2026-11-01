@@ -55,6 +55,39 @@ token in the URL, screenshots, chat, issue comments or diagnostic logs. Delete t
 contents. To revoke, replace the value with a fresh `openssl rand -hex 32` value in the private admin
 session, restart only `agent-dashboard-web`, and update the iPhone. Old values stop working at restart.
 
+## Refresh an existing iPhone widget
+
+The LIN-960 design is rendered on the server at the same image URL. A working existing
+Scriptable client needs no new token or redesign: open its script in Scriptable and run it
+to fetch a fresh PNG, then check the Home Screen's **Updated** time. Confirm **Edit Widget →
+Script** still selects that script and the parameter selects `today`, `goals` or `focus`.
+Check the actual Home Screen as well as the in-app preview; iOS controls when its snapshot refreshes.
+If it remains old, reselect the script in Edit Widget, or remove and re-add that Scriptable widget.
+
+If the existing script saves a PNG locally or hard-codes a widget size, a reference client is
+available at [Agentic-OS.js](https://agents.383ks.com/widgets/Agentic-OS.js)
+([repository source](../public/widgets/Agentic-OS.js)). It downloads the current image on every run,
+uses the actual Home Screen widget family, and requests the next refresh after five minutes.
+This is a scheduling request, not a guarantee; [Scriptable documents that iOS sets the cadence](https://docs.scriptable.app/listwidget/#refreshafterdate).
+It does not save private PNGs to disk or replace the server credentials.
+
+1. Open the reference link in Safari while signed into the dashboard (the download uses the
+   existing dashboard login). Keep a backup of the existing script. Copy the source into a new Scriptable script
+   named **Agentic OS**. Never paste the token into the source or widget parameter.
+2. If the existing script already uses Keychain, set `tokenKey` to its existing key name. Otherwise,
+   run the new script in the app and paste the **existing** widget read token into its secure prompt
+   once. The default key is `agent-dashboard.widget-read-token`. To correct a mistyped token,
+   remove just that key using `Keychain.remove("agent-dashboard.widget-read-token")` in a temporary
+   Scriptable script, then run Agentic OS again. This does not rotate the server token.
+3. Run it and confirm the preview shows the new cyan HUD and a fresh **Updated** time. The app
+   preview defaults to medium; the Home Screen automatically selects small, medium or large.
+4. Edit the existing Home Screen widget to select **Agentic OS**, with parameter `today`, `goals`
+   or `focus`. Return to the Home Screen and confirm the design, text fit and tap destination.
+
+The server cannot remotely execute Scriptable or force an iOS widget reload. A successful live
+PNG check verifies the server delivery only; completing these phone steps and checking the Home
+Screen are required before claiming the phone has refreshed.
+
 ## Data and appearance
 
 Every request reads the authoritative local plan (`plans/<local-day>.json`), tasks (`todos.json`),
@@ -98,7 +131,7 @@ missing-glyph service cannot transmit personal text. Titles/details truncate to 
 ## Verification
 
 ```bash
-node --import tsx --test deploy/widget.test.ts
+node --import tsx --test deploy/widget.test.ts deploy/scriptable-widget.test.mjs
 python3 -m unittest discover -s deploy -p 'widget_token_test.py'
 npm run typecheck
 npm run build
