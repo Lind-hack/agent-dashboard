@@ -11,6 +11,8 @@ import { ago } from "@/lib/utils";
 // lights the matching dots and draws them back to the core; answers light the records they cite.
 // v5: the projects, people and topics records share sit on an inner ring as hubs, with faint threads
 // to every record that mentions them; hover a record to see its threads, pick a hub to light its web.
+// v5.4: hovering (or tapping, on a phone) a record shows its opening text; the ring draws its intro once
+// and hovering no longer restarts it.
 
 export const KIND_COLOR: Record<SourceKind, string> = {
   capture: "#b392f0",
@@ -29,6 +31,7 @@ const HUB_COLOR: Record<GraphEntity["type"], string> = { project: "#f6b25e", per
 
 export const groupColor = (g: GraphGroup | undefined, kind: SourceKind) => (g?.hue !== undefined ? `hsl(${g.hue} 78% 70%)` : KIND_COLOR[kind]);
 
+type Preview = { title: string; text: string; more: boolean };
 type Placed = GraphNode & { a: number; r: number; color: string; hit: boolean; lit: boolean; k: number };
 type Hub = GraphEntity & { a: number; r: number; color: string; docs: Placed[] };
 
@@ -41,7 +44,12 @@ const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCas
 
 export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }: { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[]; query: string; lit: Set<string>; total: number }) {
   const [focus, setFocus] = useState<number | null>(null);
-  const [hoverEnts, setHoverEnts] = useState<number[]>([]);
+  // Read by the draw loop through a ref: putting it in the effect's deps restarted the intro on every move.
+  const hoverEnts = useRef<number[]>([]);
+  const born = useRef(0);
+  const [pinned, setPinned] = useState(false);
+  const touchAt = useRef(0);
+  const [preview, setPreview] = useState<Record<string, Preview | "loading" | "none">>({});
   const canvas = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -115,12 +123,11 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
     const ctx = el.getContext("2d");
     if (!ctx) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const born = performance.now();
+    born.current ||= performance.now();
     let raf = 0;
     let visible = true;
     placedRef.current = layout.placed;
     hubsRef.current = layout.hubs;
-    const hot = new Set(hoverEnts);
 
     const draw = (now: number) => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -136,7 +143,8 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
       const cy = H / 2;
       const R = Math.min(W, H) / 2 - (W < 520 ? 34 : 70);
       const r0 = Math.max(46, R * 0.2);
-      const t = (now - born) / 1000;
+      const t = (now - born.current) / 1000;
+      const hot = new Set(hoverEnts.current);
       const rot = reduce ? 0 : t * 0.012;
       geo.current = { cx, cy, r0, r1: R, rot };
       const intro = reduce ? 1 : Math.min(1, t / 1.4);
@@ -315,7 +323,7 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
       ro.disconnect();
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [layout, lit, focus, hoverEnts]);
+  }, [layout, lit, focus]);
 
   // The nearest dot (record or hub) to the pointer.
   function pick(clientX: number, clientY: number): { n: Placed | Hub; x: number; y: number } | null {
@@ -351,6 +359,27 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
   }
 
   const isHub = (n: Placed | Hub): n is Hub => "docs" in n;
+
+  // A record's text, fetched once per record after the pointer settles on it for a moment.
+  const loadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const want = (n: Placed | Hub | undefined) => {
+    clearTimeout(loadTimer.current);
+    if (!n || isHub(n) || preview[n.id]) return;
+    loadTimer.current = setTimeout(() => {
+      setPreview((p) => ({ ...p, [n.id]: "loading" }));
+      fetch(`/api/memory/graph?id=${encodeURIComponent(n.id)}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: Preview | null) => setPreview((p) => ({ ...p, [n.id]: d?.text ? d : "none" })))
+        .catch(() => setPreview((p) => ({ ...p, [n.id]: "none" })));
+    }, 140);
+  };
+  useEffect(() => () => clearTimeout(loadTimer.current), []);
+  // Show the card for a dot: it stays where it first appeared while the pointer is on that dot.
+  const show = (p: { n: Placed | Hub; x: number; y: number } | null) => {
+    setHover((old) => (old && p && old.n.id === p.n.id ? old : p));
+    hoverEnts.current = p ? (isHub(p.n) ? [p.n.id] : (p.n.ents ?? [])) : [];
+    want(p?.n);
+  };
   const open = (n: Placed | Hub) => {
     if (isHub(n)) {
       setFocus((f) => (f === n.id ? null : n.id));
@@ -368,16 +397,27 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
         ref={canvas}
         className="absolute inset-0 h-full w-full cursor-crosshair"
         onPointerMove={(e) => {
-          const p = pick(e.clientX, e.clientY);
-          setHover(p);
-          const ents = p ? (isHub(p.n) ? [p.n.id] : (p.n.ents ?? [])) : [];
-          setHoverEnts((old) => (old.join() === ents.join() ? old : ents));
+          if (pinned || e.pointerType === "touch") return;
+          show(pick(e.clientX, e.clientY));
         }}
-        onPointerLeave={() => {
-          setHover(null);
-          setHoverEnts([]);
+        onPointerLeave={(e) => {
+          if (pinned || e.pointerType === "touch") return;
+          show(null);
+        }}
+        onPointerUp={(e) => {
+          // A finger has no hover: a tap pins the card (with Open on it); a tap on empty space closes it.
+          if (e.pointerType !== "touch") return;
+          touchAt.current = Date.now();
+          const p = pick(e.clientX, e.clientY);
+          if (p && isHub(p.n)) {
+            open(p.n);
+            return;
+          }
+          show(p);
+          setPinned(!!p);
         }}
         onClick={(e) => {
+          if (Date.now() - touchAt.current < 800) return; // the tap was handled on pointer-up
           const p = pick(e.clientX, e.clientY);
           if (p) open(p.n);
         }}
@@ -408,7 +448,14 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
           <p className="tnum font-mono text-[10px] text-muted">{total.toLocaleString("en")} records</p>
         </div>
         {hover && (
-          <div className="absolute z-10 max-w-[260px] rounded-[10px] border border-line-hi bg-bg-raised/95 px-3 py-2 text-xs shadow-xl backdrop-blur-md" style={{ left: Math.min(hover.x + 12, (wrap.current?.clientWidth ?? 300) - 270), top: hover.y + 12 }}>
+          <div
+            className={cn("absolute z-10 w-[min(320px,calc(100%-16px))] rounded-[10px] border border-line-hi bg-bg-raised/95 px-3 py-2 text-xs shadow-xl backdrop-blur-md", pinned && "pointer-events-auto")}
+            style={{
+              left: Math.max(8, Math.min(hover.x + 12, (wrap.current?.clientWidth ?? 340) - 328)),
+              top: hover.y > (wrap.current?.clientHeight ?? 0) / 2 ? undefined : hover.y + 12,
+              bottom: hover.y > (wrap.current?.clientHeight ?? 0) / 2 ? (wrap.current?.clientHeight ?? 0) - hover.y + 12 : undefined,
+            }}
+          >
             {isHub(hover.n) ? (
               <>
                 <p className="text-[13px] text-text">{hover.n.label}</p>
@@ -422,8 +469,37 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
                 <p className="mt-0.5 text-faint">
                   <span style={{ color: hover.n.color }}>{hover.n.kind}</span> · {ago(hover.n.at)}
                   {hover.n.ents?.length ? ` · ${hover.n.ents.length} link${hover.n.ents.length > 1 ? "s" : ""}` : ""}
-                  {hover.n.href ? " · click to open" : ""}
+                  {hover.n.href && !pinned ? " · click to open" : ""}
                 </p>
+                {(() => {
+                  const pv = preview[hover.n.id];
+                  if (pv === "none") return null;
+                  if (!pv || pv === "loading") return <p className="mt-2 h-10 animate-pulse rounded bg-white/5" aria-label="Loading" />;
+                  return (
+                    <p className="mt-2 line-clamp-[9] border-t border-line pt-2 text-[12px] leading-snug whitespace-pre-line text-muted">
+                      {pv.text}
+                      {pv.more ? "…" : ""}
+                    </p>
+                  );
+                })()}
+                {pinned && (
+                  <div className="mt-2 flex gap-2">
+                    {hover.n.href && (
+                      <button onClick={() => open(hover.n)} className="h-8 flex-1 rounded-md bg-white text-[12.5px] font-medium text-black">
+                        Open
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setPinned(false);
+                        show(null);
+                      }}
+                      className="h-8 flex-1 rounded-md border border-line text-[12.5px] text-muted"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
