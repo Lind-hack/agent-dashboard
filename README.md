@@ -160,3 +160,12 @@ permissions, Bluetooth routing, iOS playback restrictions, and perceived Albania
 - Autopilot: `AUTOPILOT_ENABLED=0` (or the switch on Today) turns it off; times `AUTOPILOT_MORNING_AT` (07:30), `AUTOPILOT_MIDDAY_AT` (13:00), `AUTOPILOT_EVENING_AT` (21:20). Every step can be undone from Today.
 - Buddy + journal: `JOURNAL_AT` (21:00), `JOURNAL_NUDGE_AT` (22:30), `BUDDY_PROFILE_AT` (03:30, Sol rewrites `data/buddy/profile.md`). Date-only task deadlines count as `TASK_DUE_DEFAULT` (18:00).
 - More email: Gmail with `node handoff/google-auth.mjs --add` (also re-run it once without `--add` for the new `gmail.compose` scope — drafts only, never sends); Outlook needs `OUTLOOK_CLIENT_ID` from your own Entra app registration (personal + org accounts, public client flows on); other providers use IMAP with an app password from Settings.
+
+## Scriptable iPhone widgets
+
+`GET /api/widget/image?view=today|goals|focus&size=small|medium|large` renders private, uncached
+PNGs from the real dashboard records. It requires its own server-only `WIDGET_READ_TOKEN` in the
+Authorization bearer header. Login and handoff authentication are unchanged. New setup generates
+the token; existing installations need the root-only provisioning step. Obtain the value privately
+from the `WIDGET_READ_TOKEN` entry in `/etc/agent-dashboard.env`, preferably through your password
+manager on the iPhone. See [deployment, retrieval, and verification instructions](deploy/WIDGET.md).

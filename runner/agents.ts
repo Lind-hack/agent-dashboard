@@ -34,7 +34,7 @@ type Emit = (e: Record<string, unknown>) => void;
 // `npm ci` in a repo skip devDependencies, so typecheck/build fail inside the worktree.
 // Debaters also lose every other credential the runner holds.
 const READONLY_HIDDEN = ["NVIDIA_API_KEY", "GITHUB_READ_TOKEN", "MONITOR_TOKEN", "GOOGLE_CLIENT_SECRET"];
-const HIDDEN_ENV = ["GITHUB_TOKEN", "LINEAR_API_KEY", "GROQ_API_KEY", "SESSION_SECRET", "DASHBOARD_PASSWORD", "HANDOFF_TOKEN", "NODE_ENV"];
+const HIDDEN_ENV = ["GITHUB_TOKEN", "LINEAR_API_KEY", "GROQ_API_KEY", "SESSION_SECRET", "DASHBOARD_PASSWORD", "HANDOFF_TOKEN", "WIDGET_READ_TOKEN", "NODE_ENV"];
 
 const clip = (v: unknown, n = 160) => String(v ?? "").replace(/\s+/g, " ").slice(0, n);
 
