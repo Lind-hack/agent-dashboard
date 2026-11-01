@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     return widgetError(400, "Expected view=today|goals|focus and size=small|medium|large");
   }
   try {
-    return await renderWidget(readWidgetData(), view as WidgetView, size as WidgetSize);
+    return await renderWidget(await readWidgetData(), view as WidgetView, size as WidgetSize);
   } catch {
     // Never log request headers, URLs, source data, or error messages containing secrets.
     return widgetError(500, "Widget unavailable");

@@ -86,9 +86,9 @@ test("proxy isolates widget namespace, leaving login and handoff flows intact", 
   assert.equal((await proxy(new NextRequest("https://agents.383ks.com/api/todos", { headers: { authorization: `Bearer ${secret}` } }))).status, 401);
 });
 
-test("snapshot reads all six real sources, local dates, actual focus time; no writes", () => {
+test("snapshot reads all six real sources, local dates, actual focus time; no writes", async () => {
   const before = fs.readFileSync(path.join(dir, `plans/${day}.json`), "utf8");
-  const data = readWidgetData(at);
+  const data = await readWidgetData(at);
   assert.equal(data.day, day);
   assert.equal(data.tasks.today[0].title, "Real task");
   assert.equal(data.focus.focusMin, 60);
@@ -100,7 +100,7 @@ test("snapshot reads all six real sources, local dates, actual focus time; no wr
   assert.ok(widgetContent(data, "goals").rows[0].detail.includes("60/120"));
   assert.ok(widgetContent(data, "focus").rows.some((r) => r.title === "Real finished session"));
   assert.equal(fs.readFileSync(path.join(dir, `plans/${day}.json`), "utf8"), before);
-  assert.equal(readWidgetData(new Date("2026-11-01T23:30:00Z")).day, "2026-11-02");
+  assert.equal((await readWidgetData(new Date("2026-11-01T23:30:00Z"))).day, "2026-11-02");
 });
 
 // Decode RGBA PNG with the standard PNG row filters, without adding a dependency for tests.
@@ -132,7 +132,7 @@ function decodePNG(png: Buffer) {
 }
 
 test("all nine view/size PNGs use the design palette, fonts, spacing and render real content offline", async () => {
-  const data = readWidgetData(at);
+  const data = await readWidgetData(at);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error("Rendering must not call the network"); };
   try {
@@ -145,17 +145,18 @@ test("all nine view/size PNGs use the design palette, fonts, spacing and render 
       privateResponse(res); assert.equal(res.headers.get("content-type"), "image/png");
       const png = Buffer.from(await res.arrayBuffer());
       assert.ok(!png.includes(Buffer.from(secret)));
+      // Stable fixtures allow a visual review with WIDGET_PREVIEW_DIR, never production data.
+      if (process.env.WIDGET_PREVIEW_DIR) {
+        fs.mkdirSync(process.env.WIDGET_PREVIEW_DIR, { recursive: true });
+        fs.writeFileSync(path.join(process.env.WIDGET_PREVIEW_DIR, `${view}-${size}.png`), png);
+      }
       const decoded = decodePNG(png);
       assert.equal(decoded.width, WIDGET_SIZES[size].width); assert.equal(decoded.height, WIDGET_SIZES[size].height);
       const colors = new Set<string>();
       for (let i = 0; i < decoded.pixels.length; i += 4) colors.add(decoded.pixels.subarray(i, i + 3).toString("hex"));
       for (const color of [widgetTheme.text, widgetTheme.faint, widgetTheme.hud]) assert.ok(colors.has(color.slice(1)), `${view}/${size} missing ${color}`);
       assert.equal(createHash("sha256").update(png).digest("hex"), golden[`${view}-${size}`], "Reviewed visual baseline changed");
-      // Stable fixtures allow a visual review with WIDGET_PREVIEW_DIR, never production data.
-      if (process.env.WIDGET_PREVIEW_DIR) {
-        fs.mkdirSync(process.env.WIDGET_PREVIEW_DIR, { recursive: true });
-        fs.writeFileSync(path.join(process.env.WIDGET_PREVIEW_DIR, `${view}-${size}.png`), png);
-      }
+
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -180,7 +181,7 @@ test("endpoint success is a private PNG and failures do not log or reflect secre
 });
 
 test("unsupported private text never reaches dynamic fonts or console", async () => {
-  const data = readWidgetData(at);
+  const data = await readWidgetData(at);
   data.blocks[1].title = "Shqip ë ç / 中文 / 🔐 / עברית";
   const originalFetch = globalThis.fetch;
   const originalError = console.error;
@@ -192,4 +193,74 @@ test("unsupported private text never reaches dynamic fonts or console", async ()
     assert.equal(result.status, 200);
     assert.deepEqual(calls, []);
   } finally { globalThis.fetch = originalFetch; console.error = originalError; }
+});
+
+// Exercise dense and missing-source layouts with synthetic records only. The same renderer and
+// offline guarantee apply; previews are deliberately outside public/ and contain no private data.
+test("empty, long-title, missing-source and dense goal layouts render in every size", async () => {
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const base = await readWidgetData(at);
+  const empty = structuredClone(base);
+  empty.blocks = []; empty.tasks = { ...empty.tasks, overdue: [], today: [], done: [] };
+  empty.goals = []; empty.habits = []; empty.agents = [];
+  empty.focus = { ...empty.focus, current: null, next: null, blocks: [], done: 0, total: 0, focusMin: 0, planned: false };
+  empty.calendar = { syncedAt: null, events: [] };
+  empty.progress = { ...empty.progress, percent: 0, tasksDone: 0, tasksTotal: 0, workLeftMin: 0, overloadMin: 0, pace: "not-started", blocksDone: 0, blocksTotal: 0, focusMin: 0, blocks: undefined };
+  const dense = structuredClone(base);
+  const long = "WWW Investigate authentication, scheduling and release verification across every connected project ".repeat(5);
+  dense.tasks.today = Array.from({ length: 3 }, (_, i) => ({ ...base.tasks.today[0], id: `long-${i}`, title: long, priority: 3 }));
+  dense.focus.current!.title = long;
+  dense.focus.current!.startedAt = "2026-11-01T11:00:00Z";
+  dense.blocks.push({ id: "upcoming", title: long, start: "14:00", end: "15:00", kind: "focus", status: "planned" });
+  dense.goals = Array.from({ length: 2 }, (_, i) => ({ ...base.goals[0], goal: { ...base.goals[0].goal, id: `g-${i}`, title: long }, weekMin: i ? 60 : 180, targetMin: 120 }));
+  dense.habits = Array.from({ length: 3 }, (_, i) => ({ ...base.habits[0], habit: { ...base.habits[0].habit, id: `h-${i}`, title: long }, streak: 42 }));
+  dense.agents = [{ id: "fixture", agent: "codex", title: long, status: "running" }];
+  dense.progress = { ...dense.progress, percent: 65, tasksDone: 4, tasksTotal: 7 };
+  const missing = structuredClone(dense);
+  missing.calendar = { syncedAt: null, events: [] }; missing.goals = [];
+  const zeroTarget = structuredClone(dense); zeroTarget.goals[0].targetMin = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("Widget snapshot rendering must stay offline"); };
+  try {
+    for (const [scenario, data] of Object.entries({ empty, dense, missing, "zero-target": zeroTarget })) {
+      for (const size of ["small", "medium", "large"] as const) {
+        for (const view of ["today", "goals", "focus"] as const) {
+          const markup = renderToStaticMarkup(widgetElement(data, view, size));
+          assert.ok(!markup.includes("0/0"));
+          assert.ok(!/\+\d+ more/.test(markup));
+          assert.ok(markup.includes("Updated") && markup.includes("12:30"));
+          if (scenario === "empty") assert.ok(!markup.replace(/<[^>]*>/g, "").includes("0%"));
+          if (scenario === "missing" && size !== "small") assert.ok(markup.includes("Calendar unavailable"));
+          const png = Buffer.from(await (await renderWidget(data, view, size)).arrayBuffer());
+          const decoded = decodePNG(png);
+          assert.equal(decoded.height, WIDGET_SIZES[size].height);
+          if (process.env.WIDGET_PREVIEW_DIR && view === "today") fs.writeFileSync(path.join(process.env.WIDGET_PREVIEW_DIR, `${scenario}-${size}.png`), png);
+        }
+      }
+    }
+    for (const agent of ["claude", "codex", "opencode", "hermes"] as const) {
+      dense.agents[0].agent = agent;
+      const markup = renderToStaticMarkup(widgetElement(dense, "today", "large"));
+      assert.ok(markup.includes(`stroke`) && markup.includes(agent === "opencode" ? "OpenCode" : agent[0].toUpperCase() + agent.slice(1)));
+      assert.equal((await renderWidget(dense, "today", "large")).status, 200);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("snapshot progress uses the real calendar snapshot without network or source writes", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new Error("Snapshot read must stay offline"); };
+  try {
+    const before = fs.readFileSync(path.join(dir, "sources/calendar.json"), "utf8");
+    const data = await readWidgetData(at);
+    assert.equal(data.progress.percent, 0); // An elapsed session never completes the task.
+    assert.equal(data.progress.tasksTotal, 1);
+    assert.equal(data.progress.focusMin, 60);
+    assert.equal(data.progress.untilEndMin - data.progress.freeMin, 60);
+    assert.equal(data.progress.pace, "behind");
+    assert.equal(data.at, at.toISOString());
+    assert.equal(fs.readFileSync(path.join(dir, "sources/calendar.json"), "utf8"), before);
+    const generated = await readWidgetData();
+    assert.ok(Math.abs(Date.now() - Date.parse(generated.at)) < 5000);
+  } finally { globalThis.fetch = originalFetch; }
 });

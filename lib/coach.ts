@@ -277,7 +277,9 @@ export function blockPace(blocks: StoredBlock[], nowMin: number, nowMs: number):
   return { dueMin, doneMin, behindMin: Math.max(0, dueMin - doneMin), missed };
 }
 
-export async function dayProgress(at = new Date()): Promise<DayProgress> {
+// Optional read-only calendar snapshot lets image consumers avoid network/auth side effects.
+// Existing callers retain the live calendar calculation.
+export async function dayProgress(at = new Date(), calendarSnapshot?: [number, number][]): Promise<DayProgress> {
   const { todosFor, remainingMin } = await import("./todos");
   const tz = coachTz();
   const day = dayString(tz, at);
@@ -295,7 +297,7 @@ export async function dayProgress(at = new Date()): Promise<DayProgress> {
   const from = Math.max(nowMin, start);
   const untilEndMin = Math.max(0, end - from);
   // Calendar events between now and the end of the day aren't time for tasks.
-  const busy = (await calendarBusy().catch(() => [] as [number, number][])).map(([a, z]) => [Math.max(a, from), Math.min(z, end)] as const).filter(([a, z]) => z > a).sort((x, y) => x[0] - y[0]);
+  const busy = (calendarSnapshot ?? await calendarBusy().catch(() => [] as [number, number][])).map(([a, z]) => [Math.max(a, from), Math.min(z, end)] as const).filter(([a, z]) => z > a).sort((x, y) => x[0] - y[0]);
   let taken = 0;
   let edge = from;
   for (const [a, z] of busy) {

@@ -67,15 +67,30 @@ Calendar reads the real primary-calendar snapshot `sources/calendar.json`, maint
 existing runner (`SOURCES_ENABLED` must be enabled and Google Calendar connected). It excludes planner
 reservation duplicates and shows the snapshot date/time on medium/large widgets; missing snapshots
 say “Calendar unavailable”. It can lag the Calendar app by one sync interval (or longer if sync fails).
-Small widgets prioritise the main metric and one item; medium adds the source status; large shows up
-to four items and full readouts. Additional items are counted on medium/large. Today prioritises plan,
-calendar, then tasks; Goals shows active goals and weekly focus; Focus shows current/completed sessions,
-then tasks/calendar. All views include counts from related sources as space permits.
+The layouts now provide a daily command center. Small shows one next action and its actual
+session/due time with a segmented completion scale. Medium uses a two-column layout for completion,
+completed/remaining task counts, completed focus time, estimated free time, current session and next
+event. Large adds a NOW timeline, upcoming block, top three priorities, two weekly goal meters,
+three habits with streaks and actionable pace/overload warnings. Goals and Focus views retain their
+URLs and select the appropriate next action; Goals medium prioritises a weekly goal meter.
+Empty days show no completion percentage or zero-denominator counts. Titles use conservative
+font-advance truncation with visible ellipses. No hidden-item count substitutes for useful content.
+
+Daily completion and pace reuse `dayProgress()` with a read-only calendar snapshot; the optional
+snapshot parameter leaves existing Coach callers unchanged. Free time is the Coach's estimate of
+workday minutes remaining minus timed calendar events (it is not a claim of an empty planner).
+Calendar can be stale or unavailable, so this estimate is explicitly labelled. Current focus uses
+the actual block state; only a running session with a recorded start shows elapsed minutes.
+Priority states use signal colors, while actual runner jobs use their own agent marks and colors.
+No job record means no agent status. The generation time is shown as “Updated”; the separate calendar
+sync date/time describes source freshness, not generation freshness. PNGs stay still between refreshes.
+
+See [the native ActivityKit feasibility plan](ACTIVITYKIT.md) for a future ticking focus timer.
 
 PNG dimensions at 2x: small 340×340, medium 728×340, large 728×764. Scriptable can scale these for the
 specific iPhone's widget family. Palette and panel radius are read directly from `app/globals.css`.
 The layout follows DESIGN.md: 16pt gutters, 56pt rows, Geist headings/body, Geist Mono HUD labels,
-18pt glass panels, hairline dividers, tight tabular numerals and HUD cyan. The static panel gradient
+18px glass panels, hairline dividers, tight tabular numerals and HUD cyan. The static panel gradient
 flattens the glass effect into the PNG. Bundled upstream Geist fonts use the included SIL OFL license.
 Geist's Latin text includes Albanian; unsupported scripts/emoji become `?` locally so Next's automatic
 missing-glyph service cannot transmit personal text. Titles/details truncate to fit widget space.
@@ -92,6 +107,7 @@ npm run build
 No lint command is configured by this repository. Tests exercise the proxy and route, cookie/handoff
 isolation, missing config, all nine PNGs, reviewed visual-baseline hashes, exact palette pixels and dimensions, real-source fixtures,
 timezone boundaries, read-only behavior, no network during rendering, and generic/log-free errors.
+Reviewed synthetic previews are in `deploy/widget-previews/`.
 Set `WIDGET_PREVIEW_DIR=/tmp/widget-preview` when running tests to save synthetic fixture PNGs for
 visual review. Never export real-data previews into `public/` or commit them.
 
