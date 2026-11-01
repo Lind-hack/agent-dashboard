@@ -6,13 +6,13 @@ import { DATA_DIR } from "./config";
 import { tryFileLease } from "./async-file-lease";
 import { activeBlocks, readPlan } from "./plan-store";
 import { acknowledgeTaskDeletion, deletedTaskLinks, applyTaskSync, importTickTick, listTodos, type Todo } from "./todos";
-import { completeTask, deleteTask, getTask, putTask, syncTasks, ticktickConnected, type RawTask } from "./ticktick";
+import { TickTickRateLimitError, completeTask, deleteTask, getTask, putTask, syncTasks, ticktickConnected, type RawTask } from "./ticktick";
 
 // Tasks are durable work, calendar blocks are reservations of time. Only explicit task completion
 // changes `done`. A finished/elapsed/moved/deleted calendar block never completes a task.
 export type TaskFields = { title: string; notes: string; due: string; priority: number; done: boolean; steps: { title: string; done: boolean }[] };
 type Snapshot = { local: TaskFields; remote: TaskFields; projectId: string; remoteId: string; schedule: string; details?: string };
-type SyncState = { at?: string; errors: Record<string, string>; tasks: Record<string, Snapshot> };
+type SyncState = { at?: string; retryAt?: number; errors: Record<string, string>; tasks: Record<string, Snapshot> };
 const file = () => path.join(DATA_DIR, "task-sync.json");
 const tz = () => process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
 const fields = ["title", "notes", "due", "priority", "done", "steps"] as const;
@@ -71,10 +71,13 @@ function bodyFor(t: Todo, f: TaskFields, schedule: string, projectId: string, r?
 export async function syncDashboardTasks(): Promise<{ connected: boolean; busy?: boolean; errors: Record<string, string> }> {
   const connected = ticktickConnected();
   if (!connected && !calendarConnected()) return { connected: false, errors: {} };
+  const previousStatus = taskSyncStatus();
+  if ((previousStatus.retryAt ?? 0) > Date.now()) return { connected, errors: previousStatus.errors };
   const release = tryFileLease("task-sync");
   if (!release) return { connected: true, busy: true, errors: taskSyncStatus().errors };
   const state = taskSyncStatus();
   state.errors = {};
+  delete state.retryAt;
   try {
     if (calendarConnected()) {
       const today = dayString(tz());
@@ -100,7 +103,7 @@ export async function syncDashboardTasks(): Promise<{ connected: boolean; busy?:
           catch (e) { if (!/TickTick: 404$/.test(String(e))) throw e; }
         }
         acknowledgeTaskDeletion(deleted.taskId); delete state.tasks[deleted.taskId];
-      } catch (e) { state.errors[deleted.taskId] = e instanceof Error ? e.message : String(e); }
+      } catch (e) { if (e instanceof TickTickRateLimitError) throw e; state.errors[deleted.taskId] = e instanceof Error ? e.message : String(e); }
     }
     const deletedIds = new Set(deletedTaskLinks().flatMap((d) => d.link ? [d.link.id] : []));
     // Import new remote work, including future dates; never interpret an absent task as completed.
@@ -116,7 +119,13 @@ export async function syncDashboardTasks(): Promise<{ connected: boolean; busy?:
         const schedule = scheduleFor(t);
         const details = JSON.stringify([t.estimateMin, t.link]);
         let r: RawTask | undefined;
-        if (t.ticktick) r = await getTask(t.ticktick.projectId, t.ticktick.id);
+        if (t.ticktick) {
+          const listed = recovery.find((r) => r.id === t.ticktick!.id);
+          r = listed ?? await getTask(t.ticktick.projectId, t.ticktick.id);
+          // Deleted tasks can remain readable by ID. An open record missing from complete project
+          // data is not safe to rewrite: that can resurrect work deliberately removed in TickTick.
+          if (!listed && r.status !== 2) throw new Error("TickTick task is no longer listed in its project. Your local task is still saved.");
+        }
         else {
           const found = recovery.filter((r) => (r.content ?? "").split("\n").includes(marker(t.id)));
           if (found.length > 1) throw new Error("Multiple TickTick copies found; sync paused for this task.");
@@ -158,13 +167,18 @@ export async function syncDashboardTasks(): Promise<{ connected: boolean; busy?:
         const applied = applyTaskSync(t.id, t.updatedAt, { id: r.id, projectId: r.projectId }, Object.keys(patch).length ? patch : undefined);
         state.tasks[t.id] = { local: applied ? localFields(listTodos().find((x) => x.id === t.id)!) : merged, remote: remoteFields(r), projectId: r.projectId, remoteId: r.id, schedule, details };
         save(state);
-      } catch (e) { state.errors[t.id] = e instanceof Error ? e.message : String(e); }
+      } catch (e) {
+        state.errors[t.id] = e instanceof Error ? e.message : String(e);
+        if (e instanceof TickTickRateLimitError) { state.retryAt = e.retryAt; break; }
+      }
     }
     state.at = new Date().toISOString();
     save(state);
     return { connected: true, errors: state.errors };
   } catch (e) {
-    state.errors.connection = e instanceof Error ? e.message : String(e); save(state);
+    state.errors.connection = e instanceof Error ? e.message : String(e);
+    if (e instanceof TickTickRateLimitError) state.retryAt = e.retryAt;
+    save(state);
     return { connected: true, errors: state.errors };
   } finally { release(); }
 }

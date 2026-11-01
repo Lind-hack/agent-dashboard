@@ -29,7 +29,7 @@ function setup() {
   const respond = (x: unknown) => new Response(JSON.stringify(x), { status: 200 });
   if (u === "/project") return respond([]);
   if (u === "/task/filter" || u?.endsWith("/data")) {
-    const open = Object.values(remote).filter((r) => r.status !== 2);
+    const open = Object.values(remote).filter((r) => r.status !== 2 && !r.hidden);
     return respond(u === "/task/filter" ? open : { tasks: open });
   }
   if (u === "/task" || u?.startsWith("/task/")) {
@@ -144,4 +144,22 @@ test("HTTP 200 with a null deleted-task body never creates replacement copies", 
  global.fetch = (async (url: string | URL | Request, init?: RequestInit) => String(url).endsWith("/task/deleted") ? new Response("null") : api(url, init)) as typeof fetch;
  const result = await syncDashboardTasks(); assert.match(result.errors[t.id], /no longer exists/);
  assert.equal(creates, 0); assert.equal(listTodos()[0].done, false);
+});
+
+
+test("rate limits stop the pass and persist Retry-After across manual retries", async () => {
+ addTodo({ title: "Wait for the provider", day: day() });
+ let requests = 0;
+ global.fetch = (async () => { requests++; return new Response("{}", { status: 429, headers: { "retry-after": "120" } }); }) as typeof fetch;
+ const first = await syncDashboardTasks(); assert.match(first.errors.connection, /rate limiting/);
+ const second = await syncDashboardTasks(); assert.match(second.errors.connection, /retry/);
+ assert.equal(requests, 1); assert.equal(creates, 0); assert.equal(listTodos()[0].done, false);
+});
+
+
+test("deleted TickTick records still readable by ID are not resurrected", async () => {
+ const t = addTodo({ title: "Deleted remotely", day: day() });
+ await sync(); const id = listTodos()[0].ticktick!.id; remote[id].hidden = true;
+ const result = await syncDashboardTasks(); assert.match(result.errors[t.id], /no longer listed/);
+ assert.equal(creates, 1); assert.equal(remote[id].hidden, true); assert.equal(listTodos()[0].done, false);
 });

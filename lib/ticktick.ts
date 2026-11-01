@@ -70,6 +70,12 @@ export async function finishConnect(code: string, state: string) {
   write({ client_id: c.client_id, client_secret: c.client_secret, access_token: body.access_token });
 }
 
+export class TickTickRateLimitError extends Error {
+  constructor(public retryAt: number) {
+    super(`TickTick is rate limiting requests. Sync will retry after ${new Date(retryAt).toLocaleTimeString("en-GB", { timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" })}.`);
+  }
+}
+
 async function tt<T>(url: string, init?: RequestInit): Promise<T> {
   const token = read()?.access_token;
   if (!token) throw new Error("TickTick isn't connected.");
@@ -79,6 +85,11 @@ async function tt<T>(url: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   });
+  if (res.status === 429) {
+    const hint = res.headers.get("retry-after");
+    const delay = hint && /^\d+$/.test(hint) ? Number(hint) * 1000 : hint ? Date.parse(hint) - Date.now() : 60_000;
+    throw new TickTickRateLimitError(Date.now() + Math.max(30_000, Number.isFinite(delay) ? delay : 60_000));
+  }
   if (res.status === 401) throw new Error("TickTick sign-in expired — connect it again on the Today page.");
   if (!res.ok) throw new Error(`TickTick: ${res.status}`);
   const text = await res.text();
