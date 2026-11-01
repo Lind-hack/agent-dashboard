@@ -120,8 +120,12 @@ sync date/time describes source freshness, not generation freshness. PNGs stay s
 
 See [the native ActivityKit feasibility plan](ACTIVITYKIT.md) for a future ticking focus timer.
 
-PNG dimensions at 2x: small 340×340, medium 728×340, large 728×764. Scriptable can scale these for the
-specific iPhone's widget family. Palette and panel radius are read directly from `app/globals.css`.
+PNG dimensions at 3x: small 510×510, medium 1092×510, large 1092×1146 — the native pixel size of the
+largest iPhone widget families, so iOS only ever downsamples and text stays sharp on Retina screens.
+The layout is authored in 2x units and scaled by `px()` (`SCALE = 1.5`) in `lib/widget/image.tsx`.
+After a reviewed visual change, regenerate the baseline with
+`WIDGET_GOLDEN_OUT=/tmp/golden.txt WIDGET_PREVIEW_DIR=/tmp/widget-previews node --import tsx --test deploy/widget.test.ts`
+and copy the hashes into `deploy/widget-golden.json`. Palette and panel radius are read directly from `app/globals.css`.
 The layout follows DESIGN.md: 16pt gutters, 56pt rows, Geist headings/body, Geist Mono HUD labels,
 18px glass panels, hairline dividers, tight tabular numerals and HUD cyan. The static panel gradient
 flattens the glass effect into the PNG. Bundled upstream Geist fonts use the included SIL OFL license.
