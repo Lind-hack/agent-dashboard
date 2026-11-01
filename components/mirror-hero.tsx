@@ -1,17 +1,19 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import { keptStreak, mirror } from "@/lib/accountability";
 import { addDays } from "@/lib/calendar";
+import { tally } from "@/lib/day-tally";
 import { clockNow, coachTz } from "@/lib/coach";
 import { faceSet } from "@/lib/face";
-import { readReckoning, snapshot } from "@/lib/reckoning";
-import { fmtMin, VERDICT_TONE, VERDICT_WORDS, type DayVerdict } from "@/lib/verdict";
+import { readReckoning } from "@/lib/reckoning";
+import { VERDICT_TONE, VERDICT_WORDS, type DayVerdict } from "@/lib/verdict";
 import { cn } from "@/lib/utils";
 
 // The mirror, full bleed (v5.3, Lind: "more deep and more pain feeling, with the image I added"). His
 // chosen image in black and white, pushed slowly closer, washed blood-red when he's softened and amber
-// when it's not enough; the verdict, the time he gave away, every block he skipped, whether the streak
-// lives — and last night's excuse, quoted back at him. On Home and at the top of the Mirror.
+// when it's not enough; the verdict, how many of today's things he's done (v5.4: a count, not minutes),
+// what he skipped and what's left, whether the streak lives — and last night's excuse, quoted back at
+// him. On Home and at the top of the Mirror.
 
 const WASH: Record<DayVerdict, string> = {
   soft: "bg-[#6b0000]",
@@ -30,13 +32,14 @@ const LINE: Record<DayVerdict, string> = {
 };
 
 export function MirrorHero({ day, action, className }: { day: string; action?: React.ReactNode; className?: string }) {
-  const s = snapshot(day);
+  const s = tally(day);
   const m = mirror(day);
   const streak = keptStreak(day);
   const face = faceSet();
   const lastNight = readReckoning(addDays(day, -1));
-  const gave = Math.max(0, s.saidMin - s.didMin);
-  const skipped = m.rows.filter((r) => r.verdict === "missed" || r.verdict === "not-started");
+  // Skipped first, then what's still open, then what's done.
+  const rank = (i: (typeof s.items)[number]) => (i.missed ? 0 : i.done ? 2 : 1);
+  const list = [...s.items].sort((a, z) => rank(a) - rank(z));
   const next = m.rows.find((r) => r.verdict === "upcoming");
   const hurt = s.verdict === "soft" || s.verdict === "no-plan";
   const label = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(new Date(`${day}T12:00:00Z`));
@@ -69,37 +72,39 @@ export function MirrorHero({ day, action, className }: { day: string; action?: R
           <h2 className={cn("text-[clamp(3.1rem,15vw,7.25rem)] leading-[0.84] font-black tracking-[-0.055em] uppercase", VERDICT_TONE[s.verdict], hurt && "drop-shadow-[0_0_28px_rgb(220_30_30/0.45)]")}>{VERDICT_WORDS[s.verdict]}</h2>
           <p className="mt-3 text-[15px] font-medium text-white/70 italic">{LINE[s.verdict]}</p>
 
-          {s.verdict !== "no-plan" && s.verdict !== "pending" && (
+          {s.total > 0 && (
             <p className="tnum mt-6 text-[clamp(1.3rem,5vw,1.9rem)] leading-tight font-semibold">
-              You said {fmtMin(s.saidMin)}. You did <span className={VERDICT_TONE[s.verdict]}>{fmtMin(s.didMin)}</span>.
-              {gave >= 15 && s.verdict !== "enough" && (
-                <span className="mt-1 block text-bad">
-                  You gave away {fmtMin(gave)}.
-                </span>
-              )}
+              <span className={VERDICT_TONE[s.verdict]}>{s.done}</span> of {s.total} done today.
+              {s.left > 0 && s.verdict !== "pending" && <span className={cn("mt-1 block", s.verdict === "soft" ? "text-bad" : "text-white/70")}>{s.left} still undone.</span>}
             </p>
           )}
           {s.verdict === "pending" && next && (
-            <p className="tnum mt-6 text-[clamp(1.2rem,4.6vw,1.6rem)] leading-tight font-semibold">
+            <p className="tnum mt-3 text-[clamp(1.05rem,4vw,1.35rem)] leading-tight font-semibold text-white/80">
               First block at {next.start}: {next.title}. Be there.
             </p>
           )}
 
-          {skipped.length > 0 && (
-            <ul className="mt-5 flex flex-col gap-1">
-              {skipped.slice(0, 4).map((r) => (
-                <li key={r.id} className="flex items-baseline gap-3 text-[15px]">
-                  <span className="tnum w-12 shrink-0 font-mono text-[12px] text-bad">{r.start}</span>
-                  <span className="min-w-0 truncate text-white/75 line-through decoration-bad/70 decoration-2">{r.title}</span>
-                  <span className="ml-auto shrink-0 font-mono text-[11px] tracking-[0.12em] text-bad uppercase">skipped</span>
+          {list.length > 0 && (
+            <ul className="mt-5 flex flex-col gap-1.5">
+              {list.slice(0, 8).map((i) => (
+                <li key={i.key} className="flex items-center gap-3 text-[15px]">
+                  <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border", i.done ? "border-ok bg-ok/20 text-ok" : i.missed ? "border-bad/70" : "border-white/30")}>
+                    {i.done && <Check className="h-3 w-3" strokeWidth={3} />}
+                  </span>
+                  <span className={cn("min-w-0 truncate", i.done ? "text-white/45" : i.missed ? "text-white/75 line-through decoration-bad/70 decoration-2" : "text-white/85")}>{i.title}</span>
+                  {i.missed ? (
+                    <span className="ml-auto shrink-0 font-mono text-[11px] tracking-[0.12em] text-bad uppercase">skipped</span>
+                  ) : (
+                    i.at && !i.done && <span className="tnum ml-auto shrink-0 font-mono text-[12px] text-white/40">{i.at}</span>
+                  )}
                 </li>
               ))}
+              {list.length > 8 && <li className="pl-8 font-mono text-[11.5px] text-white/40">+{list.length - 8} more</li>}
             </ul>
           )}
 
           <p className="tnum mt-5 font-mono text-[12.5px] tracking-[0.04em] text-white/60">
             {streak.days === 0 ? (streak.todayAlive ? "Streak: 0. Today is day one — or another zero." : "Streak: dead.") : streak.todayAlive ? `Streak: ${streak.days} days. Don't be the one who ends it.` : `Streak: ${streak.days} days — broken today.`}
-            {s.habitsTotal ? ` · habits ${s.habitsDone}/${s.habitsTotal}` : ""}
           </p>
 
           {lastNight?.answer && (
