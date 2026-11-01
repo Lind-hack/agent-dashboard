@@ -561,6 +561,14 @@ function extractEntities(docs: Doc[]): { entities: GraphEntity[]; links: Map<str
 
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
+// One record's opening text, for the graph's hover card — the graph itself only ships titles.
+export async function memoryPreview(id: string): Promise<{ id: string; title: string; kind: SourceKind; at: string; href?: string; text: string; more: boolean } | null> {
+  const d = (await index()).docs.find((x) => x.id === id);
+  if (!d) return null;
+  const text = d.text.replace(/^---\n[\s\S]*?\n---\n/, "").replace(/\n{3,}/g, "\n\n").trim();
+  return { id: d.id, title: d.title, kind: d.kind, at: d.at, href: d.href, text: text.slice(0, 900), more: text.length > 900 };
+}
+
 // The Visual cortex: captures grouped by section, mail by pile, GitHub by repo, the vault by top
 // folder, the rest by source — plus the entity hubs and which records link to each.
 export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: GraphGroup[]; entities: GraphEntity[] }> {
