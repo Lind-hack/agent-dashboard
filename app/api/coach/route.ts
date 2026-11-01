@@ -51,8 +51,9 @@ export async function POST(request: Request) {
           : setBlockStatus(day, b.id, action as BlockAction);
     if (!plan) return NextResponse.json({ error: "That block isn't in today's plan any more." }, { status: 404 });
     const taskId = plan.blocks.find((x) => x.id === b.id)?.taskId;
-    if (action === "done" && b.completeTask && taskId) await finishTodo(taskId, true);
-    return NextResponse.json({ ok: true, now: coachNow() });
+    let warning: string | undefined;
+    if (action === "done" && b.completeTask && taskId) ({ warning } = await finishTodo(taskId, true));
+    return NextResponse.json({ ok: true, now: coachNow(), warning });
   }
   if (action === "focus" || action === "plan") {
     const goal = goalById(b?.goalId);

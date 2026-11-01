@@ -124,6 +124,10 @@ function removeTodoUnlocked(id: string): boolean {
   const all = listTodos();
   const next = all.filter((t) => t.id !== id);
   if (next.length === all.length) return false;
+  const removed = all.find((t) => t.id === id)!;
+  const queue = deletedTaskLinks();
+  queue.push({ taskId: id, link: removed.ticktick });
+  writeDeletedTasks(queue);
   writeTodos(next);
   return true;
 }
@@ -305,4 +309,19 @@ export function applyTaskSync(id: string, expectedUpdatedAt: string, link: NonNu
     writeTodos(all);
     return unchanged;
   });
+}
+
+// Durable deletion queue: Undo/Delete removes the exported task too, including a create request
+// that succeeded remotely just before the local task was deleted. Completion is never inferred.
+type DeletedTask = { taskId: string; link?: Todo["ticktick"] };
+const deletedFile = () => path.join(DATA_DIR, "task-sync-deleted.json");
+export function deletedTaskLinks(): DeletedTask[] {
+  try { return JSON.parse(fs.readFileSync(deletedFile(), "utf8")); } catch { return []; }
+}
+function writeDeletedTasks(tasks: DeletedTask[]) {
+  fs.writeFileSync(`${deletedFile()}.tmp`, JSON.stringify(tasks));
+  fs.renameSync(`${deletedFile()}.tmp`, deletedFile());
+}
+export function acknowledgeTaskDeletion(taskId: string) {
+  withLock("todos", () => writeDeletedTasks(deletedTaskLinks().filter((t) => t.taskId !== taskId)));
 }

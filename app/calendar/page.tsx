@@ -2,6 +2,7 @@ import { ArrowUpRight, MapPin } from "lucide-react";
 import { headers } from "next/headers";
 import { AssistantPanel } from "@/components/assistant-panel";
 import { DayBoard } from "@/components/day-board";
+import { TaskSync } from "@/components/task-sync";
 import { SayIt } from "@/components/say-it";
 import { AutopilotStrip } from "@/components/autopilot-strip";
 import { Empty, Panel, SectionTitle, StatusPill } from "@/components/kit";
@@ -16,6 +17,7 @@ import { board } from "@/lib/day-board";
 import { addDays, calendarConnected, type CalEvent } from "@/lib/calendar";
 import { activeBlocks, planStats, readPlan } from "@/lib/plan-store";
 import { freeSlots, today } from "@/lib/planner";
+import { listTodos } from "@/lib/todos";
 import { ticktickConnected } from "@/lib/ticktick";
 import { cn } from "@/lib/utils";
 
@@ -98,6 +100,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 
       <SayIt />
+      <TaskSync />
 
       <DayBoard initial={board()} />
 
@@ -114,6 +117,7 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
         overflow={overflow}
         goals={t.goals.map((g) => ({ id: g.id, title: g.title }))}
         dayEnd={dayEnd}
+        completedTaskIds={listTodos().filter((t) => t.done).map((t) => t.id)}
       />
 
       <section className="mt-8">

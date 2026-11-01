@@ -32,6 +32,7 @@ export function TodayPlan({
   overflow,
   goals,
   dayEnd,
+  completedTaskIds,
 }: {
   day: string;
   blocks: StoredBlock[];
@@ -41,23 +42,25 @@ export function TodayPlan({
   overflow: string[];
   goals: { id: string; title: string }[];
   dayEnd: string;
+  completedTaskIds: string[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const goalTitle = new Map(goals.map((g) => [g.id, g.title]));
 
-  async function act(id: string, action: BlockAction) {
+  async function act(id: string, action: BlockAction, completeTask = false) {
     setBusy(`${id}:${action}`);
     setError("");
     try {
       const res = await fetch("/api/plan/blocks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ day, id, action }),
+        body: JSON.stringify({ day, id, action, completeTask }),
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(body?.error ?? `error ${res.status}`);
+      if (body?.warning) setError(body.warning);
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -110,7 +113,7 @@ export function TodayPlan({
                     {b.taskId && (
                       <>
                         <span className="text-faint">·</span>
-                        <span className="text-muted">task</span>
+                        <span className="text-muted">{completedTaskIds.includes(b.taskId) ? "task complete" : "task open · separate completion"}</span>
                       </>
                     )}
                   </span>
@@ -127,9 +130,12 @@ export function TodayPlan({
                     </Control>
                   )}
                   {b.status !== "done" && (
-                    <Control label="Done" onClick={() => act(b.id, "done")} busy={busy === `${b.id}:done`} className="hover:text-ok">
+                    <Control label="Finish time block" onClick={() => act(b.id, "done")} busy={busy === `${b.id}:done`} className="hover:text-ok">
                       <Check className="h-4 w-4" />
                     </Control>
+                  )}
+                  {b.taskId && !completedTaskIds.includes(b.taskId) && (
+                    <button type="button" disabled={!!busy} onClick={() => act(b.id, "done", true)} className="rounded-lg px-2 py-2 text-xs text-ok hover:bg-white/5 disabled:opacity-50">Complete task</button>
                   )}
                   {b.status !== "blocked" && b.status !== "done" && (
                     <Control label="Blocked" onClick={() => act(b.id, "blocked")} busy={busy === `${b.id}:blocked`} className="hover:text-bad">

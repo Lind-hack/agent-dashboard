@@ -7,8 +7,8 @@ import { writePlanNote } from "@/lib/planner";
 // and the plan note in the vault.
 export async function POST(request: Request) {
   const b = (await request.json().catch(() => null)) as { day?: string; tz?: string; blocks?: PlanBlock[]; summary?: string; note?: string } | null;
-  const hhmm = /^\d{2}:\d{2}$/;
-  const blocks = (b?.blocks ?? []).filter((x) => hhmm.test(x?.start ?? "") && hhmm.test(x?.end ?? "") && x?.title?.trim()).slice(0, 30);
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const blocks = (b?.blocks ?? []).filter((x) => hhmm.test(x?.start ?? "") && hhmm.test(x?.end ?? "") && x?.title?.trim() && ["task", "focus", "break", "routine"].includes(x.kind)).slice(0, 30);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(b?.day ?? "") || !blocks.length) return NextResponse.json({ error: "Nothing to apply." }, { status: 400 });
   const day = b!.day!;
   const withIds: PlanBlock[] = blocks.map((x) => ({ ...x, blockId: x.blockId || blockId(day, x.start, x.title) }));

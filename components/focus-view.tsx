@@ -39,6 +39,7 @@ export function FocusView() {
     setError("");
     try {
       const out = await act(body);
+      if (out?.warning) setError(out.warning);
       if (body.action === "breakdown") setSteps(out?.steps ?? []);
       if (body.action === "checkin") setChecked(String(body.mood));
       if (body.action === "move") router.push("/calendar");
@@ -108,9 +109,10 @@ export function FocusView() {
           </button>
         ) : (
           <button onClick={() => void run({ action: "done", id: b.id })} disabled={!!busy} className="press flex h-12 items-center gap-2 rounded-[14px] bg-ok px-6 text-[15px] font-semibold text-bg">
-            {busy === "done" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Done
+            {busy === "done" ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Finish block
           </button>
         )}
+        {b.taskId && !b.taskDone && <button onClick={() => void run({ action: "done", id: b.id, completeTask: true })} disabled={!!busy} className="press h-12 rounded-[14px] border border-ok/40 px-4 text-sm text-ok">Complete task</button>}
         <button onClick={() => void run({ action: "shrink", id: b.id })} disabled={!!busy} className="press flex h-12 items-center gap-2 rounded-[14px] border border-line px-4 text-sm text-muted hover:text-text">
           <Minimize2 className="h-4 w-4" /> Just 25 minutes
         </button>

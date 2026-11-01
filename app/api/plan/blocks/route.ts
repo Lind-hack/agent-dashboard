@@ -14,6 +14,7 @@ export async function POST(request: Request) {
   if (!plan) return NextResponse.json({ error: "That block is no longer in today's plan." }, { status: 404 });
   // Finishing a session leaves its task open unless completion was explicitly requested.
   const taskId = plan.blocks.find((x) => x.id === b.id)?.taskId;
-  if (b.action === "done" && b.completeTask && taskId) await finishTodo(taskId, true);
-  return NextResponse.json({ ok: true, plan });
+  let warning: string | undefined;
+  if (b.action === "done" && b.completeTask && taskId) ({ warning } = await finishTodo(taskId, true));
+  return NextResponse.json({ ok: true, plan, warning });
 }

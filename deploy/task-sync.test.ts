@@ -5,7 +5,7 @@ import path from "node:path";
 import { test, beforeEach, after } from "node:test";
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "task-sync-test-"));
 process.env.DASHBOARD_TZ = "Europe/Belgrade";
-const { addTodo, listTodos, updateTodo, applyTaskSync } = await import("../lib/todos");
+const { addTodo, listTodos, updateTodo, removeTodo, applyTaskSync } = await import("../lib/todos");
 const { addBlock, activeBlocks, readPlan, savePlan, setBlockStatus } = await import("../lib/plan-store");
 const { syncDashboardTasks, mergeTask } = await import("../lib/task-sync");
 const { finishTodo } = await import("../lib/todo-actions");
@@ -43,6 +43,7 @@ function setup() {
   const complete = u?.match(/\/task\/([^/]+)\/complete$/);
   if (complete) { remote[complete[1]].status = 2; return respond(null); }
   const id = u?.split("/task/")[1];
+  if (init?.method === "DELETE") { delete remote[id!]; return respond(null); }
   return remote[id!] ? respond(remote[id!]) : new Response("{}", { status: 404 });
  }) as typeof fetch;
 }
@@ -100,4 +101,37 @@ test("finishing or moving a block never completes its task; explicit task comple
  setBlockStatus(day(), other.id, "planned");
  await finishTodo(t.id); assert.equal(listTodos()[0].done, true);
  assert.equal(readPlan(day())!.blocks.find((x) => x.id === other.id)!.status, "planned");
+});
+
+test("clearing a date in TickTick stays cleared across retries and unrelated edits", async () => {
+ const t = addTodo({ title: "Clear my deadline", day: day(), due: day() + "T18:30" });
+ await sync(); const r = Object.values(remote)[0];
+ r.startDate = r.dueDate = "";
+ await sync(); assert.equal(listTodos()[0].due, undefined);
+ await sync(); assert.equal(remote[r.id].dueDate, "");
+ remote[r.id].title = "No deadline";
+ await sync(); assert.equal(listTodos()[0].title, "No deadline"); assert.equal(remote[r.id].dueDate, "");
+});
+
+test("an existing live sync lock prevents concurrent creation", async () => {
+ addTodo({ title: "Only one owner", day: day() });
+ const f = path.join(process.env.DATA_DIR!, "task-sync.lock");
+ fs.writeFileSync(f, `${process.pid}:other-owner`);
+ const result = await syncDashboardTasks(); assert.equal(result.busy, true); assert.equal(creates, 0);
+ fs.rmSync(f); await sync(); assert.equal(creates, 1);
+});
+
+
+test("deleting or undoing a dashboard task removes its exported TickTick copy", async () => {
+ const t = addTodo({ title: "Undo this task", day: day() });
+ await sync(); const id = listTodos()[0].ticktick!.id;
+ removeTodo(t.id); await sync(); assert.equal(remote[id], undefined); assert.equal(listTodos().length, 0);
+});
+
+
+test("initial migration preserves work explicitly completed in TickTick", async () => {
+ const t = addTodo({ title: "Already finished remotely", day: day() });
+ remote.existing = { id: "existing", projectId: "inbox-test", title: t.title, status: 2, priority: 0, content: "", dueDate: "", isAllDay: true };
+ applyTaskSync(t.id, t.updatedAt, { id: "existing", projectId: "inbox-test" });
+ await sync(); assert.equal(listTodos()[0].done, true); assert.equal(remote.existing.status, 2);
 });

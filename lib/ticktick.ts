@@ -202,3 +202,7 @@ export async function syncTasks(inboxIds: string[]): Promise<RawTask[]> {
   }
   return [...tasks.values()];
 }
+
+export async function deleteTask(projectId: string, id: string) {
+  await tt(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(id)}`, { method: "DELETE" });
+}

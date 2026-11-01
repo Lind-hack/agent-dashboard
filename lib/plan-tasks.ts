@@ -7,8 +7,8 @@ export function linkPlanTasks(day: string, blocks: PlanBlock[]): PlanBlock[] {
   return blocks.map((b) => {
     if (b.kind === "break" || b.kind === "routine") return { ...b, taskId: undefined };
     if (b.taskId) {
-      if (!listTodos().some((t) => t.id === b.taskId)) throw new Error(`Unknown task for ${b.title}`);
-      return b;
+      // A deleted task must not be resurrected by replanning an old reservation.
+      return listTodos().some((t) => t.id === b.taskId) ? b : { ...b, taskId: undefined, kind: "focus" };
     }
     if (b.kind !== "task") return b;
     const found = listTodos().find((t) => t.day === day && !t.done && t.title.trim().toLowerCase() === b.title.trim().toLowerCase());
