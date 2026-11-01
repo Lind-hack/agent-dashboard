@@ -28,6 +28,7 @@ GITHUB_TOKEN=
 AGENT_REPOS=Lind-hack/383lajme,Lind-hack/agent-dashboard,Lind-hack/learning-lab
 DASHBOARD_PASSWORD=$(openssl rand -base64 18)
 SESSION_SECRET=$(openssl rand -hex 32)
+WIDGET_READ_TOKEN=$(openssl rand -hex 32)
 EOF
   echo "Wrote $ENV_FILE — fill in the empty keys (sudo nano $ENV_FILE)."
 fi

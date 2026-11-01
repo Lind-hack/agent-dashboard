@@ -1,8 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
 import { isBearerRoute } from "@/lib/bearer-routes";
+import { isWidgetRoute, widgetAccess, WIDGET_HEADERS } from "@/lib/widget/auth";
 
 export async function proxy(request: NextRequest) {
+  if (isWidgetRoute(request.nextUrl.pathname)) {
+    return widgetAccess(request) ?? NextResponse.next({ headers: WIDGET_HEADERS });
+  }
   // Scripts on the PC (hand-off, Google sign-in, memory-notes sync) use a bearer token instead of the login cookie.
   const handoff = process.env.HANDOFF_TOKEN;
   if (
