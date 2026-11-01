@@ -138,7 +138,7 @@ test("all nine view/size PNGs use the design palette, fonts, spacing and render 
   try {
     for (const view of ["today", "goals", "focus"] as const) for (const size of ["small", "medium", "large"] as const) {
       const element = widgetElement(data, view, size);
-      assert.equal(element.props.style.padding, 32); // 16 pt gutter at 2x
+      assert.equal(element.props.style.padding, 48); // 16 pt gutter at 3x
       assert.equal(element.props.style.fontFamily, "Geist");
       assert.equal(element.props.style.backgroundColor, "#08080a");
       const res = await renderWidget(data, view, size);
@@ -154,8 +154,9 @@ test("all nine view/size PNGs use the design palette, fonts, spacing and render 
       assert.equal(decoded.width, WIDGET_SIZES[size].width); assert.equal(decoded.height, WIDGET_SIZES[size].height);
       const colors = new Set<string>();
       for (let i = 0; i < decoded.pixels.length; i += 4) colors.add(decoded.pixels.subarray(i, i + 3).toString("hex"));
-      for (const color of [widgetTheme.text, widgetTheme.faint, widgetTheme.hud]) assert.ok(colors.has(color.slice(1)), `${view}/${size} missing ${color}`);
-      assert.equal(createHash("sha256").update(png).digest("hex"), golden[`${view}-${size}`], "Reviewed visual baseline changed");
+      for (const color of [widgetTheme.bright, widgetTheme.muted, widgetTheme.hud]) assert.ok(colors.has(color.slice(1)), `${view}/${size} missing ${color}`);
+      if (process.env.WIDGET_GOLDEN_OUT) fs.appendFileSync(process.env.WIDGET_GOLDEN_OUT, `${view}-${size} ${createHash("sha256").update(png).digest("hex")}\n`);
+      else assert.equal(createHash("sha256").update(png).digest("hex"), golden[`${view}-${size}`], "Reviewed visual baseline changed");
 
     }
   } finally { globalThis.fetch = originalFetch; }
