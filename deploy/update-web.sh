@@ -20,6 +20,8 @@ mkdir -m 700 "$STAGE"
 git -C "$APP" rev-parse HEAD > "$STAGE/previous-sha"
 printf '%s\n' "$SHA" > "$STAGE/release-sha"
 cp -a "$RELEASE/.next" "$STAGE/.next"
+# Node resolves imports from the real build path when .next is a symlink.
+ln -s "$APP/node_modules" "$STAGE/node_modules"
 # Keep old static URLs available for phones with an already-open tab.
 cp -an "$APP/.next/static/." "$STAGE/.next/static/"
 git -C "$APP" fetch --no-tags "$RELEASE" "$SHA"
