@@ -186,8 +186,12 @@ export function tzOffsetMinutes(tz: string, at: Date): number {
 }
 
 // Full task records for durable dashboard sync. Missing tasks are errors, never completions.
-export const getTask = (projectId: string, id: string) =>
-  tt<RawTask>(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(id)}`);
+export async function getTask(projectId: string, id: string): Promise<RawTask> {
+  const task = await tt<RawTask | null>(`/project/${encodeURIComponent(projectId)}/task/${encodeURIComponent(id)}`);
+  // TickTick can return HTTP 200 with null for a deleted task, rather than a 404.
+  if (!task?.id || !task.projectId) throw new Error("TickTick task no longer exists. Your local task is still saved.");
+  return task;
+}
 export const putTask = (body: Partial<RawTask> & { title: string; projectId: string }) =>
   tt<RawTask>(body.id ? `/task/${encodeURIComponent(body.id)}` : "/task", { method: "POST", body: JSON.stringify(body) });
 

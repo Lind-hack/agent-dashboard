@@ -135,3 +135,13 @@ test("initial migration preserves work explicitly completed in TickTick", async 
  applyTaskSync(t.id, t.updatedAt, { id: "existing", projectId: "inbox-test" });
  await sync(); assert.equal(listTodos()[0].done, true); assert.equal(remote.existing.status, 2);
 });
+
+
+test("HTTP 200 with a null deleted-task body never creates replacement copies", async () => {
+ const t = addTodo({ title: "Deleted on TickTick", day: day() });
+ applyTaskSync(t.id, t.updatedAt, { id: "deleted", projectId: "inbox-test" });
+ const api = global.fetch;
+ global.fetch = (async (url: string | URL | Request, init?: RequestInit) => String(url).endsWith("/task/deleted") ? new Response("null") : api(url, init)) as typeof fetch;
+ const result = await syncDashboardTasks(); assert.match(result.errors[t.id], /no longer exists/);
+ assert.equal(creates, 0); assert.equal(listTodos()[0].done, false);
+});
