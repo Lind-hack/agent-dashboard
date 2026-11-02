@@ -156,7 +156,7 @@ export async function planDay(note: string, opts: { useSol?: boolean; keep?: Pla
     `Free slots (only schedule inside these): ${slots.map((s) => `${toHHMM(s.start)}-${toHHMM(s.end)}`).join(", ")}`,
     `Fixed events: ${t.events.filter((e) => !e.allDay && !e.planned).map((e) => `${clock(t.tz, new Date(e.start))}-${clock(t.tz, new Date(e.end))} ${e.title}`).join("; ") || "none"}`,
     `All-day: ${t.events.filter((e) => e.allDay).map((e) => e.title).join("; ") || "none"}`,
-    `Open tasks (id | priority | deadline | minutes of work left | goal | title):\n${taskList.map((x) => `${x.id} | ${pri[x.priority]} | ${dueOf(x)} | ${remainingMin(x)} | ${x.goalId ?? "—"} | ${x.title}${x.subtasks.length ? ` (steps left: ${x.subtasks.filter((st) => !st.done).map((st) => st.title).join("; ")})` : ""}`).join("\n") || "none"}`,
+    `Open tasks (id | priority | deadline | minutes of work left | goal | title):\n${taskList.map((x) => `${x.id} | ${pri[x.priority]} | ${dueOf(x)} | ${remainingMin(x)} | ${x.goalId ?? "—"} | ${x.source === "mentor" ? "[MENTOR ORDER] " : ""}${x.title}${x.subtasks.length ? ` (steps left: ${x.subtasks.filter((st) => !st.done).map((st) => st.title).join("; ")})` : ""}`).join("\n") || "none"}`,
     `Standing priorities from the vault: ${t.priorities.join(" / ") || "none"}`,
     `Active goals from the vault (id | horizon | next action | why | due | this week so far):\n${t.goals.map((g) => `${g.id} | ${g.horizon} | ${g.title} → ${g.next || "choose the next action"} | ${g.why || "—"} | ${g.due ?? "no date"} | ${weekly(g.id)}`).join("\n") || "none"}`,
     ...(await learned(t.today, t.goals)),
@@ -167,6 +167,7 @@ export async function planDay(note: string, opts: { useSol?: boolean; keep?: Pla
   const SYSTEM = `You plan Lind's day into time blocks. He's a CS student building AI products and running a news site.
 Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "title": string, "kind": "task"|"focus"|"break"|"routine", "taskId": string|null, "goalId": string|null}]}.
 - Only inside the free slots, never overlapping each other. Blocks in 15-minute steps.
+- Tasks marked [MENTOR ORDER] are today's orders from his mentor for his goals: book every one of them first, before anything else that can move, sized to its minutes, the hardest in the morning.
 - Goals first: each active goal's next action gets a "focus" block long enough to make real progress (45–120 min) before generic tasks, unless Lind's note says otherwise. Goals furthest behind their weekly target get the earliest and longest block; the hardest goal block goes in the morning.
 - Then every task with a deadline today must land BEFORE its deadline; then overdue and high-priority tasks, sized to their minutes of work left; then the standing priorities as deep "focus" blocks (60–120 min).
 - The point is finishing the day's list: if everything can't fit, schedule the most important and say in the summary which tasks won't fit.
