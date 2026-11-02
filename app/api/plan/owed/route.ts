@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { owed } from "@/lib/accountability";
 import { syncCalendar } from "@/lib/autopilot";
+import { addDays } from "@/lib/calendar";
 import { calendarBusy, coachNow, nextFreeSlot } from "@/lib/coach";
-import { dropMissed, rescheduleBlock } from "@/lib/plan-store";
+import { dropMissed, readPlan, rescheduleBlock } from "@/lib/plan-store";
+import { updateTodo } from "@/lib/todos";
 
 export const dynamic = "force-dynamic";
 
-// Strict blocks (v5.4): missed blocks wait for Lind's decision.
+// Strict blocks (v5.4): missed blocks the runner couldn't fit back into today wait for Lind's decision.
+// v5.4.1: "tomorrow" is his explicit "I can't do this today" — the block goes to tomorrow at the same
+// time, and its task with it.
 // GET → what he owes a decision on. POST { day, id, action: "back", start? } → into today's next free
 // slot (or at `start`); POST { day, id, action: "drop", reason } → let go, with the reason on the record.
 export async function GET() {
@@ -28,6 +32,15 @@ export async function POST(request: Request) {
     if (!start) return NextResponse.json({ error: "No free time left today — drop it with a reason, or move something." }, { status: 409 });
     const block = rescheduleBlock(item.day, item.id, start, today, true);
     if (!block) return NextResponse.json({ error: "Couldn't put it back." }, { status: 409 });
+    const calendar = await syncCalendar(today).catch((e) => String(e));
+    return NextResponse.json({ ok: true, block, warning: calendar || undefined });
+  }
+  if (b?.action === "tomorrow") {
+    const tomorrow = addDays(today, 1);
+    const taskId = readPlan(item.day)?.blocks.find((x) => x.id === item.id)?.taskId;
+    const block = rescheduleBlock(item.day, item.id, item.start, tomorrow, true);
+    if (!block) return NextResponse.json({ error: "Couldn't move it." }, { status: 409 });
+    if (taskId) updateTodo(taskId, { day: tomorrow });
     const calendar = await syncCalendar(today).catch((e) => String(e));
     return NextResponse.json({ ok: true, block, warning: calendar || undefined });
   }

@@ -94,7 +94,7 @@ export default async function MirrorPage({ searchParams }: { searchParams: Promi
           <p className={cn("mt-1 text-[26px] leading-none font-black tracking-[-0.03em] uppercase", VERDICT_TONE[picked.verdict])}>{VERDICT_WORDS[picked.verdict]}</p>
           {picked.verdict !== "no-plan" && (
             <p className="tnum mt-2 text-[13px] text-muted">
-              Said {fmtMin(picked.saidMin)} · did {fmtMin(picked.didMin)} · {picked.done}/{picked.blocks} done · {picked.missed} missed · {picked.onTimeRate}% on time
+              {picked.itemsTotal !== undefined ? `${picked.itemsDone ?? 0} of ${picked.itemsTotal} things done` : `Said ${fmtMin(picked.saidMin)} · did ${fmtMin(picked.didMin)}`} · {picked.done}/{picked.blocks} blocks · {picked.missed} missed · {picked.onTimeRate}% on time
             </p>
           )}
         </div>

@@ -20,7 +20,7 @@ let running = false;
 const PUSH: Record<Step, (l: StepLog) => { title: string; body: string } | null> = {
   morning: (l) => (l.skipped ? null : { title: `Your day is planned: ${l.blocks ?? 0} blocks`, body: `${l.summary.slice(0, 120)} — tap to see it or undo.` }),
   midday: (l) => (l.skipped ? null : { title: `Afternoon re-planned: ${l.blocks ?? 0} blocks`, body: `${l.summary.slice(0, 120)} — tap to see it or undo.` }),
-  evening: (l) => (l.moved ? { title: `${l.moved} task${l.moved > 1 ? "s" : ""} moved to tomorrow`, body: "Tap to see them or undo." } : null),
+  evening: (l) => (l.left ? { title: `${l.left} task${l.left > 1 ? "s" : ""} still open`, body: "Finish them, or pick which ones you can't do today and push them to tomorrow." } : null),
 };
 
 // A step is settled once it has a result that isn't waiting for a retry.
@@ -65,7 +65,7 @@ export function autopilotTick(minute: string) {
             title: p.title,
             body: p.body,
             push: p,
-            href: `/calendar?autopilot=${step}#autopilot`,
+            href: step === "evening" ? "/calendar#push" : `/calendar?autopilot=${step}#autopilot`,
             priority: 2,
             expiresAt: new Date(Date.now() + 6 * 3600_000).toISOString(),
           });

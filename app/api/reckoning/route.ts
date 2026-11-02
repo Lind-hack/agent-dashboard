@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   const reply = await reckonReply(pre, text, record).catch(() => "");
   const r = reply ? answer(day, text, reply) : pre;
   try {
-    addEntry(day, `Reckoning — ${VERDICT_WORDS[r.verdict]} ${r.didMin} of ${r.saidMin} planned minutes done, ${r.missed} missed. ${text}`, "text");
+    addEntry(day, `Reckoning — ${VERDICT_WORDS[r.verdict]} ${r.itemsTotal !== undefined ? `${r.itemsDone ?? 0} of ${r.itemsTotal} things done` : `${r.didMin} of ${r.saidMin} planned minutes done`}, ${r.missed} missed. ${text}`, "text");
     invalidateMemory();
   } catch {
     // the journal is a bonus; the reckoning itself is saved

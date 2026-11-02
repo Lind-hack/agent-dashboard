@@ -97,7 +97,15 @@ export function ReckoningGate() {
           <p className="mt-6 text-[clamp(1.25rem,4.5vw,1.7rem)] leading-snug font-semibold">You didn&apos;t plan a single block. There&apos;s nothing to measure — that&apos;s the point.</p>
         ) : (
           <p className="tnum mt-6 text-[clamp(1.25rem,4.5vw,1.75rem)] leading-snug font-semibold">
-            You said <span className="text-white">{fmtMin(r.saidMin)}</span>. You did <span className={VERDICT_TONE[r.verdict]}>{fmtMin(r.didMin)}</span>.
+            {r.itemsTotal !== undefined ? (
+              <>
+                You did <span className={VERDICT_TONE[r.verdict]}>{r.itemsDone ?? 0}</span> of <span className="text-white">{r.itemsTotal}</span> things you had today.
+              </>
+            ) : (
+              <>
+                You said <span className="text-white">{fmtMin(r.saidMin)}</span>. You did <span className={VERDICT_TONE[r.verdict]}>{fmtMin(r.didMin)}</span>.
+              </>
+            )}
           </p>
         )}
         <p className="tnum mt-2 font-mono text-[13px] text-white/60">

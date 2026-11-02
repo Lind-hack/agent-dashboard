@@ -67,7 +67,7 @@ test("goals save to the dashboard even when the vault isn't writable, weekly tar
   assert.equal(g[0].weeklyMin, 360);
 });
 
-test("evening rollover moves open tasks to tomorrow, and undo puts them back", async () => {
+test("the evening step moves nothing — open tasks stay until Lind pushes them himself", async () => {
   const day = coachNow().day;
   const a = addTodo({ title: "Open one", day });
   const b = addTodo({ title: "Old open", day: shiftDay(day, -2) });
@@ -75,20 +75,13 @@ test("evening rollover moves open tasks to tomorrow, and undo puts them back", a
   const { updateTodo } = await import("../lib/todos");
   updateTodo(c.id, { done: true });
   const log = runEvening();
-  assert.equal(log.moved, 2);
-  const tomorrow = shiftDay(day, 1);
+  assert.equal(log.moved, 0);
+  assert.equal(log.left, 2);
   const byId = new Map(listTodos().map((t) => [t.id, t]));
-  assert.equal(byId.get(a.id)!.day, tomorrow);
-  assert.equal(byId.get(b.id)!.day, tomorrow);
-  assert.equal(byId.get(c.id)!.day, day);
+  assert.equal(byId.get(a.id)!.day, day);
+  assert.equal(byId.get(b.id)!.day, shiftDay(day, -2));
   assert.ok(readAutopilot(day).steps.evening);
-  const u = await undoStep(day, "evening");
-  assert.equal(u.ok, true);
-  const after = new Map(listTodos().map((t) => [t.id, t]));
-  assert.equal(after.get(a.id)!.day, day);
-  assert.equal(after.get(b.id)!.day, shiftDay(day, -2));
-  assert.ok(readAutopilot(day).steps.evening?.undoneAt);
-  assert.equal((await undoStep(day, "evening")).ok, false); // only once
+  assert.equal((await undoStep(day, "evening")).ok, false, "nothing was moved, so there's nothing to undo");
 });
 
 test("a stale lock left by a crashed process is taken over; a live one is not", () => {

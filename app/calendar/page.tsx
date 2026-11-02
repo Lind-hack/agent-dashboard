@@ -9,6 +9,7 @@ import { Empty, Panel, SectionTitle, StatusPill } from "@/components/kit";
 import { SectionHero } from "@/components/motion";
 import { NowCard, type NowItem } from "@/components/now-card";
 import { OwedGate } from "@/components/owed-gate";
+import { PushTomorrow } from "@/components/push-tomorrow";
 import { PlanDay, TickTickConnect } from "@/components/today";
 import { TodayPlan } from "@/components/today-plan";
 import { TodoBoard } from "@/components/todo-board";
@@ -110,6 +111,9 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       <TaskSync />
 
       <DayBoard initial={board()} />
+      <div className="mt-3">
+        <PushTomorrow tasks={[...t.todos.overdue.map((x) => ({ id: x.id, title: x.title, overdue: true })), ...t.todos.today.map((x) => ({ id: x.id, title: x.title, overdue: false }))]} tomorrow={addDays(t.today, 1)} />
+      </div>
 
       <div id="plan" className="mt-6 scroll-mt-20">
         <PlanDay canWrite={google} planned={planned} initialNote={replan} />
