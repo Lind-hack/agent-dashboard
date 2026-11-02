@@ -1,14 +1,14 @@
 "use client";
 
-import { LoaderCircle, RotateCcw, X } from "lucide-react";
+import { CalendarArrowUp, LoaderCircle, RotateCcw, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Owed } from "@/lib/accountability";
 import { cn } from "@/lib/utils";
 
-// Strict blocks (v5.4): every block whose time came and went unstarted sits here, on Today and Home,
-// until Lind decides — put it back into today's next free slot, or drop it and say why. Nothing
-// moves itself; the reason goes on tonight's mirror.
+// Strict blocks (v5.4): a missed block goes back into today's free time by itself; the ones that no
+// longer fit sit here, on Today and Home, until Lind decides — try again today, push it to tomorrow
+// (his "I can't do this today"), or drop it and say why. The reason goes on tonight's mirror.
 
 export function OwedGate({ owed, today }: { owed: Owed[]; today: string }) {
   const router = useRouter();
@@ -18,7 +18,7 @@ export function OwedGate({ owed, today }: { owed: Owed[]; today: string }) {
   const [err, setErr] = useState("");
   if (!owed.length) return null;
 
-  async function act(o: Owed, action: "back" | "drop") {
+  async function act(o: Owed, action: "back" | "drop" | "tomorrow") {
     setBusy(`${action}:${o.id}`);
     setErr("");
     try {
@@ -37,9 +37,9 @@ export function OwedGate({ owed, today }: { owed: Owed[]; today: string }) {
   return (
     <section id="owed" aria-labelledby="owed-title" className="scroll-mt-24 overflow-hidden rounded-[var(--radius-panel)] border border-bad/45 bg-[#1a0707]">
       <div className="border-b border-bad/25 px-4 py-3 sm:px-5">
-        <p className="font-mono text-[10.5px] tracking-[0.18em] text-bad uppercase">Missed · decide now</p>
+        <p className="font-mono text-[10.5px] tracking-[0.18em] text-bad uppercase">Missed · no room left today</p>
         <h2 id="owed-title" className="mt-1 text-[1.2rem] leading-tight font-semibold tracking-[-0.02em]">
-          {owed.length === 1 ? "You skipped a block. Put it back or let it go — with a reason." : `You skipped ${owed.length} blocks. Each one needs a decision.`}
+          {owed.length === 1 ? "You skipped a block and today is full. Your call." : `You skipped ${owed.length} blocks and today is full. Your call on each.`}
         </h2>
       </div>
       <ul>
@@ -52,8 +52,11 @@ export function OwedGate({ owed, today }: { owed: Owed[]; today: string }) {
               </span>
               <span className="min-w-0 flex-1 text-[15px] font-medium line-through decoration-bad/60 decoration-2">{o.title}</span>
               <div className="flex gap-2">
-                <button onClick={() => void act(o, "back")} disabled={!!busy} className="press flex h-10 items-center gap-1.5 rounded-[11px] bg-white px-3.5 text-[13.5px] font-semibold text-black disabled:opacity-60">
-                  {busy === `back:${o.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Put it back
+                <button onClick={() => void act(o, "back")} disabled={!!busy} title="Into the next free slot today" className="press flex h-10 items-center gap-1.5 rounded-[11px] bg-white px-3.5 text-[13.5px] font-semibold text-black disabled:opacity-60">
+                  {busy === `back:${o.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />} Today
+                </button>
+                <button onClick={() => void act(o, "tomorrow")} disabled={!!busy} title="I can't do it today — same time tomorrow" className="press flex h-10 items-center gap-1.5 rounded-[11px] border border-line px-3.5 text-[13.5px] text-text disabled:opacity-60">
+                  {busy === `tomorrow:${o.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CalendarArrowUp className="h-4 w-4" />} Tomorrow
                 </button>
                 <button onClick={() => setAsking(asking === o.id ? null : o.id)} disabled={!!busy} aria-expanded={asking === o.id} className={cn("press flex h-10 items-center gap-1.5 rounded-[11px] border px-3.5 text-[13.5px] disabled:opacity-60", asking === o.id ? "border-bad text-bad" : "border-line text-muted hover:text-text")}>
                   <X className="h-4 w-4" /> Drop it

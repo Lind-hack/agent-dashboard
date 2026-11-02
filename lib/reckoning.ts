@@ -4,6 +4,7 @@ import { keptStreak, mirror, type Mirror } from "./accountability";
 import { addDays } from "./calendar";
 import { clockNow, coachNow, coachTz } from "./coach";
 import { DATA_DIR } from "./config";
+import { tally } from "./day-tally";
 import { habitProgress } from "./habits";
 import { VERDICT_WORDS, type DayVerdict } from "./verdict";
 
@@ -18,8 +19,12 @@ export { VERDICT_WORDS, type DayVerdict };
 export type Reckoning = {
   day: string;
   verdict: DayVerdict;
-  saidMin: number; // minutes of blocks he planned (breaks aside)
+  saidMin: number; // minutes of blocks he planned (breaks aside) — kept for old days; not shown since v5.4
   didMin: number; // minutes of those he really did
+  // v5.4 (Lind: "count the tasks I did, not the minutes"): the day's habits, tasks and blocks, each once,
+  // and how many got done. The verdict comes from these.
+  itemsDone?: number;
+  itemsTotal?: number;
   blocks: number;
   done: number;
   missed: number;
@@ -59,9 +64,13 @@ export function verdictOf(m: Mirror): Pick<Reckoning, "verdict" | "saidMin" | "d
 export function snapshot(day: string, nowMs = Date.now()): Reckoning {
   const m = mirror(day, nowMs);
   const hp = habitProgress(day);
+  const t = tally(day, nowMs);
   return {
     day,
     ...verdictOf(m),
+    verdict: t.verdict,
+    itemsDone: t.done,
+    itemsTotal: t.total,
     blocks: m.rows.length,
     done: m.done,
     missed: m.missed + m.notStarted,
@@ -120,14 +129,14 @@ export function answer(day: string, text: string, reply?: string): Reckoning {
   return r;
 }
 
-// The wall: the last `n` days, oldest first — answered days as he left them, the rest from the plans.
+// The wall: the last `n` days, oldest first. Every day's colour is its count verdict (v5.4) — things
+// done of things on the day — so the wall reads the same as the mirror, whatever was stored back then.
 export function wall(n = 56, at = new Date()): { day: string; verdict: DayVerdict | null; answered: boolean }[] {
   const today = coachNow(at).day;
   return Array.from({ length: n }, (_, i) => addDays(today, i - n + 1)).map((day) => {
     const r = readReckoning(day);
-    if (r) return { day, verdict: r.verdict, answered: !!r.answeredAt };
-    if (day === today) return { day, verdict: null, answered: false };
-    const m = mirror(day, Number.MAX_SAFE_INTEGER);
-    return { day, verdict: m.rows.length ? verdictOf(m).verdict : null, answered: false };
+    if (day === today && !r) return { day, verdict: null, answered: false };
+    const t = tally(day, Number.MAX_SAFE_INTEGER);
+    return { day, verdict: t.total ? t.verdict : (r?.verdict ?? null), answered: !!r?.answeredAt };
   });
 }

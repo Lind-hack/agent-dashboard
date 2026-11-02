@@ -53,7 +53,7 @@ export async function writePush(day: string): Promise<Push> {
     `Yesterday (${y}), said vs did:\n${mirrorText(mirror(y, Number.MAX_SAFE_INTEGER))}`,
     `Kept-days streak: ${s.days} (a kept day = every block done, nothing missed, 80%+ started on time).`,
     `Yesterday's habits: ${habitsFor(y).map((h) => `${h.habit.title} ${h.done ? "done" : `NOT done (${h.value}/${h.habit.target}${h.habit.unit ? ` ${h.habit.unit}` : ""})`}`).join("; ") || "none set"}`,
-    ...(last?.answer ? [`Last night's reckoning (${last.day}): verdict ${last.verdict}, he did ${last.didMin} of ${last.saidMin} planned minutes. His answer: "${last.answer.slice(0, 600)}"`] : []),
+    ...(last?.answer ? [`Last night's reckoning (${last.day}): verdict ${last.verdict}, he did ${last.itemsTotal !== undefined ? `${last.itemsDone ?? 0} of ${last.itemsTotal} things on his day` : `${last.didMin} of ${last.saidMin} planned minutes`}. His answer: "${last.answer.slice(0, 600)}"`] : []),
     `His patterns, last two weeks:\n${patterns(day).lines.join("\n") || "(not enough blocks yet)"}`,
     `Today's plan:\n${plan.map((b) => `- ${b.start}–${b.end} ${b.title}`).join("\n") || "NO PLAN YET — he hasn't planned the day."}`,
     `Goals this week:\n${goals.map((g) => `- ${g.goal.title}: ${g.weekMin} of ${g.targetMin} min${g.goal.why ? ` — why: ${g.goal.why}` : ""}`).join("\n") || "none set"}`,
@@ -83,7 +83,7 @@ export async function writePush(day: string): Promise<Push> {
 // The coach's answer to Lind's reckoning: his excuse, against the numbers. 2-4 sentences.
 export async function reckonReply(r: Reckoning, said: string, record: string): Promise<string> {
   const system = `Lind just answered for his day in front of the accountability mirror. You answer him in the spirit of David Goggins: a reality check. If the day was ENOUGH, acknowledge it in one hard line and raise the bar for tomorrow. If not, take his answer apart against the numbers — separate the reason from the excuse, call out softness or self-pity if it's there — then give the one thing he does differently tomorrow, with a time. 2-4 sentences, second person, no quotes of anyone, no emojis. Return JSON {"reply": string}.`;
-  const user = `Verdict: ${VERDICT_WORDS[r.verdict]} He planned ${r.saidMin} minutes and did ${r.didMin}; ${r.missed} blocks missed, ${r.onTimeRate}% started on time, streak ${r.streak}.\nThe record:\n${record}\n\nHis answer: "${said}"`;
+  const user = `Verdict: ${VERDICT_WORDS[r.verdict]} ${r.itemsTotal !== undefined ? `He had ${r.itemsTotal} things on his day (habits, tasks, blocks) and did ${r.itemsDone ?? 0}` : `He planned ${r.saidMin} minutes and did ${r.didMin}`}; ${r.missed} blocks missed, ${r.onTimeRate}% started on time, streak ${r.streak}.\nThe record:\n${record}\n\nHis answer: "${said}"`;
   const out = await groqJSON<{ reply: string }>(system, user, 0.6, { maxTokens: 500, timeoutMs: 30_000 }).catch(() => null);
   if (out?.reply) return out.reply.trim();
   if (!nvidiaReady()) return "";

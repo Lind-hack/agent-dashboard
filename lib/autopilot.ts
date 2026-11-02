@@ -1,25 +1,27 @@
 import fs from "node:fs";
 import path from "node:path";
-import { addDays, calendarConnected, replacePlan, type PlanBlock } from "./calendar";
+import { calendarConnected, replacePlan, type PlanBlock } from "./calendar";
 import { clockNow, coachNow, coachTz, dayProgress } from "./coach";
 import { DATA_DIR } from "./config";
 import { withLock } from "./file-lock";
 import { activeBlocks, readPlan, restorePlan, savePlanIf, type DayPlan, type StoredBlock } from "./plan-store";
 import { planDay, writePlanNote } from "./planner";
-import { rolloverOpen, setTodoDays, todosFor } from "./todos";
+import { setTodoDays, todosFor } from "./todos";
 
 // Autopilot (v5.1, Lind's pick: fully automatic + undo). The runner does three things every day:
 // - morning (07:30): Sol plans the day from tasks, goals and calendar and puts the blocks on Google
 //   Calendar — unless Lind already made a plan for today.
 // - midday (13:00): Sol re-plans the rest of the day around what's done; done and running blocks stay.
-// - evening (21:20): unfinished tasks move to tomorrow.
+// - evening (21:20): counts what's unfinished and asks (v5.4.1, Lind: "not just move them
+//   automatically") — tasks stay on his list, carried as overdue and re-planned, until he picks which
+//   ones go to tomorrow on Today.
 // Each step saves a snapshot first and records what it did in data/autopilot/<day>.json, so Today can
 // show it and one tap undoes it (the plan file, the calendar blocks still ahead, the tasks' days).
 
 export type Step = "morning" | "midday" | "evening";
 // failed: retryable (the runner tries again); calendarPending: the plan is saved but the calendar
 // write failed, so only that is retried.
-export type StepLog = { at: string; summary: string; blocks?: number; moved?: number; model?: string; skipped?: string; error?: string; failed?: boolean; calendarPending?: boolean; undoneAt?: string };
+export type StepLog = { at: string; summary: string; blocks?: number; moved?: number; left?: number; model?: string; skipped?: string; error?: string; failed?: boolean; calendarPending?: boolean; undoneAt?: string };
 export type AutopilotDay = { day: string; steps: Partial<Record<Step, StepLog>> };
 type Snapshot = { plan: DayPlan | null; todos: { id: string; day: string; due?: string }[] };
 
@@ -143,11 +145,9 @@ export function runEvening(): StepLog {
   const day = coachNow().day;
   const at = new Date().toISOString();
   const t = todosFor(day);
-  // Picked, remembered and moved in one locked step, so a task ticked a moment ago isn't moved.
-  const open = rolloverOpen(day, addDays(day, 1));
-  if (!open.length) return logged(day, "evening", { at, summary: t.done.length ? `All ${t.done.length} tasks done today.` : "No open tasks to move.", moved: 0 });
-  writeJSON(snapFile(day, "evening"), { plan: null, todos: open.map((x) => ({ id: x.id, day: x.day, due: x.due })) } satisfies Snapshot);
-  return logged(day, "evening", { at, summary: `Moved ${open.length} unfinished task${open.length > 1 ? "s" : ""} to tomorrow: ${open.slice(0, 3).map((x) => x.title).join(", ")}${open.length > 3 ? "…" : ""}.`, moved: open.length });
+  const open = [...t.overdue, ...t.today];
+  if (!open.length) return logged(day, "evening", { at, summary: t.done.length ? `All ${t.done.length} tasks done today.` : "No open tasks.", moved: 0, left: 0 });
+  return logged(day, "evening", { at, summary: `${open.length} task${open.length > 1 ? "s" : ""} still open: ${open.slice(0, 3).map((x) => x.title).join(", ")}${open.length > 3 ? "…" : ""}. They stay on your list until you push them.`, moved: 0, left: open.length });
 }
 
 function logged(day: string, step: Step, log: StepLog): StepLog {

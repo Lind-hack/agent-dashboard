@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 const STEPS: { key: Step; label: string; at: string }[] = [
   { key: "morning", label: "Morning plan", at: "07:30" },
   { key: "midday", label: "Midday re-plan", at: "13:00" },
-  { key: "evening", label: "Evening rollover", at: "21:20" },
+  { key: "evening", label: "Evening check", at: "21:20" },
 ];
 
 export function AutopilotStrip({ initial, enabled: initialEnabled, highlight }: { initial: AutopilotDay; enabled: boolean; highlight?: string }) {

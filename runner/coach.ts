@@ -1,10 +1,12 @@
 import { keptStreak, mirror, mirrorText } from "../lib/accountability";
+import { syncCalendar } from "../lib/autopilot";
 import { addDays } from "../lib/calendar";
-import { buildRecap, clockNow, coachNow, coachTz, goalProgress, readRecap, saveRecap, zonedMs } from "../lib/coach";
+import { buildRecap, calendarBusy, clockNow, coachNow, coachTz, goalProgress, nextFreeSlot, readRecap, saveRecap, zonedMs } from "../lib/coach";
 import { coachMoments } from "../lib/coach-moments";
+import { tally } from "../lib/day-tally";
 import { groqJSON } from "../lib/groq";
 import { readPush, writePush } from "../lib/goggins";
-import { activeBlocks, readPlan } from "../lib/plan-store";
+import { activeBlocks, readPlan, rescheduleBlock } from "../lib/plan-store";
 import { assistantTick, eveningNote } from "./assistant";
 import { autopilotTick, stepSettled } from "./autopilot";
 import { buddyTick } from "./buddy";
@@ -15,7 +17,7 @@ import { notify, sweepNotices } from "./notify";
 // plan reminder at 07:30 when there's no plan, and the 21:30 recap scored against his goals.
 // Every push opens /focus on that block, where one tap starts, finishes, shrinks or moves it.
 // Goggins mode (v5.2, Lind's pick): the wording has no cushion; a block that comes and goes without
-// being started waits for his decision — put back or dropped with a reason (v5.4; it used to move itself); the recap is the
+// being started goes back into free time today, as often as it's missed; only he pushes to tomorrow (v5.4.1); the recap is the
 // "accountability mirror" — said vs did, block by block — with the kept-days streak; and at 07:40
 // (after Autopilot's morning plan) a long push in the spirit of David Goggins, written from his record.
 
@@ -73,23 +75,31 @@ async function run(tz: string, minute: string) {
     if (sent) log(m.kind, b.id);
   }
 
-  // A block that came and went without being started (v5.4, strict): nothing moves on its own any
-  // more. He's told once, and Today and Home hold it in front of him until he puts it back or drops it
-  // with a reason — the reason goes on the mirror.
+  // A block that came and went without being started goes back into free time today — every time it's
+  // missed, not just once (v5.4.1, Lind: "rescheduling should happen automatically until I clearly say I
+  // can't finish"). Only he moves anything to tomorrow. When today has no room left, it waits on Home
+  // and Today for his call: push to tomorrow, or drop it with a reason.
   for (const b of blocks) {
     if (b.kind === "break" || b.status !== "planned" || b.startedAt || b.rescheduledTo) continue;
     if (Date.now() < b.endMs || Date.now() > b.endMs + 60 * 60_000) continue;
+    const len = Math.round((b.endMs - b.startMs) / 60_000);
+    const slot = nextFreeSlot(len, new Date(), await calendarBusy().catch(() => []));
+    const moved = slot ? rescheduleBlock(day, b.id, slot, day, true) : null;
+    if (moved) {
+      const calErr = await syncCalendar(day);
+      if (calErr) log("reschedule calendar", calErr);
+    }
     const sent = await notify({
       key: `coach:missed:${b.id}`,
       kind: "coach",
       title: `Missed: ${b.title}`,
-      body: `${b.start}–${b.end} came and went. Put it back into today or drop it — and say why. It stays in front of you until you decide.`,
-      push: { title: `Missed: ${b.title}`, body: "Put it back or drop it with a reason. Decide now." },
-      href: "/calendar#owed",
-      priority: 3,
+      body: moved ? `${b.start}–${b.end} came and went. It's back at ${moved.start}–${moved.end}. Miss it again and it comes back again.` : `${b.start}–${b.end} came and went and today is full. Push it to tomorrow or drop it — your call, on Today.`,
+      push: { title: `Missed: ${b.title}`, body: moved ? `Back at ${moved.start}. Be there.` : "No room left today — push it to tomorrow or drop it." },
+      href: moved ? `/focus?block=${encodeURIComponent(moved.id)}` : "/calendar#owed",
+      priority: moved ? 2 : 3,
       expiresAt: new Date(Date.now() + 6 * 3600_000).toISOString(),
     });
-    if (sent) log("missed", b.id);
+    if (sent) log("missed", b.id, moved ? `→ ${moved.start}` : "no slot");
   }
 
   // The morning push, once Autopilot's morning step has settled (or by 09:00 regardless).
@@ -151,7 +161,7 @@ async function run(tz: string, minute: string) {
     const sol = eveningNote(day);
     const out = sol ? { note: sol } : await groqJSON<{ note: string }>(
       `You are Lind's coach in Goggins mode: the accountability mirror. Write his evening recap in 3-4 short sentences, no cushion and no cruelty: what he said he'd do vs what he did — name the missed and late blocks with their times — whether the streak lives, and the one thing he does differently tomorrow morning. Never quote anyone. Return JSON {"note": string}.`,
-      `${mirrorText(mirror(day))}\n\n${JSON.stringify({ score: r.score, streak: r.streak, focus: `${r.focusMin} of ${r.plannedMin} planned minutes`, goals: r.goals, checkins: r.moods, tomorrowPlanned: tomorrow })}`,
+      `${mirrorText(mirror(day))}\n\n${JSON.stringify({ score: r.score, streak: r.streak, done: `${tally(day).done} of ${tally(day).total} things on his day (habits, tasks, blocks)`, goals: r.goals, checkins: r.moods, tomorrowPlanned: tomorrow })}`,
       0.4,
       { maxTokens: 300 },
     ).catch(() => null);
@@ -161,8 +171,8 @@ async function run(tz: string, minute: string) {
       key: `coach:recap:${day}`,
       kind: "coach",
       title: `Mirror: ${r.kept ? "day kept" : "day not kept"} · ${r.score}/100`,
-      body: r.note ?? `${r.done} of ${r.total} blocks, ${r.onTimeRate ?? 0}% on time, ${r.missed ?? 0} missed.`,
-      push: { title: `Mirror: ${r.kept ? `kept — ${r.streak}-day streak` : `not kept — ${r.missed ?? 0} missed`}`, body: `${r.done}/${r.total} blocks · ${r.onTimeRate ?? 0}% on time · ${fmtMin(r.focusMin)} focused. Face it and answer for it.` },
+      body: r.note ?? `${tally(day).done} of ${tally(day).total} things done, ${r.missed ?? 0} blocks missed.`,
+      push: { title: `Mirror: ${r.kept ? `kept — ${r.streak}-day streak` : `not kept — ${r.missed ?? 0} missed`}`, body: `${tally(day).done} of ${tally(day).total} things done · ${r.missed ?? 0} blocks missed. Face it and answer for it.` },
       href: `/mirror`,
       priority: 3,
       expiresAt: new Date(Date.now() + 14 * 3600_000).toISOString(),
