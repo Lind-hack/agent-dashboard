@@ -320,7 +320,25 @@ function calendarDocs(): Doc[] {
       text: entries.map((e) => e.text ?? "").join("\n\n"),
     };
   });
-  return [...events, ...plans, ...recaps, ...briefs, ...journal];
+  // The Buddy (v5.4): what Lind told it, one record a day — his words, with the Buddy's replies as context.
+  const buddy = new Map<string, { at: string; lines: string[] }>();
+  try {
+    const thread = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "buddy", "thread.json"), "utf8")) as { role?: string; text?: string; at?: string }[];
+    for (const t of Array.isArray(thread) ? thread : []) {
+      if (!t?.text || !t.at) continue;
+      const day = t.at.slice(0, 10);
+      const d = buddy.get(day) ?? { at: t.at, lines: [] };
+      d.lines.push(`${t.role === "lind" ? "Lind" : "Buddy"}: ${t.text.slice(0, 1200)}`);
+      d.at = t.at;
+      buddy.set(day, d);
+    }
+  } catch {
+    // no conversation yet
+  }
+  const talks = [...buddy.entries()]
+    .filter(([, d]) => d.lines.some((l) => l.startsWith("Lind:")))
+    .map(([day, d]) => ({ id: `calendar:buddy:${day}`, kind: "calendar" as const, group: "journal", title: `Buddy talk · ${day}`, href: "/buddy", at: d.at, text: d.lines.join("\n\n") }));
+  return [...events, ...plans, ...recaps, ...briefs, ...journal, ...talks];
 }
 
 // ~900-char chunks on paragraph boundaries; the title rides along so it counts in every chunk.
@@ -356,7 +374,7 @@ const mtime = (p: string) => {
   }
 };
 const changeStamp = () =>
-  [path.join(libraryDir(), "items"), path.join(libraryDir(), "sections.json"), path.join(DATA_DIR, "mail", "messages.json"), path.join(DATA_DIR, "mail", "piles.json"), path.join(DATA_DIR, "sources", "github.json"), path.join(DATA_DIR, "sources", "calendar.json"), path.join(DATA_DIR, "plans")].map(mtime).join(":");
+  [path.join(libraryDir(), "items"), path.join(libraryDir(), "sections.json"), path.join(DATA_DIR, "mail", "messages.json"), path.join(DATA_DIR, "mail", "piles.json"), path.join(DATA_DIR, "sources", "github.json"), path.join(DATA_DIR, "sources", "calendar.json"), path.join(DATA_DIR, "plans"), path.join(DATA_DIR, "journal"), path.join(DATA_DIR, "buddy", "thread.json")].map(mtime).join(":");
 let cache: Index | null = null;
 let building: Promise<Index> | null = null;
 
