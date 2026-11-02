@@ -1,18 +1,26 @@
 import { NextResponse } from "next/server";
-import { applySay, parseSay, undoSay, type Undo } from "@/lib/say";
+import { coachNow } from "@/lib/coach";
+import { readGoals } from "@/lib/goals";
+import { applySay, cleanItems, parseSay, undoSay, type Undo } from "@/lib/say";
 
 export const dynamic = "force-dynamic";
 
-// "Say it" (v5.2). POST { text } → sorted into tasks, time blocks, calendar events and goals, each
-// done at once; the answer lists them with an undo each. DELETE { undo } takes one back. Voice is
-// transcribed first by /api/transcribe on the page.
+// "Say it" (v5.2; v5.4 reviews first). POST { text } → the items it heard, as drafts to review
+// (nothing saved; repeats of open tasks and vague ones flagged). POST { items } → the ones he kept,
+// checked again and carried out, each with an undo. DELETE { undo } takes one back. Voice is
+// transcribed first by /api/transcribe (mode=say) on the page.
 export async function POST(request: Request) {
-  const text = String(((await request.json().catch(() => null)) as { text?: unknown } | null)?.text ?? "").trim().slice(0, 4000);
-  if (!text) return NextResponse.json({ error: "Say or type what to add." }, { status: 400 });
+  const body = (await request.json().catch(() => null)) as { text?: unknown; items?: unknown } | null;
   try {
-    const items = await parseSay(text);
-    if (!items.length) return NextResponse.json({ heard: text, results: [], error: "I didn't hear a task, block, event or goal in that." });
-    return NextResponse.json({ heard: text, results: await applySay(items) });
+    if (Array.isArray(body?.items)) {
+      const items = cleanItems(body.items, coachNow().day, new Set(readGoals().filter((g) => !g.done).map((g) => g.id)));
+      if (!items.length) return NextResponse.json({ error: "Nothing to add." }, { status: 400 });
+      return NextResponse.json({ results: await applySay(items) });
+    }
+    const text = String(body?.text ?? "").trim().slice(0, 4000);
+    if (!text) return NextResponse.json({ error: "Say or type what to add." }, { status: 400 });
+    const drafts = await parseSay(text);
+    return NextResponse.json({ heard: text, drafts, ...(drafts.length ? {} : { error: "I didn't hear a task, block, event, goal or habit in that." }) });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }

@@ -5,7 +5,30 @@ import { groqKey, groqModel, repoShort, type RepoKey, type TaskAgent } from "./c
 
 export type Transcription = { text: string; language: string };
 
-export async function transcribeDetailed(audio: Blob, filename: string): Promise<Transcription> {
+// Whisper invents text over silence and noise ("Thank you for watching", "Subtitles by…"). With
+// verbose_json each segment says how sure it is; a segment that's probably not speech AND low-
+// confidence, or a known silence phrase, is dropped (v5.4: the random tasks Lind kept getting).
+type Segment = { text?: string; no_speech_prob?: number; avg_logprob?: number; compression_ratio?: number };
+const PHANTOM = /^(thank you( (so much|very much))?( for watching)?|thanks for watching|subtitles? (by|from)|please subscribe|like and subscribe|you|bye|\.+|mm+|hmm+|music)[.!\s]*$/i;
+export function keepSegments(segments: Segment[] | undefined, text: string): string {
+  if (!Array.isArray(segments) || !segments.length) return text.trim();
+  return segments
+    .filter((s) => {
+      const t = String(s.text ?? "").trim();
+      if (!t || PHANTOM.test(t)) return false;
+      if ((s.no_speech_prob ?? 0) > 0.6 && (s.avg_logprob ?? 0) < -0.7) return false;
+      if ((s.avg_logprob ?? 0) < -1.2 || (s.compression_ratio ?? 0) > 2.6) return false;
+      return true;
+    })
+    .map((s) => String(s.text).trim())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// opts.prompt: words to spell right (goal and task names, people) — Whisper takes ≤224 tokens.
+// opts.accurate: whisper-large-v3 instead of the pruned turbo, for "Say it" where a wrong word makes a wrong task.
+export async function transcribeDetailed(audio: Blob, filename: string, opts: { prompt?: string; accurate?: boolean } = {}): Promise<Transcription> {
   // Language is left on auto-detect so Albanian and English both transcribe as spoken (Whisper
   // translates nothing on this endpoint). One retry covers a dropped connection or a cold model.
   let last = "";
@@ -13,17 +36,18 @@ export async function transcribeDetailed(audio: Blob, filename: string): Promise
     if (attempt) await new Promise((r) => setTimeout(r, 400));
     const form = new FormData();
     form.append("file", audio, filename);
-    form.append("model", "whisper-large-v3-turbo");
+    form.append("model", opts.accurate ? "whisper-large-v3" : "whisper-large-v3-turbo");
     form.append("response_format", "verbose_json");
     form.append("temperature", "0");
+    if (opts.prompt) form.append("prompt", opts.prompt.slice(0, 600));
     const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
       method: "POST",
       headers: { Authorization: `Bearer ${groqKey()}` },
       body: form,
       signal: AbortSignal.timeout(30_000),
     }).catch(() => null);
-    const body = (await res?.json().catch(() => null)) as { text?: string; language?: string; error?: { message?: string } } | null;
-    if (res?.ok) return { text: (body?.text ?? "").trim(), language: body?.language ?? "" };
+    const body = (await res?.json().catch(() => null)) as { text?: string; language?: string; segments?: Segment[]; error?: { message?: string } } | null;
+    if (res?.ok) return { text: keepSegments(body?.segments, body?.text ?? ""), language: body?.language ?? "" };
     last = `Whisper: ${body?.error?.message ?? res?.status ?? "unreachable"}`;
     if (res && res.status < 500 && res.status !== 429) break; // a real request error won't fix itself
   }
