@@ -1,11 +1,10 @@
 import { keptStreak, mirror, mirrorText } from "../lib/accountability";
-import { syncCalendar } from "../lib/autopilot";
 import { addDays } from "../lib/calendar";
-import { buildRecap, calendarBusy, clockNow, coachNow, coachTz, goalProgress, nextFreeSlot, readRecap, saveRecap, zonedMs } from "../lib/coach";
+import { buildRecap, clockNow, coachNow, coachTz, goalProgress, readRecap, saveRecap, zonedMs } from "../lib/coach";
 import { coachMoments } from "../lib/coach-moments";
 import { groqJSON } from "../lib/groq";
 import { readPush, writePush } from "../lib/goggins";
-import { activeBlocks, readPlan, rescheduleBlock } from "../lib/plan-store";
+import { activeBlocks, readPlan } from "../lib/plan-store";
 import { assistantTick, eveningNote } from "./assistant";
 import { autopilotTick, stepSettled } from "./autopilot";
 import { buddyTick } from "./buddy";
@@ -16,7 +15,7 @@ import { notify, sweepNotices } from "./notify";
 // plan reminder at 07:30 when there's no plan, and the 21:30 recap scored against his goals.
 // Every push opens /focus on that block, where one tap starts, finishes, shrinks or moves it.
 // Goggins mode (v5.2, Lind's pick): the wording has no cushion; a block that comes and goes without
-// being started is put into the next free slot today (once) and he's told so; the recap is the
+// being started waits for his decision — put back or dropped with a reason (v5.4; it used to move itself); the recap is the
 // "accountability mirror" — said vs did, block by block — with the kept-days streak; and at 07:40
 // (after Autopilot's morning plan) a long push in the spirit of David Goggins, written from his record.
 
@@ -74,28 +73,23 @@ async function run(tz: string, minute: string) {
     if (sent) log(m.kind, b.id);
   }
 
-  // A block that came and went without being started: back into free time today, once.
+  // A block that came and went without being started (v5.4, strict): nothing moves on its own any
+  // more. He's told once, and Today and Home hold it in front of him until he puts it back or drops it
+  // with a reason — the reason goes on the mirror.
   for (const b of blocks) {
-    if (b.kind === "break" || b.status !== "planned" || b.startedAt || b.rescheduledFrom || b.rescheduledTo) continue;
+    if (b.kind === "break" || b.status !== "planned" || b.startedAt || b.rescheduledTo) continue;
     if (Date.now() < b.endMs || Date.now() > b.endMs + 60 * 60_000) continue;
-    const len = Math.round((b.endMs - b.startMs) / 60_000);
-    const slot = nextFreeSlot(len, new Date(), await calendarBusy().catch(() => []));
-    const moved = slot ? rescheduleBlock(day, b.id, slot) : null;
-    if (moved) {
-      const calErr = await syncCalendar(day);
-      if (calErr) log("reschedule calendar", calErr);
-    }
-    await notify({
+    const sent = await notify({
       key: `coach:missed:${b.id}`,
       kind: "coach",
       title: `Missed: ${b.title}`,
-      body: moved ? `${b.start}–${b.end} came and went. It's back at ${moved.start}–${moved.end}. You don't get to skip it twice.` : `${b.start}–${b.end} came and went and there's no free time left today. That one's on the mirror tonight.`,
-      push: { title: `Missed: ${b.title}`, body: moved ? `It's back at ${moved.start}. Don't skip it twice.` : "No time left today — it's on tonight's mirror." },
-      href: moved ? `/focus?block=${encodeURIComponent(moved.id)}` : "/mirror",
-      priority: 2,
-      expiresAt: new Date(Date.now() + 4 * 3600_000).toISOString(),
+      body: `${b.start}–${b.end} came and went. Put it back into today or drop it — and say why. It stays in front of you until you decide.`,
+      push: { title: `Missed: ${b.title}`, body: "Put it back or drop it with a reason. Decide now." },
+      href: "/calendar#owed",
+      priority: 3,
+      expiresAt: new Date(Date.now() + 6 * 3600_000).toISOString(),
     });
-    log("missed", b.id, moved ? `→ ${moved.start}` : "no slot");
+    if (sent) log("missed", b.id);
   }
 
   // The morning push, once Autopilot's morning step has settled (or by 09:00 regardless).

@@ -1,9 +1,10 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
-import { mirror, type Verdict } from "@/lib/accountability";
+import { mirror, owed, type Verdict } from "@/lib/accountability";
 import type { Today } from "@/lib/planner";
 import { cn } from "@/lib/utils";
 import { MirrorHero } from "./mirror-hero";
+import { OwedGate } from "./owed-gate";
 
 // Home (v5.2; v5.3 leads with the full-bleed mirror): the day comes first — the verdict so far, then the plan's blocks and the calendar's
 // events in time order, each block judged against the clock. One tap to Today or the Mirror.
@@ -21,6 +22,7 @@ export function HomeDay({ day }: { day: Today }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <OwedGate owed={owed(day.today)} today={day.today} />
       <MirrorHero day={day.today} />
       <section aria-label="The day" className="panel overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
