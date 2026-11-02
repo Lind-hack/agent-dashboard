@@ -5,6 +5,7 @@ import { ACTIONS_SPEC, cleanActions, dayContext, type AssistantAction } from "./
 import { addDays } from "./calendar";
 import { coachNow, readRecap } from "./coach";
 import { DATA_DIR } from "./config";
+import { discipline } from "./discipline";
 import { groqJSON } from "./groq";
 import { moodWord, recentJournal } from "./journal";
 import { recallMemory, recallText } from "./memory";
@@ -79,6 +80,8 @@ ${ACTIONS_SPEC}`;
     `His journal, last 7 days:\n${journalBlock(today)}`,
     `Recent day scores:\n${recapBlock(today)}`,
     `Today, live:\n${await dayContext()}`,
+    // v5.4: how locked in he is, from the record — read it before you answer how he's doing.
+    `Is he locked in? (from his blocks, habits, streak, goals and journal moods):\n${discipline(today).lines.join("\n")}`,
     `From his memory (notes, chats, exports) about what he just said — cite it when it helps ("in your notes from…"):\n${recallText(await recallMemory(message, 4).catch(() => [])) || "(nothing relevant)"}`,
     `Your conversation so far:\n${history.map((h) => `${h.role === "lind" ? "Lind" : "You"} (${h.at.slice(0, 10)}): ${h.text.slice(0, 800)}`).join("\n") || "(this is your first chat)"}`,
     `Lind${voice ? " (spoken)" : ""}: ${message}`,
@@ -109,6 +112,7 @@ export function profileInput(today: string): string {
     `Journal, last 7 days:\n${journalBlock(today)}`,
     `Day scores:\n${recapBlock(today)}`,
     `Said vs did, block by block — today and yesterday:\n${[today, addDays(today, -1)].map((d) => `${d}:\n${mirrorText(mirror(d))}`).join("\n")}`,
+    `How locked in he's been:\n${discipline(today).lines.join("\n")}`,
     `His patterns over two weeks of time blocks:\n${patterns(today).lines.join("\n") || "(not enough blocks yet)"}`,
     `Conversations with the Buddy, last 3 days:\n${readThread()
       .filter((t) => t.at >= since)

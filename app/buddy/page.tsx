@@ -1,6 +1,7 @@
 import { BuddyView } from "@/components/buddy-view";
 import { readProfile, readThread } from "@/lib/buddy";
 import { coachNow } from "@/lib/coach";
+import { discipline } from "@/lib/discipline";
 import { readJournal, recentJournal } from "@/lib/journal";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export default async function BuddyPage({ searchParams }: { searchParams: Promis
   const { journal } = await searchParams;
   return (
     <div className="mx-auto max-w-3xl pb-24">
-      <BuddyView initialThread={readThread().slice(-80)} today={readJournal(day)} week={recentJournal(day, 7)} focusJournal={journal === "1"} profileAt={readProfile().at ?? null} />
+      <BuddyView initialThread={readThread().slice(-80)} today={readJournal(day)} week={recentJournal(day, 7)} focusJournal={journal === "1"} profileAt={readProfile().at ?? null} locked={(({ score, label }) => ({ score, label }))(discipline(day))} />
     </div>
   );
 }
