@@ -25,7 +25,7 @@ export type Todo = {
   doneAt?: string;
   createdAt: string;
   updatedAt: string;
-  source: "dashboard" | "ticktick" | "assistant" | "email" | "journal";
+  source: "dashboard" | "ticktick" | "assistant" | "email" | "journal" | "mentor";
   link?: string; // where it came from (the email, …)
   ticktick?: { id: string; projectId: string; pending?: boolean }; // pending: completing it in TickTick failed, retry
 };
@@ -52,7 +52,7 @@ function clean(t: Partial<Todo> | null | undefined): Todo | null {
     doneAt: t.doneAt || undefined,
     createdAt: t.createdAt ?? new Date().toISOString(),
     updatedAt: t.updatedAt ?? new Date().toISOString(),
-    source: (["ticktick", "assistant", "email", "journal"] as const).includes(t.source as "email") ? (t.source as Todo["source"]) : "dashboard",
+    source: (["ticktick", "assistant", "email", "journal", "mentor"] as const).includes(t.source as "email") ? (t.source as Todo["source"]) : "dashboard",
     link: typeof t.link === "string" && /^https?:\/\//.test(t.link) ? t.link : undefined,
     ticktick: t.ticktick?.id ? { id: String(t.ticktick.id), projectId: String(t.ticktick.projectId ?? ""), pending: t.ticktick.pending ? true : undefined } : undefined,
   };

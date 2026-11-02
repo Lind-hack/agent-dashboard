@@ -11,6 +11,7 @@ import { appendLog, claimInbox, listJobs, writeHeartbeat, writeJob, type Job, ty
 import { killTree, runAgent } from "./agents";
 import { brainTick } from "./brain";
 import { coachTick } from "./coach";
+import { mentorTick } from "./mentor";
 import { taskSyncTick } from "../lib/task-sync";
 import { libraryTick } from "./library";
 import { monitorTick } from "./monitor";
@@ -639,6 +640,7 @@ async function tick() {
     libraryTick();
     mailTick();
     coachTick();
+    mentorTick();
     taskSyncTick();
     monitorTick();
     sourcesTick();
