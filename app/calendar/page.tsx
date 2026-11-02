@@ -8,6 +8,7 @@ import { AutopilotStrip } from "@/components/autopilot-strip";
 import { Empty, Panel, SectionTitle, StatusPill } from "@/components/kit";
 import { SectionHero } from "@/components/motion";
 import { NowCard, type NowItem } from "@/components/now-card";
+import { OwedGate } from "@/components/owed-gate";
 import { PlanDay, TickTickConnect } from "@/components/today";
 import { TodayPlan } from "@/components/today-plan";
 import { TodoBoard } from "@/components/todo-board";
@@ -15,6 +16,7 @@ import { briefPending, readBrief, readChat, type BriefSlot } from "@/lib/assista
 import { autopilotEnabled, readAutopilot } from "@/lib/autopilot";
 import { board } from "@/lib/day-board";
 import { addDays, calendarConnected, type CalEvent } from "@/lib/calendar";
+import { owed } from "@/lib/accountability";
 import { activeBlocks, planStats, readPlan } from "@/lib/plan-store";
 import { freeSlots, today } from "@/lib/planner";
 import { listTodos } from "@/lib/todos";
@@ -96,6 +98,11 @@ export default async function TodayPage({ searchParams }: { searchParams: Promis
       >
         <NowCard items={nowItems} dayStart={zoned(t.today, dayStart, t.tz)} dayEnd={zoned(t.today, dayEnd, t.tz)} freeMin={freeMin} tz={t.tz} />
       </SectionHero>
+
+      {/* Strict blocks (v5.4): skipped blocks wait here for a decision. */}
+      <div className="mb-6 empty:hidden">
+        <OwedGate owed={owed(t.today)} today={t.today} />
+      </div>
 
       {t.errors.length > 0 && <p className="mb-4 rounded-2xl border border-bad/30 bg-bad/10 px-4 py-3 text-sm text-bad">{t.errors.join(" ")}</p>}
 

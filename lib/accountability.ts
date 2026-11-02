@@ -24,6 +24,7 @@ export type MirrorRow = {
   plannedMin: number;
   actualMin?: number; // done blocks: real start→done
   rescheduledTo?: string; // missed, and put into free time later (the new block's start)
+  excuse?: string; // missed and dropped: the reason he gave
 };
 export type Mirror = { day: string; rows: MirrorRow[]; due: number; done: number; onTime: number; late: number; missed: number; notStarted: number; unfinished: number; onTimeRate: number; kept: boolean; over: boolean };
 
@@ -45,7 +46,7 @@ export function judge(b: StoredBlock, day: string, nowMs: number, tz = coachTz()
     // Moved or re-planned away before it was over: not a miss. After its end: it was one.
     if (Date.parse(b.updatedAt ?? "") < endMs) return null;
     const to = b.rescheduledTo ? plan?.blocks.find((x) => x.id === b.rescheduledTo) : undefined;
-    return { ...row, verdict: "missed", rescheduledTo: to?.start };
+    return { ...row, verdict: "missed", rescheduledTo: to?.start, excuse: b.excuse };
   }
   if (nowMs >= endMs) return { ...row, verdict: b.startedAt ? "unfinished" : "missed" };
   if (nowMs >= startMs + GRACE_MIN * MIN) return { ...row, verdict: b.startedAt ? timely : "not-started" };
@@ -81,6 +82,18 @@ export function mirror(day: string, nowMs = Date.now(), tz = coachTz()): Mirror 
     kept: due > 0 && missed === 0 && notStarted === 0 && unfinished === 0 && started > 0 && onTime / started >= 0.8,
     over,
   };
+}
+
+// Strict blocks (v5.4): blocks whose time came and went without being started and that he hasn't yet
+// put back or dropped with a reason — today's, and yesterday's once today has begun. Nothing moves on
+// its own any more; each one waits for his decision.
+export type Owed = { day: string; id: string; title: string; start: string; end: string; length: number; goalId?: string };
+export function owed(today: string, nowMs = Date.now(), tz = coachTz()): Owed[] {
+  return [addDays(today, -1), today].flatMap((day) =>
+    (readPlan(day)?.blocks ?? [])
+      .filter((b) => b.kind !== "break" && b.status === "planned" && !b.startedAt && !b.rescheduledTo && nowMs >= zonedMs(day, b.end, tz))
+      .map((b) => ({ day, id: b.id, title: b.title, start: b.start, end: b.end, length: Math.max(10, mins(b.end) - mins(b.start)), goalId: b.goalId })),
+  );
 }
 
 // Kept days in a row, ending yesterday — plus today once today's last block is behind him and kept.
@@ -159,6 +172,6 @@ export function mirrorText(m: Mirror): string {
   const say: Record<Verdict, string> = { upcoming: "ahead", "not-started": "NOT STARTED", "on-time": "on time", late: "late", missed: "MISSED", unfinished: "UNFINISHED" };
   return [
     `${m.done} done of ${m.due} due · ${m.onTimeRate}% started on time · ${m.missed} missed${m.notStarted ? ` · ${m.notStarted} due and not started` : ""} · ${m.unfinished} unfinished${m.over ? (m.kept ? " · day KEPT" : " · day NOT kept") : ""}`,
-    ...m.rows.map((r) => `- ${r.start}–${r.end} ${r.title}: ${say[r.verdict]}${r.running ? " (running)" : ""}${r.lateMin && r.lateMin > GRACE_MIN ? `, ${r.lateMin} min late` : ""}${r.actualMin !== undefined ? `, took ${r.actualMin} of ${r.plannedMin} min` : ""}${r.rescheduledTo ? `, re-scheduled to ${r.rescheduledTo}` : ""}`),
+    ...m.rows.map((r) => `- ${r.start}–${r.end} ${r.title}: ${say[r.verdict]}${r.running ? " (running)" : ""}${r.lateMin && r.lateMin > GRACE_MIN ? `, ${r.lateMin} min late` : ""}${r.actualMin !== undefined ? `, took ${r.actualMin} of ${r.plannedMin} min` : ""}${r.rescheduledTo ? `, re-scheduled to ${r.rescheduledTo}` : ""}${r.excuse ? `, dropped — his reason: "${r.excuse}"` : ""}`),
   ].join("\n");
 }

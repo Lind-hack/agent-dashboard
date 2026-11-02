@@ -25,6 +25,8 @@ export type StoredBlock = {
   // Goggins mode (v5.2): a block missed and put into free time later the same day, and its new copy.
   rescheduledTo?: string;
   rescheduledFrom?: string;
+  // Strict blocks (v5.4): a missed block he dropped, and the reason he gave for it.
+  excuse?: string;
   updatedAt?: string;
   // Coach (v4): when work really started/ended, and the check-ins answered during the block.
   startedAt?: string;
@@ -96,6 +98,7 @@ function clean(raw: Partial<DayPlan> | null): DayPlan | null {
         movedTo: b.movedTo || undefined,
         rescheduledTo: b.rescheduledTo || undefined,
         rescheduledFrom: b.rescheduledFrom || undefined,
+        excuse: b.excuse ? String(b.excuse).slice(0, 300) : undefined,
         updatedAt: b.updatedAt || undefined,
         startedAt: b.startedAt || undefined,
         doneAt: b.doneAt || undefined,
@@ -373,22 +376,44 @@ export function removeBlock(day: string, id: string): boolean {
 // Goggins mode: a block that came and went without being started is put into free time later the same
 // day — once. The original stays as a "moved" tombstone (so the mirror still counts the miss) pointing at
 // its new copy. Returns the new block, or null if it's gone, was started, or was already rescheduled.
-export function rescheduleBlock(day: string, id: string, start: string): StoredBlock | null {
+// v5.4: `to` puts it on another day (yesterday's missed block, back into today), and a block that was
+// already put back once may be put back again only by his own hand (`again`) — never by the runner.
+export function rescheduleBlock(day: string, id: string, start: string, to = day, again = false): StoredBlock | null {
   return withLock("plans", () => {
     const plan = readPlan(day);
     const old = plan?.blocks.find((b) => b.id === id);
-    if (!plan || !old || old.status !== "planned" || old.startedAt || old.rescheduledFrom || old.rescheduledTo) return null;
-    const block = addBlockUnlocked(day, { start, length: mins(old.end) - mins(old.start), title: old.title, goalId: old.goalId, taskId: old.taskId, kind: old.kind });
-    const fresh = readPlan(day)!;
-    const was = fresh.blocks.find((b) => b.id === id)!;
-    const now = fresh.blocks.find((b) => b.id === block.id)!;
-    was.status = "moved";
-    was.movedTo = day;
-    was.rescheduledTo = block.id;
-    was.updatedAt = new Date().toISOString();
+    if (!plan || !old || old.status !== "planned" || old.startedAt || old.rescheduledTo || (old.rescheduledFrom && !again)) return null;
+    const block = addBlockUnlocked(to, { start, length: mins(old.end) - mins(old.start), title: old.title, goalId: old.goalId, taskId: old.taskId, kind: old.kind });
+    const at = new Date().toISOString();
+    const target = readPlan(to)!;
+    const now = target.blocks.find((b) => b.id === block.id)!;
     now.rescheduledFrom = id;
-    writePlan(fresh);
+    if (to !== day) writePlan(target);
+    const source = to === day ? target : readPlan(day)!;
+    const was = source.blocks.find((b) => b.id === id)!;
+    was.status = "moved";
+    was.movedTo = to;
+    was.rescheduledTo = block.id;
+    was.updatedAt = at;
+    writePlan(source);
     return { ...now };
+  });
+}
+
+// Strict blocks (v5.4): a missed block he chose to let go — dropped, with the reason on the record.
+// Only a block that's still owed (planned, never started, not already moved on) can be dropped this way.
+export function dropMissed(day: string, id: string, reason: string): StoredBlock | null {
+  const why = reason.replace(/\s+/g, " ").trim().slice(0, 300);
+  if (why.length < 8) return null;
+  return withLock("plans", () => {
+    const plan = readPlan(day);
+    const b = plan?.blocks.find((x) => x.id === id);
+    if (!plan || !b || b.status !== "planned" || b.startedAt || b.rescheduledTo) return null;
+    b.status = "dropped";
+    b.excuse = why;
+    b.updatedAt = new Date().toISOString();
+    writePlan(plan);
+    return { ...b };
   });
 }
 
