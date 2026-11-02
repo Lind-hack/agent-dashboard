@@ -7,6 +7,7 @@ import { flushSync } from "react-dom";
 import type { Board, BoardGoal, BoardTask } from "@/lib/day-board";
 import type { Habit, HabitDay } from "@/lib/habits";
 import { cn } from "@/lib/utils";
+import { TaskEdit } from "./task-edit";
 
 // The day board (v5.3, from Lind's habit-tracker reference): habits, tasks and goals as rows that fill
 // up as they get done. The ring on the right does the one thing (+1 step, tick, open the goal); the
@@ -90,6 +91,7 @@ export function DayBoard({ initial }: { initial: Board }) {
   const [b, setB] = useState(initial);
   const [open, setOpen] = useState<string | null>(null);
   const [adding, setAdding] = useState<Partial<Habit> | null>(null);
+  const [editing, setEditing] = useState<BoardTask | null>(null);
   const [err, setErr] = useState("");
   const last = useRef<{ id: string; day: string; value: number } | null>(null);
 
@@ -233,6 +235,11 @@ export function DayBoard({ initial }: { initial: Board }) {
             onTask={(p) => sel.kind === "task" && toggleTask(sel.t, p)}
             onGoal={(m) => sel.kind === "goal" && void startGoal(sel.g, m)}
             onEdit={() => {
+              if (sel.kind === "task") {
+                setOpen(null);
+                setEditing(sel.t);
+                return;
+              }
               if (sel.kind !== "habit") return;
               setOpen(null);
               setAdding(sel.h.habit);
@@ -245,6 +252,21 @@ export function DayBoard({ initial }: { initial: Board }) {
       {adding && (
         <Sheet onClose={() => setAdding(null)} label={adding.id ? "Edit habit" : "New habit"}>
           <HabitForm initial={adding} onSave={(h) => void saveHabit(h)} />
+        </Sheet>
+      )}
+
+      {editing && (
+        <Sheet onClose={() => setEditing(null)} label="Edit task">
+          <TaskEdit
+            task={editing}
+            goals={b.goals.map((g) => ({ id: g.id, title: g.title }))}
+            onCancel={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              void load(b.day);
+              router.refresh();
+            }}
+          />
         </Sheet>
       )}
     </section>
@@ -495,9 +517,14 @@ function Detail({
               ))}
             </ul>
           )}
-          <button onClick={() => onTask({ done: !r.done })} className={cn("press h-12 w-full rounded-[14px] text-[15px] font-medium", r.done ? "border border-line text-muted" : "bg-text text-bg")}>
-            {r.done ? "Mark not done" : "Done"}
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => onTask({ done: !r.done })} className={cn("press h-12 flex-1 rounded-[14px] text-[15px] font-medium", r.done ? "border border-line text-muted" : "bg-text text-bg")}>
+              {r.done ? "Mark not done" : "Done"}
+            </button>
+            <button onClick={onEdit} className="press h-12 rounded-[14px] border border-line px-5 text-[15px] text-muted hover:text-text">
+              Edit
+            </button>
+          </div>
         </div>
       )}
 
