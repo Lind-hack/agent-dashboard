@@ -2,16 +2,20 @@ import { syncCalendar } from "./autopilot";
 import { addDays, calendarConnected, createEvent, gcal, replacePlan } from "./calendar";
 import { clockNow, coachNow, coachTz, nextFreeSlot, calendarBusy } from "./coach";
 import { readGoals, writeGoals, type GoalHorizon } from "./goals";
-import { archiveHabit, saveHabit } from "./habits";
+import { archiveHabit, listHabits, saveHabit } from "./habits";
 import { groqJSON } from "./groq";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { activeBlocks, addBlock, readPlan, removeBlock } from "./plan-store";
-import { addTodo, removeTodo } from "./todos";
+import { addTodo, listTodos, removeTodo } from "./todos";
 
 // "Say it" (v5.2, Lind's pick: one mic that sorts). Whatever Lind says or types on Today or Goals —
 // "gym at 6 for an hour, finish the 383 pitch today, new goal: save 2k by March" — is split into
 // tasks, time blocks on his plan, calendar events and goals, each carried out at once and each with
 // its own undo.
+// v5.4 (Lind: "random tasks with no context I'm not asking for, and duplicates"): every item must
+// quote the words that asked for it — an item whose quote isn't in what he said is dropped; the model
+// sees his open tasks and names the one an item repeats; and nothing is saved until he reviews the
+// cards (keep / edit / drop), with repeats and vague ones unticked.
 
 export type SayItem =
   | { kind: "task"; title: string; day: string; estimateMin?: number; priority?: 0 | 1 | 2 | 3; due?: string; goalId?: string }
@@ -19,6 +23,8 @@ export type SayItem =
   | { kind: "event"; title: string; date: string; start?: string; end?: string }
   | { kind: "goal"; title: string; horizon: GoalHorizon; next: string; why: string; due?: string; weeklyMin?: number }
   | { kind: "habit"; title: string; icon: string; target: number; step: number; unit: string; days: number[] };
+// What the review cards carry: the item, the words it came from, and why it might not be wanted.
+export type SayDraft = { item: SayItem; quote: string; dupOf?: { id: string; title: string }; vague?: boolean };
 export type Undo = { kind: SayItem["kind"]; id: string; day?: string };
 export type SayResult = { kind: SayItem["kind"]; label: string; undo?: Undo; error?: string };
 
@@ -40,14 +46,17 @@ const SYSTEM = `You turn what Lind just said (often spoken, maybe Albanian or En
   — "new goal", "I want to … by …". horizon: now = this week, short = this month or quarter, long = beyond. next = the first concrete step. weeklyMin = time a week he names, else null.
 {"kind":"habit","title":string,"icon":one emoji,"target":number,"step":number,"unit":string,"days":[0-6]}
   — something to do repeatedly ("new habit: drink 2 litres of water every day", "gym Monday Wednesday Friday", "read 20 minutes daily"). target = the daily amount (1 for a plain do-it), unit for it ("litres", "min", "" for plain), step = what one tap adds (e.g. 0.25 litres, 5 min, 1), days = weekdays with 0 = Sunday, [] = every day.
+Every item also carries "quote": the exact words (copied from what he said, 2–15 words) that ask for it, and "dupOf": the id of an open task from the list that it repeats, or null.
+What is NOT an item: thoughts, feelings, plans he's describing to himself, things that already happened, things other people will do, examples, filler, and anything you'd have to guess. When in doubt, leave it out — a missing task costs him a second; a wrong one costs his trust.
 Rules: resolve relative dates and times from "Now" ("tonight" = today, "at 6" in the evening = 18:00 unless clearly morning). goalId only from the goal list, and only when the item is plainly about that goal (same project or subject) — otherwise null. Titles short and clear, in his language, without filler ("I need to"). Nothing he didn't ask for. If it's not a request for any of these, return {"items": []}.`;
 
-export async function parseSay(text: string): Promise<SayItem[]> {
+export async function parseSay(text: string): Promise<SayDraft[]> {
   const tz = coachTz();
   const today = coachNow().day;
   const goals = readGoals().filter((g) => !g.done);
+  const open = listTodos().filter((t) => !t.done).slice(-60);
   const weekday = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(new Date(`${today}T12:00:00Z`));
-  const user = `Now: ${weekday} ${today}, ${clockNow(tz)} (${tz}). Tomorrow: ${addDays(today, 1)}.\nGoals (id | title): ${goals.map((g) => `${g.id} | ${g.title}`).join("; ") || "none"}\n\nLind said: ${text}`;
+  const user = `Now: ${weekday} ${today}, ${clockNow(tz)} (${tz}). Tomorrow: ${addDays(today, 1)}.\nGoals (id | title): ${goals.map((g) => `${g.id} | ${g.title}`).join("; ") || "none"}\nOpen tasks (id | title): ${open.map((t) => `${t.id} | ${t.title}`).join("; ") || "none"}\n\nLind said: ${text}`;
   let out = await groqJSON<{ items: unknown[] }>(SYSTEM, user, 0.1, { maxTokens: 1200, timeoutMs: 30_000 }).catch(() => null);
   if (!Array.isArray(out?.items) && nvidiaReady()) {
     const raw = await nemotron(`${SYSTEM}\nReturn ONLY the JSON object.`, user, { maxTokens: 1500, temperature: 0.1 }).catch(() => "");
@@ -58,7 +67,56 @@ export async function parseSay(text: string): Promise<SayItem[]> {
     }
   }
   if (!out) throw new Error("Couldn't sort that right now — the models are busy. Try again in a minute.");
-  return cleanItems(out.items, today, new Set(goals.map((g) => g.id)));
+  const raw = Array.isArray(out.items) ? out.items : [];
+  return draftItems(raw, cleanItems(raw, today, new Set(goals.map((g) => g.id))), text, open.map((t) => ({ id: t.id, title: t.title })));
+}
+
+// ---- review: grounding, repeats, vagueness --------------------------------------------------------
+
+const STOP = new Set("a an the to of for and or in on at by with my me i it is be do get go make some this that then also just need want should have has will would can could please about from into task tasks today tomorrow".split(" "));
+const words = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length > 1);
+const content = (s: string) => words(s).filter((w) => !STOP.has(w));
+
+// How much of a's content is in b (0…1), loosely: one word starting with the other's first 5 letters
+// (or all of a shorter one) counts, so "emails"/"email" and "calling"/"call" match.
+const stem = (w: string) => w.slice(0, 5);
+export function overlap(a: string, b: string): number {
+  const A = content(a);
+  if (!A.length) return 0;
+  const B = content(b);
+  return A.filter((w) => B.some((x) => x.startsWith(stem(w)) || w.startsWith(stem(x)))).length / A.length;
+}
+const similar = (a: string, b: string) => Math.min(overlap(a, b), overlap(b, a)) >= 0.75 || (overlap(a, b) >= 0.8 && content(a).length >= 2);
+
+// The cleaned items, paired with the model's raw ones by title, kept only when their quote is really
+// in what he said; flagged when they repeat an open task (or each other) or say too little to act on.
+export function draftItems(raw: unknown[], items: SayItem[], said: string, open: { id: string; title: string }[]): SayDraft[] {
+  const rawByTitle = new Map(raw.map((r) => [str((r as { title?: unknown })?.title), (r ?? {}) as { quote?: unknown; dupOf?: unknown }]));
+  const out: SayDraft[] = [];
+  for (const item of items) {
+    const r = rawByTitle.get(item.title) ?? {};
+    const quote = str(r.quote, 200);
+    // Grounded: the quote (or, without one, the title) is mostly words he actually said.
+    if (overlap(quote || item.title, said) < 0.6) continue;
+    if (out.some((d) => d.item.kind === item.kind && similar(d.item.title, item.title))) continue;
+    const named = typeof r.dupOf === "string" ? open.find((t) => t.id === r.dupOf) : undefined;
+    const dup = item.kind === "task" || item.kind === "block" ? (named ?? open.find((t) => similar(item.title, t.title))) : undefined;
+    out.push({ item, quote, ...(dup ? { dupOf: dup } : {}), ...(content(item.title).length < 2 && item.kind !== "habit" ? { vague: true } : {}) });
+  }
+  return out;
+}
+
+// Words Whisper should spell his way: goals, open tasks, habits, and the names in his life.
+export function sayVocabulary(): string {
+  const names = ["383", "building.ai", "TikTok", "Linear", "Prishtina", "Kosovo", "Hormozi", "Goggins"];
+  const mine = [...readGoals().filter((g) => !g.done).map((g) => g.title), ...listHabits().map((h) => h.title), ...listTodos().filter((t) => !t.done).slice(-15).map((t) => t.title)];
+  return [...names, ...mine].join(", ").slice(0, 600);
 }
 
 // The model's items, checked: known kinds, real dates and times, goal ids that exist.
