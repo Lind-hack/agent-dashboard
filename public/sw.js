@@ -15,8 +15,8 @@ self.addEventListener("push", (event) => {
       body: data.body || "",
       tag: data.tag || undefined,
       renotify: !!data.tag,
-      icon: "/icon.svg",
-      badge: "/icon.svg",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/badge-96.png",
       data: { href: data.href || "/" },
     }),
   );
