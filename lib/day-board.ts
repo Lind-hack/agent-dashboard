@@ -7,11 +7,11 @@ import { listTodos, todoPercent, todosFor, type Todo } from "./todos";
 // filling up as it's done, plus the week strip's rings. Shared by Today's server render and
 // /api/habits, so a tap's refresh shows exactly what the page would.
 
-export type BoardTask = Pick<Todo, "id" | "title" | "priority" | "estimateMin" | "done" | "due" | "subtasks" | "goalId"> & { percent: number; overdue: boolean };
+export type BoardTask = Pick<Todo, "id" | "title" | "notes" | "day" | "priority" | "estimateMin" | "done" | "due" | "subtasks" | "goalId"> & { percent: number; overdue: boolean };
 export type BoardGoal = { id: string; title: string; next: string; weekMin: number; targetMin: number; todayMin: number; streak: number };
 export type Board = { day: string; today: string; habits: HabitDay[]; tasks: BoardTask[]; goals: BoardGoal[]; week: { day: string; ratio: number; items: number }[] };
 
-const task = (t: Todo, overdue = false): BoardTask => ({ id: t.id, title: t.title, priority: t.priority, estimateMin: t.estimateMin, done: t.done, due: t.due, subtasks: t.subtasks, goalId: t.goalId, percent: todoPercent(t), overdue });
+const task = (t: Todo, overdue = false): BoardTask => ({ id: t.id, title: t.title, notes: t.notes, day: t.day, priority: t.priority, estimateMin: t.estimateMin, done: t.done, due: t.due, subtasks: t.subtasks, goalId: t.goalId, percent: todoPercent(t), overdue });
 
 function tasksOn(day: string, today: string, all: Todo[]): BoardTask[] {
   const t = todosFor(day, all);

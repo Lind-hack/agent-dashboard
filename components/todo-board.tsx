@@ -1,11 +1,12 @@
 "use client";
 
-import { CalendarArrowUp, CalendarClock, Check, ChevronDown, Flag, ListPlus, LoaderCircle, Plus, Target, Trash2, X } from "lucide-react";
+import { CalendarArrowUp, CalendarClock, Check, ChevronDown, Flag, ListPlus, LoaderCircle, Pencil, Plus, Target, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Todo } from "@/lib/todos";
 import { cn } from "@/lib/utils";
 import { Panel, SectionTitle } from "./kit";
+import { PRIORITIES, TaskEdit } from "./task-edit";
 
 // Dashboard tasks on Today (v5): add with an estimate, priority, deadline and goal; tick; break into
 // steps; schedule into the next free slot (and onto the calendar); push to tomorrow.
@@ -132,11 +133,11 @@ export function TodoBoard({ lists, goals, day, tomorrow }: { lists: Lists; goals
           <>
             {lists.overdue.length > 0 && <p className="hud-label !text-bad px-4 pt-3 pb-1">Overdue · {lists.overdue.length}</p>}
             {lists.overdue.map((t) => (
-              <TodoRow key={t.id} t={t} overdue goal={t.goalId ? goalTitle.get(t.goalId) : undefined} busy={busy} run={run} tomorrow={tomorrow} />
+              <TodoRow key={t.id} t={t} overdue goal={t.goalId ? goalTitle.get(t.goalId) : undefined} busy={busy} run={run} tomorrow={tomorrow} goals={goals} />
             ))}
             {lists.overdue.length > 0 && lists.today.length > 0 && <p className="hud-label px-4 pt-3 pb-1">Today · {lists.today.length}</p>}
             {lists.today.map((t) => (
-              <TodoRow key={t.id} t={t} goal={t.goalId ? goalTitle.get(t.goalId) : undefined} busy={busy} run={run} tomorrow={tomorrow} />
+              <TodoRow key={t.id} t={t} goal={t.goalId ? goalTitle.get(t.goalId) : undefined} busy={busy} run={run} tomorrow={tomorrow} goals={goals} />
             ))}
           </>
         )}
@@ -146,7 +147,7 @@ export function TodoBoard({ lists, goals, day, tomorrow }: { lists: Lists; goals
             <button onClick={() => setShowDone((s) => !s)} className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs text-faint hover:text-text" aria-expanded={showDone}>
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showDone && "rotate-180")} /> Done today · {lists.done.length}
             </button>
-            {showDone && lists.done.map((t) => <TodoRow key={t.id} t={t} goal={t.goalId ? goalTitle.get(t.goalId) : undefined} busy={busy} run={run} tomorrow={tomorrow} />)}
+            {showDone && lists.done.map((t) => <TodoRow key={t.id} t={t} goal={t.goalId ? goalTitle.get(t.goalId) : undefined} busy={busy} run={run} tomorrow={tomorrow} goals={goals} />)}
           </div>
         )}
       </Panel>
@@ -160,13 +161,17 @@ export function TodoBoard({ lists, goals, day, tomorrow }: { lists: Lists; goals
   );
 }
 
-function TodoRow({ t, overdue, goal, busy, run, tomorrow }: { t: Todo; overdue?: boolean; goal?: string; busy: string; run: (k: string, fn: () => Promise<{ msg?: string; warning?: string } | void>) => void; tomorrow: string }) {
+function TodoRow({ t, overdue, goal, busy, run, tomorrow, goals }: { t: Todo; overdue?: boolean; goal?: string; busy: string; run: (k: string, fn: () => Promise<{ msg?: string; warning?: string } | void>) => void; tomorrow: string; goals: Goal[] }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [step, setStep] = useState("");
   const p = pct(t);
   const dueTime = t.due?.includes("T") ? t.due.slice(11) : null;
   return (
-    <div className={cn("border-b border-line last:border-0", t.done && "opacity-55")}>
+    <div className={cn("relative border-b border-line last:border-0", t.done && "opacity-55")}>
+      {/* How important it is, as a colour down the left edge (v5.4). */}
+      {t.priority > 0 && <span aria-hidden className="absolute inset-y-2 left-0 w-[3px] rounded-r-full" style={{ background: `hsl(${PRIORITIES[t.priority].hue} 75% 58%)` }} />}
       <div className="flex min-h-14 items-center gap-2 px-2.5 py-2">
         <button onClick={() => run(`done:${t.id}`, () => call("PATCH", { id: t.id, done: !t.done }))} aria-label={t.done ? `Reopen ${t.title}` : `Done: ${t.title}`} className="group grid h-10 w-10 shrink-0 place-items-center rounded-full">
           <span className={cn("grid h-[22px] w-[22px] place-items-center rounded-full border transition-colors", t.done ? "border-ok bg-ok/20" : "border-line-hi group-hover:border-ok group-hover:bg-ok/15")}>
@@ -201,7 +206,20 @@ function TodoRow({ t, overdue, goal, busy, run, tomorrow }: { t: Todo; overdue?:
           </button>
         )}
       </div>
-      {open && (
+      {editing && (
+        <div className="rise px-3 pb-4 sm:pl-[52px]">
+          <TaskEdit
+            task={t}
+            goals={goals}
+            onCancel={() => setEditing(false)}
+            onSaved={() => {
+              setEditing(false);
+              router.refresh();
+            }}
+          />
+        </div>
+      )}
+      {open && !editing && (
         <div className="rise flex flex-col gap-1 pr-3 pb-3 pl-[52px]">
           {t.notes && <p className="mb-1 text-[13px] whitespace-pre-wrap text-muted">{t.notes}</p>}
           {t.subtasks.map((s) => (
@@ -248,6 +266,9 @@ function TodoRow({ t, overdue, goal, busy, run, tomorrow }: { t: Todo; overdue?:
                 <CalendarArrowUp className="h-3.5 w-3.5" /> Tomorrow
               </button>
             )}
+            <button onClick={() => setEditing(true)} className="flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-[13px] text-muted hover:bg-white/5 hover:text-text">
+              <Pencil className="h-3.5 w-3.5" /> Edit
+            </button>
             <button onClick={() => run(`del:${t.id}`, async () => { const res = await fetch(`/api/todos?id=${encodeURIComponent(t.id)}`, { method: "DELETE" }); if (!res.ok) throw new Error("Couldn't delete it."); })} className="flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-[13px] text-muted hover:bg-bad/10 hover:text-bad">
               <Trash2 className="h-3.5 w-3.5" /> Delete
             </button>
