@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
+import type { Transcript } from "./transcript";
 
 // The Library: everything Lind throws at Memory — typed notes, voice, images, videos, files, links.
 // One JSON per item in data/library/items, the media next to it in data/library/media. The runner
@@ -31,6 +32,7 @@ export type LibraryItem = {
   waiting?: "vision"; // saved, but the description waits for GEMINI_API_KEY
   mirror?: string; // the vault note mirroring it (path relative to the vault)
   parent?: string; // a part of a memory dump: the dump's item id
+  transcript?: Transcript; // timed cues for a video, or its uploaded transcript file
   // A memory dump being split into parts (lib/dump.ts): windows read so far, of how many, and the parts.
   split?: { state: "splitting" | "done"; next: number; total: number; parts: string[]; fails?: number; context?: string };
 };
@@ -247,6 +249,8 @@ const EXT: Record<string, string> = {
   "audio/mp4": "m4a",
   "audio/wav": "wav",
   "audio/x-m4a": "m4a",
+  "application/x-subrip": "srt",
+  "text/vtt": "vtt",
   "application/pdf": "pdf",
 };
 
