@@ -203,9 +203,19 @@ function opencodeDebateConfig(): string {
   }
   return file;
 }
-function command(agent: AgentKey, prompt: string, resume?: string, readonly = false): { bin: string; args: string[]; parser: Parser } {
+// A chat turn may edit its own checkout, but never files outside it. Without this, a model that
+// discovers the production checkout through `git worktree list` can wander into it and edit it.
+function opencodeWorkspaceConfig(): string {
+  const file = path.join(WORK_DIR, "opencode-workspace.json");
+  if (!fs.existsSync(file)) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ $schema: "https://opencode.ai/config.json", permission: { external_directory: "deny" } }));
+  }
+  return file;
+}
+function command(agent: AgentKey, prompt: string, resume: string | undefined, readonly: boolean | undefined, cwd: string): { bin: string; args: string[]; parser: Parser } {
   if (agent === "opencode") {
-    const args = ["run", "--format", "json", ...(readonly ? [] : ["--auto"]), "-m", opencodeModel()];
+    const args = ["run", "--format", "json", ...(readonly ? [] : ["--auto"]), "-m", opencodeModel(), "--dir", cwd];
     if (resume) args.push("--session", resume);
     args.push(prompt);
     return { bin: opencodeBin(), args, parser: opencodeParser(resume) };
@@ -241,10 +251,10 @@ export function runAgent(opts: {
     if (opts.readonly) return Promise.resolve({ ok: false, result: "Hermes can't run tool-free through its bridge." });
     return runHermes(opts);
   }
-  const { bin, args, parser } = command(opts.agent, opts.prompt, opts.resume, opts.readonly);
+  const { bin, args, parser } = command(opts.agent, opts.prompt, opts.resume, opts.readonly, opts.cwd);
   const env = { ...process.env };
   for (const k of [...HIDDEN_ENV, ...(opts.readonly ? READONLY_HIDDEN : [])]) delete env[k];
-  if (opts.readonly && opts.agent === "opencode") env.OPENCODE_CONFIG = opencodeDebateConfig();
+  if (opts.agent === "opencode") env.OPENCODE_CONFIG = opts.readonly ? opencodeDebateConfig() : opencodeWorkspaceConfig();
   const limit = opts.timeoutMs ?? jobTimeoutMs();
 
   return new Promise((resolve) => {
@@ -258,7 +268,24 @@ export function runAgent(opts: {
       killTree(child);
     }, limit);
 
+    // OpenCode can sit silent forever when its provider rejects a request (the free tier's daily
+    // limit does this): no JSON event, no stderr, and the process never exits. Free the agent's
+    // only slot instead of holding it until the job timeout.
+    const stallMs = opts.agent === "opencode" ? Math.max(2, Number(process.env.OPENCODE_STALL_MIN ?? 6)) * 60_000 : 0;
+    let lastEvent = Date.now();
+    const watchdog = stallMs
+      ? setInterval(() => {
+          if (Date.now() - lastEvent < stallMs) return;
+          opts.onEvent({
+            kind: "error",
+            text: `OpenCode sent nothing for ${Math.round(stallMs / 60_000)} min — it is probably out of free quota or not logged in. Check \`opencode auth list\` as the agent user, then send the message again.`,
+          });
+          killTree(child);
+        }, 30_000)
+      : undefined;
+
     child.stdout!.on("data", (chunk: Buffer) => {
+      lastEvent = Date.now();
       buf += chunk.toString();
       let nl: number;
       while ((nl = buf.indexOf("\n")) >= 0) {
@@ -277,6 +304,7 @@ export function runAgent(opts: {
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      if (watchdog) clearInterval(watchdog);
       const final = parser.finish();
       // A parsed result only counts if the CLI also exited cleanly.
       if (final && code === 0) return resolve(final);
@@ -289,6 +317,7 @@ export function runAgent(opts: {
     });
     child.on("error", (err) => {
       clearTimeout(timer);
+      if (watchdog) clearInterval(watchdog);
       const msg = `Could not start ${opts.agent}: ${err.message}`;
       opts.onEvent({ kind: "error", text: msg }); // otherwise a failed start leaves nothing in the chat
       resolve({ ok: false, sessionId: parser.sessionId(), result: msg });

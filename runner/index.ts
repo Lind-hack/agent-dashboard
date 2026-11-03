@@ -535,6 +535,12 @@ async function runTurn(job: Job) {
       : job.imported?.contextDir
         ? path.dirname(job.imported.contextDir)
         : WORK_DIR;
+    // The checkout is the only place an agent may work. OpenCode resolves the repository through
+    // git, so a model that lists worktrees can find the production clone and edit there instead.
+    if (agent === "opencode") {
+      turn.prompt += `\n\n## Working directory\nWork only inside \`${wt}\` (run \`pwd\` to confirm). Never read, edit, or run git commands in /opt/agent-dashboard — that is the live production checkout.`;
+      save(job);
+    }
     const res = await runAgent({
       agent,
       cwd: wt,
