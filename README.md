@@ -109,6 +109,8 @@ Core English replies use NVIDIA Magpie GPU speech when the existing `NVIDIA_API_
 
 Memory captures (text, voice, images, video, files, links pasted or dropped on /memory) are read and filed by the runner (`runner/library.ts`): ffmpeg + Groq Whisper for speech, **Gemini** for images, video frames and PDFs — set `GEMINI_API_KEY` (free key from aistudio.google.com; `GEMINI_MODEL` defaults to `gemini-3.5-flash-lite`). Without it images and video still save and get described once the key is set. Data: `data/library/` (items, media, sections.json, sources.json); a text mirror goes to the vault under `100 - Me/memory/<Section>/`.
 
+Learning lives at `/learning` (`lib/learning.ts`, `runner/learning.ts`): once a video, link or long note is ready the runner reads it with Groq into a thesis, 4–10 core concepts (with timestamps when the source has them), key points and recall/code/interview questions. The page plays the source video, shows the concepts, and runs spaced repetition (SM-2-style, grades Again/Hard/Good/Easy, reviews stored in `data/learning/review.json`) plus three on-demand sessions built from the analysed material: a goal plan, a code review and a mock interview. Analysis is queued automatically for new captures; old items get an **Analyze** button. Watch controls appear for uploaded videos and for YouTube/Vimeo/direct-file links (`lib/video-links.ts`).
+
 Gmail in the Inbox is read-only (`gmail.readonly`): re-run `node handoff/google-auth.mjs` once to grant it. The runner fetches the last 7 days every 10 minutes and sorts new mail into piles (`data/mail/`).
 A 1.5-second provider deadline and circuit breaker preserve the device/local fallback. Albanian
 replies prefer an installed Albanian device voice.

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
+import type { LearningDigest } from "./learning";
 import type { Transcript } from "./video-transcript";
 
 // The Library: everything Lind throws at Memory — typed notes, voice, images, videos, files, links.
@@ -33,6 +34,7 @@ export type LibraryItem = {
   mirror?: string; // the vault note mirroring it (path relative to the vault)
   parent?: string; // a part of a memory dump: the dump's item id
   transcript?: Transcript; // timed cues for a video, or its uploaded transcript file
+  learning?: LearningDigest; // core concepts, key points and recall questions read from it
   // A memory dump being split into parts (lib/dump.ts): windows read so far, of how many, and the parts.
   split?: { state: "splitting" | "done"; next: number; total: number; parts: string[]; fails?: number; context?: string };
 };
@@ -151,6 +153,14 @@ export function mirrorItem(it: LibraryItem) {
       it.url ? `Link: ${it.url}\n` : "",
       it.text,
       "",
+      ...(it.learning?.state === "ready" && it.learning.concepts.length
+        ? [
+            "## Core concepts",
+            ...it.learning.concepts.map((c) => `- **${c.term}**${c.at !== undefined ? ` (${c.at}s)` : ""}: ${c.explanation}`),
+            "",
+            ...(it.learning.keyPoints.length ? ["## Key points", ...it.learning.keyPoints.map((k) => `- ${k}`), ""] : []),
+          ]
+        : []),
     ].join("\n");
     fs.writeFileSync(target, md);
     it.mirror = rel;
