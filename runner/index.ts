@@ -14,6 +14,7 @@ import { coachTick } from "./coach";
 import { mentorTick } from "./mentor";
 import { taskSyncTick } from "../lib/task-sync";
 import { libraryTick } from "./library";
+import { learningTick } from "./learning";
 import { monitorTick } from "./monitor";
 import { sourcesTick } from "./sources";
 import { mailTick } from "./mail";
@@ -644,6 +645,7 @@ async function tick() {
   // Memory captures and mail sorting run beside the agents, never in their slots.
   try {
     libraryTick();
+    learningTick();
     mailTick();
     coachTick();
     mentorTick();

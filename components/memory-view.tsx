@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowUpRight, Brain, CalendarDays, CircleDot, Clock3, FileText, GitPullRequest, Globe, ListTodo, Mail, MessageSquare, MonitorSmartphone, NotebookPen, RefreshCw, Search, Sparkles } from "lucide-react";
+import { ArrowUpRight, Brain, CalendarDays, ChevronRight, CircleDot, Clock3, FileText, GitPullRequest, Globe, GraduationCap, ListTodo, Mail, MessageSquare, MonitorSmartphone, NotebookPen, RefreshCw, Search, Sparkles } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LibraryItem, Section } from "@/lib/library";
@@ -159,6 +160,17 @@ export function MemoryView({ stats, items: initialItems, sections: initialSectio
       />
 
       <CaptureDock onAdded={(it) => setItems((x) => [it, ...x.filter((y) => y.id !== it.id)])} />
+
+      <Link href="/learning" className="panel lift mb-5 flex items-center gap-3 px-4 py-3.5 transition-colors hover:border-line-hi hover:bg-white/[0.03]">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[12px] bg-hermes/10">
+          <GraduationCap className="h-5 w-5 text-hermes" strokeWidth={1.75} />
+        </span>
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block text-[14.5px] font-medium">Learning dashboard</span>
+          <span className="block text-xs text-muted">Core concepts from your videos, then review, goals, code review and mock interviews.</span>
+        </span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-faint" />
+      </Link>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <Panel className="overflow-hidden">

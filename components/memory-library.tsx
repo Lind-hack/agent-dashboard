@@ -4,6 +4,7 @@ import { AudioLines, Download, FileText, Film, Image as ImageIcon, Link2, Pencil
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ItemKind, LibraryItem, Section } from "@/lib/library";
 import { ago, cn } from "@/lib/utils";
+import { canWatch, VideoPlayer } from "./video-player";
 
 // The Library: what was captured, grouped into the sections the automation keeps. Items being
 // read show a sheen; failed ones can be retried. Tap a card to open it. A memory dump shows its
@@ -250,7 +251,12 @@ function ItemSheet({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={media(it)} alt={it.title} className="max-h-[52vh] w-full bg-black object-contain" />
         )}
-        {it.kind === "video" && <video src={media(it)} poster={it.media?.poster ? media(it, true) : undefined} controls playsInline className="max-h-[52vh] w-full bg-black" />}
+        {it.kind === "video" && <VideoPlayer item={it} className="max-h-[52vh]" />}
+        {it.kind === "link" && canWatch(it) && (
+          <div className="mx-5 mt-5 overflow-hidden rounded-[12px] border border-line">
+            <VideoPlayer item={it} />
+          </div>
+        )}
         {(it.kind === "voice" || it.kind === "audio") && <audio src={media(it)} controls className="mx-5 mt-5 w-[calc(100%-40px)]" />}
         <div className="p-5">
           <div className="flex items-start gap-3">
