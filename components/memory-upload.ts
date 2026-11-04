@@ -4,7 +4,7 @@ import type { LibraryItem } from "@/lib/library";
 // server didn't expect gets resent from where it says to resume; anything else throws.
 const CHUNK = 8 * 1024 * 1024;
 
-export async function uploadToMemory(file: Blob, opts: { name?: string; voice?: boolean; note?: string; onProgress?: (f: number) => void } = {}): Promise<LibraryItem> {
+export async function uploadToMemory(file: Blob, opts: { name?: string; voice?: boolean; note?: string; parent?: string; onProgress?: (f: number) => void } = {}): Promise<LibraryItem> {
   if (file.size > 200 * 1024 * 1024) throw new Error("Files up to 200 MB.");
   const id = crypto.randomUUID();
   const count = Math.max(1, Math.ceil(file.size / CHUNK));
@@ -20,6 +20,7 @@ export async function uploadToMemory(file: Blob, opts: { name?: string; voice?: 
         "x-name": encodeURIComponent(opts.name ?? (file instanceof File ? file.name : "")),
         "x-type": file.type || "application/octet-stream",
         "x-voice": opts.voice ? "1" : "0",
+        ...(opts.parent ? { "x-parent": opts.parent } : {}),
         ...(i === count - 1 && opts.note ? { "x-note": encodeURIComponent(opts.note) } : {}),
       },
       body: file.slice(i * CHUNK, (i + 1) * CHUNK),

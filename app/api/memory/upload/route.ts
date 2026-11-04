@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { createItem, extFor, kindForMime, MAX_UPLOAD, mediaDir, newId, readItem, uploadsDir } from "@/lib/library";
+import { createItem, extFor, kindForMime, MAX_UPLOAD, mediaDir, mimeForFile, newId, readItem, uploadsDir } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
@@ -46,12 +46,15 @@ async function handle(request: Request) {
   const upload = h.get("x-upload") ?? "";
   const index = Number(h.get("x-index"));
   const count = Number(h.get("x-count"));
-  const type = (h.get("x-type") || "application/octet-stream").toLowerCase().slice(0, 100);
+  const declaredType = (h.get("x-type") || "application/octet-stream").toLowerCase().slice(0, 100);
   const name = decodeURIComponent(h.get("x-name") ?? "").replace(/[/\\\0]/g, "_").slice(0, 160);
+  // A browser with no MIME for .mov/.m4v sends octet-stream; the extension still says video.
+  const type = declaredType === "application/octet-stream" ? mimeForFile(name) : declaredType;
   if (!/^[a-z0-9-]{8,40}$/i.test(upload) || !Number.isInteger(index) || !Number.isInteger(count) || count < 1 || index < 0 || index >= count || count > Math.ceil(MAX_UPLOAD / (8 * 1024 * 1024)) + 1) {
     return NextResponse.json({ error: "bad upload headers" }, { status: 400 });
   }
   if (type.includes("html") || type.includes("svg") || type.includes("javascript")) return NextResponse.json({ error: "That file type can't be kept here." }, { status: 415 });
+  if (/\.(ass|ssa|sub|sbv|ttml|dfxp)$/i.test(name)) return NextResponse.json({ error: "That subtitle format isn't supported — upload .srt, .vtt or .txt." }, { status: 415 });
 
   const dir = uploadsDir();
   fs.mkdirSync(dir, { recursive: true });
@@ -93,6 +96,13 @@ async function handle(request: Request) {
   // Last chunk: the file becomes a Library item and the runner takes it from here.
   const voice = h.get("x-voice") === "1";
   const note = decodeURIComponent(h.get("x-note") ?? "").trim().slice(0, 4000);
+  // A transcript sent with its video names that video, so the runner can attach the cues to it.
+  const parent = decodeURIComponent(h.get("x-parent") ?? "").trim();
+  if (parent) {
+    const owner = readItem(parent);
+    if (!owner) return NextResponse.json({ error: "The video this transcript belongs to is missing — upload the video first." }, { status: 400 });
+    if (owner.kind !== "video") return NextResponse.json({ error: "Transcripts can only be attached to a video." }, { status: 400 });
+  }
   const id = newId();
   const file = `${id}.${extFor(type, name)}`;
   fs.mkdirSync(mediaDir(), { recursive: true });
@@ -105,6 +115,7 @@ async function handle(request: Request) {
     kind,
     title: voice ? "Voice note" : name || kind,
     note: note || undefined,
+    parent: parent || undefined,
     media: { file, mime: type, bytes: meta.bytes, name: name || undefined },
   });
   invalidateMemory();
