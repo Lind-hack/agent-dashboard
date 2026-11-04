@@ -250,7 +250,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       {/* Phone tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-[#09090c]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden" aria-label="Main">
-        <div className="mx-auto grid max-w-md grid-cols-5 items-end px-2">
+        <div className="mx-auto grid max-w-md grid-cols-6 items-end px-1">
           {[
             { href: "/", label: "Home", icon: House },
             { href: "/inbox", label: "Inbox", icon: Inbox, badge: true },
@@ -269,6 +269,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
           </div>
           {[
             { href: "/room", label: "Room", icon: Swords },
+            { href: "/learning", label: "Learning", icon: GraduationCap },
             { href: "/more", label: "More", icon: LayoutGrid },
           ].map((i) => (
             <TabLink key={i.href} item={i} path={path} count={count} />
@@ -300,7 +301,7 @@ function TabLink({ item, path, count }: { item: NavItem; path: string; count: nu
 // "More" page content on the phone: everything that isn't in the tab bar, as thumb-sized tiles.
 export function MoreLinks() {
   const items = [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter(
-    (i) => LIVE.has(i.href) && !["/", "/inbox", "/room"].includes(i.href),
+    (i) => LIVE.has(i.href) && !["/", "/inbox", "/room", "/learning"].includes(i.href),
   );
   return (
     <div className="grid grid-cols-2 gap-2">
