@@ -7,6 +7,7 @@ import { groqJSON } from "./groq";
 import { libraryDir, listItems, readSections, readSourceToggles } from "./library";
 import { recentIssues } from "./linear";
 import { listJobs } from "./store";
+import { formatTimestamp, hasTiming, transcriptWindows, type Transcript } from "./video-transcript";
 
 // Memory: one searchable index over everything Lind's agents and notes know, answered with sources.
 // - chat:     dashboard chats (Claude / Codex / OpenCode / Hermes turns, hand-offs)
@@ -29,14 +30,15 @@ export type SourceKind = "capture" | "chat" | "linear" | "obsidian" | "notes" | 
 export const SOURCE_KINDS: SourceKind[] = ["capture", "web", "chat", "pcchat", "github", "linear", "calendar", "obsidian", "notes", "mail"];
 const zero = (): Record<SourceKind, number> => Object.fromEntries(SOURCE_KINDS.map((k) => [k, 0])) as Record<SourceKind, number>;
 
-type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; group?: string; tags?: string[]; people?: string[]; parent?: string };
+type Doc = { id: string; kind: SourceKind; title: string; href?: string; at: string; text: string; group?: string; tags?: string[]; people?: string[]; parent?: string; edge?: "transcript"; start?: number; end?: number };
 type Chunk = { doc: Doc; text: string; tf: Map<string, number>; len: number };
 
 export type Source = { n: number; kind: SourceKind; title: string; href?: string; at: string; snippet: string };
 export type MemoryAnswer = { answer: string; sources: Source[] };
 export type MemoryStats = { counts: Record<SourceKind, number>; weeks: { start: string; counts: Record<SourceKind, number> }[]; vault: boolean; enabled: Record<SourceKind, boolean> };
 // One dot in the Visual cortex: group = a Library section, a mail pile, or the source kind.
-export type GraphNode = { id: string; kind: SourceKind; group: string; title: string; at: string; href?: string; ents?: number[] };
+export type GraphNode = { id: string; kind: SourceKind; group: string; title: string; at: string; href?: string; ents?: number[]; start?: number; end?: number };
+export type GraphEdge = { from: string; to: string; kind: "transcript" };
 export type GraphEntity = { id: number; label: string; type: "project" | "person" | "topic"; count: number };
 
 const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
@@ -188,19 +190,49 @@ function noteDocs(): Doc[] {
 }
 
 function captureDocs(): Doc[] {
-  return listItems()
-    .filter((i) => i.status === "ready" || i.text || i.note)
-    .map((i) => ({
+  const items = listItems();
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const out: Doc[] = [];
+  // Timed transcript windows: the video stays one record, and its speech becomes child nodes at
+  // their cue times, linked back to it. Long transcripts are merged into ~45-second windows.
+  const children = (base: Doc, transcript: Transcript): Doc[] =>
+    transcriptWindows(transcript).map((w, n) => {
+      const timed = hasTiming(w);
+      return {
+        id: `${base.id}:t${n}`,
+        kind: base.kind,
+        group: base.group,
+        title: timed ? `${formatTimestamp(w.start)} ${w.text.slice(0, 90)}` : `Transcript ${n + 1} · ${w.text.slice(0, 80)}`,
+        at: base.at,
+        href: base.href,
+        parent: base.id,
+        edge: "transcript" as const,
+        start: timed ? w.start : undefined,
+        end: timed ? w.end : undefined,
+        text: timed ? `[${formatTimestamp(w.start)}–${formatTimestamp(w.end)}] ${w.text}` : w.text,
+      };
+    });
+  for (const i of items) {
+    if (!(i.status === "ready" || i.text || i.note)) continue;
+    const owner = i.parent ? byId.get(i.parent) : undefined;
+    // A transcript file uploaded with its video is one node; the video holds the timed windows.
+    const paired = owner?.kind === "video";
+    const base: Doc = {
       id: `capture:${i.id}`,
       kind: (i.kind === "link" ? "web" : "capture") as SourceKind,
       tags: i.tags,
       group: i.section ?? "unsorted",
       title: i.title || i.kind,
       parent: i.parent ? `capture:${i.parent}` : undefined,
+      edge: paired ? "transcript" : undefined,
       href: `/memory?item=${i.id}`,
       at: i.createdAt,
       text: [i.summary, i.note, i.text, i.url, i.tags.length ? `Tags: ${i.tags.join(", ")}` : ""].filter(Boolean).join("\n\n"),
-    }));
+    };
+    out.push(base);
+    if (i.transcript && !(paired && owner?.transcript)) out.push(...children(base, i.transcript));
+  }
+  return out;
 }
 
 function mailDocs(): Doc[] {
@@ -566,7 +598,7 @@ function extractEntities(docs: Doc[]): { entities: GraphEntity[]; links: Map<str
   const out = entities.filter((e) => keep.has(e.id));
   // A memory dump is the hub of its parts, however many there are: where they came from is context.
   const kids = new Map<string, string[]>();
-  for (const d of docs) if (d.parent) kids.set(d.parent, [...(kids.get(d.parent) ?? []), d.id]);
+  for (const d of docs) if (d.parent && !d.edge) kids.set(d.parent, [...(kids.get(d.parent) ?? []), d.id]);
   for (const [pid, ids] of kids) {
     const p = docs.find((d) => d.id === pid);
     if (!p || ids.length < 2) continue;
@@ -589,7 +621,7 @@ export async function memoryPreview(id: string): Promise<{ id: string; title: st
 
 // The Visual cortex: captures grouped by section, mail by pile, GitHub by repo, the vault by top
 // folder, the rest by source — plus the entity hubs and which records link to each.
-export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: GraphGroup[]; entities: GraphEntity[] }> {
+export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: GraphGroup[]; entities: GraphEntity[]; edges: GraphEdge[] }> {
   const ix = await index();
   ix.graph ??= extractEntities(ix.docs);
   const { entities, links } = ix.graph;
@@ -602,7 +634,10 @@ export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: Graph
     at: d.at,
     href: d.href,
     ents: links.get(d.id),
+    start: d.start,
+    end: d.end,
   }));
+  const edges: GraphEdge[] = ix.docs.filter((d) => d.edge === "transcript" && d.parent).map((d) => ({ from: d.parent!, to: d.id, kind: "transcript" as const }));
   const seen = new Map<string, SourceKind>();
   for (const n of nodes) seen.set(n.group, n.kind);
   const fixed: GraphGroup[] = [
@@ -621,5 +656,5 @@ export async function memoryGraph(): Promise<{ nodes: GraphNode[]; groups: Graph
     .map(([key, kind]) => ({ key, kind, label: key.startsWith("obsidian:") ? `Vault · ${key.slice(9) || "root"}` : key.startsWith("github:") ? `GitHub · ${key.slice(7)}` : (GROUP_LABEL[kind] ?? kind) }));
   const order = (k: SourceKind) => SOURCE_KINDS.indexOf(k);
   const groups = [...fixed.filter((g) => seen.has(g.key)), ...rest].sort((a, z) => order(a.kind) - order(z.kind));
-  return { nodes, groups, entities };
+  return { nodes, groups, entities, edges };
 }

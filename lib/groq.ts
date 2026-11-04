@@ -1,29 +1,45 @@
 import { groqKey, groqModel, repoShort, type RepoKey, type TaskAgent } from "./config";
+import type { TranscriptSegment } from "./video-transcript";
 
 // Groq free tier: Whisper for speech-to-text, gpt-oss for turning a ramble into a ticket.
 // https://console.groq.com/docs/speech-to-text — OpenAI-compatible endpoints.
 
-export type Transcription = { text: string; language: string };
+export type Transcription = { text: string; language: string; segments: TranscriptSegment[] };
 
 // Whisper invents text over silence and noise ("Thank you for watching", "Subtitles by…"). With
 // verbose_json each segment says how sure it is; a segment that's probably not speech AND low-
 // confidence, or a known silence phrase, is dropped (v5.4: the random tasks Lind kept getting).
-type Segment = { text?: string; no_speech_prob?: number; avg_logprob?: number; compression_ratio?: number };
+type Segment = { text?: string; start?: number; end?: number; no_speech_prob?: number; avg_logprob?: number; compression_ratio?: number };
 const PHANTOM = /^(thank you( (so much|very much))?( for watching)?|thanks for watching|subtitles? (by|from)|please subscribe|like and subscribe|you|bye|\.+|mm+|hmm+|music)[.!\s]*$/i;
+const keep = (s: Segment) => {
+  const t = String(s.text ?? "").trim();
+  if (!t || PHANTOM.test(t)) return false;
+  if ((s.no_speech_prob ?? 0) > 0.6 && (s.avg_logprob ?? 0) < -0.7) return false;
+  if ((s.avg_logprob ?? 0) < -1.2 || (s.compression_ratio ?? 0) > 2.6) return false;
+  return true;
+};
+
 export function keepSegments(segments: Segment[] | undefined, text: string): string {
   if (!Array.isArray(segments) || !segments.length) return text.trim();
   return segments
-    .filter((s) => {
-      const t = String(s.text ?? "").trim();
-      if (!t || PHANTOM.test(t)) return false;
-      if ((s.no_speech_prob ?? 0) > 0.6 && (s.avg_logprob ?? 0) < -0.7) return false;
-      if ((s.avg_logprob ?? 0) < -1.2 || (s.compression_ratio ?? 0) > 2.6) return false;
-      return true;
-    })
+    .filter(keep)
     .map((s) => String(s.text).trim())
     .join(" ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+// The same segments Whisper kept, with their cue times — what the video transcript nodes use.
+export function timedSegments(segments: Segment[] | undefined): TranscriptSegment[] {
+  if (!Array.isArray(segments)) return [];
+  return segments
+    .filter(keep)
+    .map((s) => {
+      const start = Number(s.start) || 0;
+      const end = Math.max(start, Number(s.end) || 0);
+      return { start, end, text: String(s.text).trim() };
+    })
+    .filter((s) => s.text);
 }
 
 // opts.prompt: words to spell right (goal and task names, people) — Whisper takes ≤224 tokens.
@@ -47,7 +63,7 @@ export async function transcribeDetailed(audio: Blob, filename: string, opts: { 
       signal: AbortSignal.timeout(30_000),
     }).catch(() => null);
     const body = (await res?.json().catch(() => null)) as { text?: string; language?: string; segments?: Segment[]; error?: { message?: string } } | null;
-    if (res?.ok) return { text: keepSegments(body?.segments, body?.text ?? ""), language: body?.language ?? "" };
+    if (res?.ok) return { text: keepSegments(body?.segments, body?.text ?? ""), language: body?.language ?? "", segments: timedSegments(body?.segments) };
     last = `Whisper: ${body?.error?.message ?? res?.status ?? "unreachable"}`;
     if (res && res.status < 500 && res.status !== 429) break; // a real request error won't fix itself
   }

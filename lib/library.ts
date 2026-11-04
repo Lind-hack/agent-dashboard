@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
-import type { Transcript } from "./transcript";
+import type { Transcript } from "./video-transcript";
 
 // The Library: everything Lind throws at Memory — typed notes, voice, images, videos, files, links.
 // One JSON per item in data/library/items, the media next to it in data/library/media. The runner

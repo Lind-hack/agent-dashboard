@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
-import { createItem, extFor, kindForMime, MAX_UPLOAD, mediaDir, newId, readItem, uploadsDir } from "@/lib/library";
+import { createItem, extFor, kindForMime, MAX_UPLOAD, mediaDir, mimeForFile, newId, readItem, uploadsDir } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
 
 export const dynamic = "force-dynamic";
@@ -46,8 +46,10 @@ async function handle(request: Request) {
   const upload = h.get("x-upload") ?? "";
   const index = Number(h.get("x-index"));
   const count = Number(h.get("x-count"));
-  const type = (h.get("x-type") || "application/octet-stream").toLowerCase().slice(0, 100);
+  const declaredType = (h.get("x-type") || "application/octet-stream").toLowerCase().slice(0, 100);
   const name = decodeURIComponent(h.get("x-name") ?? "").replace(/[/\\\0]/g, "_").slice(0, 160);
+  // A browser with no MIME for .mov/.m4v sends octet-stream; the extension still says video.
+  const type = declaredType === "application/octet-stream" ? mimeForFile(name) : declaredType;
   if (!/^[a-z0-9-]{8,40}$/i.test(upload) || !Number.isInteger(index) || !Number.isInteger(count) || count < 1 || index < 0 || index >= count || count > Math.ceil(MAX_UPLOAD / (8 * 1024 * 1024)) + 1) {
     return NextResponse.json({ error: "bad upload headers" }, { status: 400 });
   }

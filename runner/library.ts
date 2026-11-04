@@ -6,9 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { geminiJSON, geminiReady, type InlineImage } from "../lib/gemini";
-import { groqJSON, transcribe } from "../lib/groq";
+import { groqJSON, transcribe, transcribeDetailed } from "../lib/groq";
 import { splitStep, startSplitIfDump, unsplitDump } from "./dump";
 import { addSection, listItems, mediaDir, mirrorItem, readItem, readSections, removeMirror, saveItem, type LibraryItem, type Section } from "../lib/library";
+import { isPlainTranscriptName, isSubtitleFile, parseTranscript, shouldPairTranscript, transcriptText, type Transcript } from "../lib/video-transcript";
 
 // The Library automation (plan v3 §3): every queued capture is read — voice transcribed, images and
 // video frames described, links fetched — then the organiser files it into a section (making a new
@@ -51,17 +52,30 @@ async function processItem(id: string) {
   log("processing", it.id, it.kind);
   try {
     const read = await extract(it);
-    const draft: LibraryItem = { ...(readItem(id) ?? it), text: read.text.slice(0, 40_000), waiting: read.waiting };
+    const draft: LibraryItem = { ...(readItem(id) ?? it), text: read.text.slice(0, 40_000), waiting: read.waiting, transcript: read.transcript };
     if (read.poster) draft.media = { ...draft.media!, poster: read.poster, duration: read.duration ?? draft.media?.duration };
+    // A transcript uploaded with a video belongs to that video, not just to its own card.
+    if (it.parent && read.transcript) attachTranscript(it.parent, read.transcript);
     await organise(draft, read.title);
     // Commit against the item as it is NOW: deleted → drop the result; edited → keep his title/section.
     const fresh = readItem(id);
     if (!fresh) return;
     const edited = fresh.updatedAt !== stamp;
+    // An uploaded transcript wins over one extracted from the video; a retry of the video
+    // must not replace the file the user paired with it.
+    const fileWins = fresh.transcript?.source === "file" && draft.transcript?.source !== "file";
+    const transcript = fileWins ? fresh.transcript : draft.transcript;
+    let text = draft.text;
+    if (fileWins && fresh.transcript) {
+      // The upload may have landed before this pass, whose own text then has no transcript in it.
+      const block = `Transcript:\n${transcriptText(fresh.transcript, 20_000)}`;
+      if (!text.includes(block.slice(0, 80))) text = [text, block].filter(Boolean).join("\n\n").slice(0, 40_000);
+    }
     Object.assign(fresh, {
-      text: draft.text,
+      text,
       media: draft.media,
       waiting: draft.waiting,
+      transcript,
       summary: draft.summary,
       tags: draft.tags,
       title: edited ? fresh.title : draft.title,
@@ -79,7 +93,7 @@ async function processItem(id: string) {
     if (!fresh) return; // deleted meanwhile — nothing to resurrect
     fresh.error = msg.slice(0, 300);
     // Retrying can't fix a refused link or a missing file.
-    if ((fresh.attempts ?? 0) >= MAX_ATTEMPTS || /private address|only http|file is missing/.test(msg)) fresh.status = "failed";
+    if ((fresh.attempts ?? 0) >= MAX_ATTEMPTS || /private address|only http|file is missing|Unsupported transcript|no timed cues|transcript is empty|isn't a transcript/.test(msg)) fresh.status = "failed";
     else {
       fresh.status = "queued";
       fresh.nextAt = new Date(Date.now() + 60_000 * 4 ** (fresh.attempts ?? 1)).toISOString();
@@ -89,7 +103,7 @@ async function processItem(id: string) {
   }
 }
 
-type Read = { text: string; title?: string; poster?: string; duration?: number; waiting?: "vision" };
+type Read = { text: string; title?: string; poster?: string; duration?: number; waiting?: "vision"; transcript?: Transcript };
 
 const file = (it: LibraryItem) => path.join(mediaDir(), path.basename(it.media?.file ?? ""));
 const withNote = (it: LibraryItem, s: string) => [it.note, s].filter(Boolean).join("\n\n");
@@ -113,17 +127,66 @@ async function extract(it: LibraryItem): Promise<Read> {
   }
 }
 
-// Speech → text: re-encoded to 16 kHz mono Opus first so even long notes stay under Whisper's 25 MB.
+// Speech → 16 kHz mono Opus so even long notes stay under Whisper's 25 MB.
+async function audioForWhisper(input: string): Promise<string> {
+  const tmp = path.join(os.tmpdir(), `lib-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.ogg`);
+  await run("ffmpeg", ["-y", "-v", "error", "-i", input, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "24k", tmp], { timeout: 10 * 60_000 });
+  const size = fs.statSync(tmp).size;
+  if (size > 25 * 1024 * 1024) {
+    fs.rmSync(tmp, { force: true });
+    throw new Error("audio longer than Whisper takes (about 2 hours)");
+  }
+  return tmp;
+}
+
 async function hear(input: string): Promise<string> {
-  const tmp = path.join(os.tmpdir(), `lib-${process.pid}-${Date.now()}.ogg`);
+  const tmp = await audioForWhisper(input);
   try {
-    await run("ffmpeg", ["-y", "-v", "error", "-i", input, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "libopus", "-b:a", "24k", tmp], { timeout: 10 * 60_000 });
-    const buf = fs.readFileSync(tmp);
-    if (buf.length > 25 * 1024 * 1024) throw new Error("audio longer than Whisper takes (about 2 hours)");
-    return await transcribe(new Blob([buf], { type: "audio/ogg" }), "note.ogg");
+    return await transcribe(new Blob([fs.readFileSync(tmp)], { type: "audio/ogg" }), "note.ogg");
   } finally {
     fs.rmSync(tmp, { force: true });
   }
+}
+
+async function hearWithCues(input: string) {
+  const tmp = await audioForWhisper(input);
+  try {
+    return await transcribeDetailed(new Blob([fs.readFileSync(tmp)], { type: "audio/ogg" }), "video.ogg");
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+// A video's own subtitle track beats Whisper: it is exact, cheap and already timed.
+type Probe = { format?: { duration?: string }; streams?: { index?: number; codec_type?: string; codec_name?: string }[] };
+
+async function embeddedTranscript(input: string, info: Probe): Promise<Transcript | null> {
+  const sub = info.streams?.find((s) => s.codec_type === "subtitle" && s.index !== undefined && !/^(hdmv_pgs_subtitle|dvd_subtitle|dvb_subtitle|xsub)$/i.test(s.codec_name ?? ""));
+  if (!sub) return null;
+  const tmp = path.join(os.tmpdir(), `lib-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.srt`);
+  try {
+    await run("ffmpeg", ["-y", "-v", "error", "-i", input, "-map", `0:${sub.index}`, "-c:s", "srt", tmp], { timeout: 120_000 });
+    return parseTranscript("embedded.srt", fs.readFileSync(tmp, "utf8"), "embedded");
+  } catch {
+    return null;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
+const whisperTranscript = (t: Awaited<ReturnType<typeof transcribeDetailed>> | null): Transcript | null =>
+  t?.segments?.length ? { source: "whisper", format: "text", language: t.language || undefined, segments: t.segments } : null;
+
+// Attach an uploaded transcript to its video, and keep the video's searchable text in step.
+function attachTranscript(parentId: string, transcript: Transcript) {
+  const parent = readItem(parentId);
+  if (!parent) return;
+  parent.transcript = transcript;
+  const block = `Transcript:\n${transcriptText(transcript, 20_000)}`;
+  if (!parent.text.includes(block.slice(0, 80))) parent.text = [parent.text, block].filter(Boolean).join("\n\n").slice(0, 40_000);
+  mirrorItem(parent);
+  saveItem(parent);
+  log("transcript attached", parentId, transcript.source, transcript.segments.length);
 }
 
 type Seen = { title?: string; description?: string; text_in_image?: string };
@@ -150,26 +213,37 @@ async function still(input: string, at: number | null, width: number): Promise<B
 
 async function readVideo(it: LibraryItem): Promise<Read> {
   const input = file(it);
-  const probe = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", input], { timeout: 60_000 }).catch(() => null);
-  const info = JSON.parse(probe?.stdout || "{}") as { format?: { duration?: string }; streams?: { codec_type?: string }[] };
+  const probe = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,codec_name", "-of", "json", input], { timeout: 60_000 }).catch(() => null);
+  const info = JSON.parse(probe?.stdout || "{}") as Probe;
   const duration = Number(info.format?.duration) || 0;
   const posterName = `${it.id}-poster.jpg`;
   fs.writeFileSync(path.join(mediaDir(), posterName), await still(input, Math.min(1, duration / 2), 960));
-  const transcript = info.streams?.some((s) => s.codec_type === "audio") ? await hear(input).catch(() => "") : "";
-  if (!geminiReady()) return { text: withNote(it, transcript ? `Said in the video: ${transcript}` : it.media?.name ?? "video"), poster: posterName, duration, waiting: "vision" };
+  const embedded = await embeddedTranscript(input, info);
+  const spoken = !embedded && info.streams?.some((s) => s.codec_type === "audio") ? await hearWithCues(input).catch(() => null) : null;
+  const transcript = embedded ?? whisperTranscript(spoken);
+  const cues = transcript ? transcriptText(transcript, 20_000) : "";
+  if (!geminiReady()) return { text: withNote(it, cues ? `Transcript:\n${cues}` : it.media?.name ?? "video"), poster: posterName, duration, transcript: transcript ?? undefined, waiting: "vision" };
   const frames = await Promise.all([0.15, 0.5, 0.85].map(async (f) => ({ mime: "image/jpeg", data: await still(input, duration * f, 768) })));
-  const seen = await geminiJSON<Seen>(withNote(it, `${VISION}\nThese are three frames from one ${Math.round(duration)}-second video, in order.${transcript ? ` What is said in it: ${transcript.slice(0, 3000)}` : ""}`), frames);
+  const seen = await geminiJSON<Seen>(withNote(it, `${VISION}\nThese are three frames from one ${Math.round(duration)}-second video, in order.${cues ? ` What is said in it: ${cues.slice(0, 3000)}` : ""}`), frames);
   return {
     title: seen.title,
     poster: posterName,
     duration,
-    text: [it.note, seen.description, seen.text_in_image ? `Text on screen: ${seen.text_in_image}` : "", transcript ? `Said in the video: ${transcript}` : ""].filter(Boolean).join("\n\n"),
+    transcript: transcript ?? undefined,
+    text: [it.note, seen.description, seen.text_in_image ? `Text on screen: ${seen.text_in_image}` : "", cues ? `Transcript:\n${cues}` : ""].filter(Boolean).join("\n\n"),
   };
 }
 
 async function readFile(it: LibraryItem): Promise<Read> {
   const p = file(it);
   const name = it.media?.name ?? "file";
+  // Subtitles are always transcripts; a plain-text transcript is one when it says so in its name
+  // or when it was uploaded together with a video.
+  if (isSubtitleFile(name) || (isPlainTranscriptName(name) && (it.parent || shouldPairTranscript(name)))) {
+    const transcript = parseTranscript(name, fs.readFileSync(p, "utf8"), "file");
+    return { text: withNote(it, transcriptText(transcript, 30_000)), transcript };
+  }
+  if (/\.(ass|ssa|sub|sbv|ttml|dfxp)$/i.test(name)) throw new Error(`Unsupported transcript format — upload .srt, .vtt or .txt.`);
   if (/\.(txt|md|csv|json|log|ya?ml)$/i.test(name)) return { text: withNote(it, fs.readFileSync(p, "utf8").slice(0, 30_000)) };
   if (it.media?.mime === "application/pdf" && geminiReady() && (it.media?.bytes ?? 0) < 18 * 1024 * 1024) {
     const seen = await geminiJSON<{ title?: string; summary?: string; text?: string }>(

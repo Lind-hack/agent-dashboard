@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { formatTimestamp, parseCues, parsePlainTranscript, parseTimestamp, parseTranscript, transcriptText, transcriptWindows } = await import("../lib/transcript");
+const { formatTimestamp, parseCues, parsePlainTranscript, parseTimestamp, parseTranscript, transcriptText, transcriptWindows } = await import("../lib/video-transcript");
 
 const srt = `\uFEFF1\r
 00:00:01,000 --> 00:00:04,500\r

@@ -1,172 +1,125 @@
-// Transcripts for video memories: parse SRT / WebVTT / plain text, keep their timing, and turn
-// them into the short timestamped windows the Visual cortex draws as nodes under the video.
-// Pure functions only — the runner, the graph and the browser all import this file.
+// Reads Claude Code transcripts (~/.claude/projects/*/<id>.jsonl) and Codex rollouts
+// (~/.codex/sessions/**/rollout-*.jsonl) into plain conversation items. Shared by the PC hand-off
+// script (Node 24 runs this directly — keep it erasable TypeScript) and the VPS (history view, dossier).
 
-export type TranscriptFormat = "srt" | "vtt" | "text";
-export type TranscriptSource = "embedded" | "file" | "whisper";
-export type TranscriptSegment = { start: number; end: number; text: string };
-export type Transcript = {
-  source: TranscriptSource;
-  format: TranscriptFormat;
-  language?: string;
-  segments: TranscriptSegment[];
-};
+export type Item = { role: "you" | "agent" | "tool"; text: string; at?: string };
 
-export const MAX_TRANSCRIPT_SEGMENTS = 4000;
-const MAX_SEGMENT_CHARS = 2000;
-const MAX_WINDOW_CHARS = 700;
-const MAX_WINDOWS = 500;
+const SYSTEM_NOISE = [
+  /<system-reminder>[\s\S]*?<\/system-reminder>/g,
+  /<local-command-caveat>[\s\S]*?<\/local-command-caveat>/g,
+  /<local-command-stdout>[\s\S]*?<\/local-command-stdout>/g,
+  /<command-message>[\s\S]*?<\/command-message>/g,
+  /<task-notification>[\s\S]*?<\/task-notification>/g,
+  /<external_[a-z_]+>[\s\S]*?<\/external_[a-z_]+>/g, // Codex app UI state
+  /<in-app-browser-context[\s\S]*?<\/in-app-browser-context>/g,
+];
 
-const decode = (s: string) =>
-  s
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?…])/g, "$1")
-    .trim();
-
-const seconds = (h: string | undefined, m: string, s: string, ms?: string) =>
-  Number(h ?? 0) * 3600 + Number(m) * 60 + Number(s) + Number((ms ?? "0").padEnd(3, "0").slice(0, 3)) / 1000;
-
-export function parseTimestamp(value: string): number | null {
-  const m = value.trim().match(/^(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2})(?:[.,](\d{1,3}))?$/);
-  if (!m) return null;
-  return seconds(m[1], m[2], m[3], m[4]);
+function clean(text: string): string {
+  let t = text;
+  for (const re of SYSTEM_NOISE) t = t.replace(re, "");
+  // "<command-name>/handoff</command-name> <command-args>x</command-args>" → "/handoff x"
+  t = t.replace(/<command-name>([\s\S]*?)<\/command-name>\s*(?:<command-args>([\s\S]*?)<\/command-args>)?/g, (_m: string, n: string, a?: string) => `${n.trim()} ${a?.trim() ?? ""}`.trim());
+  return t.trim();
 }
 
-const CUE = /^\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})\s*-->\s*((?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3})(?:\s+.*)?$/;
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-// SRT and WebVTT share the same cue timing line; everything around it (indexes, headers, NOTE
-// blocks, cue settings) is ignored.
-export function parseCues(input: string): TranscriptSegment[] {
-  const lines = input.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
-  const out: TranscriptSegment[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const cue = lines[i].trim().match(CUE);
-    if (!cue) {
-      i++;
+function toolLine(name: string, input: Record<string, unknown>): string {
+  const v = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.url ?? input.query ?? input.description ?? input.skill ?? "";
+  return `${name}${v ? ` ${clip(String(v).replace(/\s+/g, " "), 160)}` : ""}`;
+}
+
+type Rec = Record<string, any>;
+
+function claudeItems(r: Rec): Item[] {
+  if (r.isSidechain || r.isMeta) return [];
+  const at = typeof r.timestamp === "string" ? r.timestamp : undefined;
+  const content = r.message?.content;
+  if (r.type === "user") {
+    if (typeof content === "string") {
+      const t = clean(content);
+      return t ? [{ role: "you", text: t, at }] : [];
+    }
+    const out: Item[] = [];
+    for (const c of Array.isArray(content) ? content : []) {
+      if (c?.type === "text") {
+        const t = clean(c.text ?? "");
+        if (t) out.push({ role: "you", text: t, at });
+      } else if (c?.type === "tool_result" && c.is_error) {
+        const t = typeof c.content === "string" ? c.content : (c.content ?? []).map((x: Rec) => x?.text ?? "").join(" ");
+        if (t.trim()) out.push({ role: "tool", text: `error: ${clip(t.trim().split("\n")[0], 200)}`, at });
+      }
+    }
+    return out;
+  }
+  if (r.type === "assistant") {
+    const out: Item[] = [];
+    for (const c of Array.isArray(content) ? content : []) {
+      if (c?.type === "text" && c.text?.trim()) out.push({ role: "agent", text: c.text.trim(), at });
+      if (c?.type === "tool_use") out.push({ role: "tool", text: toolLine(c.name ?? "tool", c.input ?? {}), at });
+    }
+    return out;
+  }
+  return [];
+}
+
+function codexItems(r: Rec): Item[] {
+  const at = typeof r.timestamp === "string" ? r.timestamp : undefined;
+  const p = r.payload ?? {};
+  if (r.type !== "response_item") return [];
+  if (p.type === "message" && (p.role === "user" || p.role === "assistant")) {
+    const text = clean((p.content ?? []).map((c: Rec) => c?.text ?? "").join("\n"));
+    // Codex injects AGENTS.md, environment context and skill lists as user messages.
+    if (!text || /^(<environment_context>|<user_instructions>|# AGENTS\.md|<skills_instructions>|<permissions)/.test(text)) return [];
+    return [{ role: p.role === "user" ? "you" : "agent", text, at }];
+  }
+  if (p.type === "function_call" || p.type === "custom_tool_call" || p.type === "local_shell_call") {
+    let input: Rec = {};
+    try {
+      input = typeof p.arguments === "string" ? JSON.parse(p.arguments) : (p.arguments ?? p.action ?? p.input ?? {});
+    } catch {
+      input = { command: String(p.arguments ?? "") };
+    }
+    if (Array.isArray(input.command)) input.command = input.command.join(" ");
+    return [{ role: "tool", text: toolLine(p.name ?? "shell", input), at }];
+  }
+  return [];
+}
+
+// Parses either format; unknown/partial lines are skipped.
+export function parseTranscript(raw: string, agent: "claude" | "codex"): Item[] {
+  const out: Item[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let r: Rec;
+    try {
+      r = JSON.parse(line);
+    } catch {
       continue;
     }
-    const start = parseTimestamp(cue[1]);
-    const end = parseTimestamp(cue[2]);
-    i++;
-    const body: string[] = [];
-    while (i < lines.length && lines[i].trim() !== "") {
-      const text = decode(lines[i]);
-      if (text) body.push(text);
-      i++;
-    }
-    const text = body.join(" ").trim();
-    if (text && start !== null && end !== null) out.push({ start, end: Math.max(end, start), text: text.slice(0, MAX_SEGMENT_CHARS) });
-    if (out.length >= MAX_TRANSCRIPT_SEGMENTS) break;
+    out.push(...(agent === "codex" ? codexItems(r) : claudeItems(r)));
   }
   return out;
 }
 
-// A transcript without timing still has structure: paragraphs, or sentences in long paragraphs.
-export function parsePlainTranscript(input: string): TranscriptSegment[] {
-  const text = input.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").trim();
-  if (!text) return [];
-  const out: TranscriptSegment[] = [];
-  const push = (s: string) => {
-    const clean = decode(s);
-    if (clean) out.push({ start: 0, end: 0, text: clean.slice(0, MAX_SEGMENT_CHARS) });
-  };
-  for (const para of text.split(/\n\s*\n/)) {
-    const p = decode(para);
-    if (!p) continue;
-    if (p.length <= MAX_WINDOW_CHARS) {
-      push(p);
-      continue;
-    }
-    let buf = "";
-    for (const sentence of p.match(/[^.!?…]+[.!?…]*/g) ?? [p]) {
-      if (buf && buf.length + sentence.length > MAX_WINDOW_CHARS) {
-        push(buf);
-        buf = "";
-      }
-      if (sentence.length > MAX_WINDOW_CHARS) {
-        for (let i = 0; i < sentence.length; i += MAX_WINDOW_CHARS) push(sentence.slice(i, i + MAX_WINDOW_CHARS));
-        continue;
-      }
-      buf += sentence;
-    }
-    if (buf.trim()) push(buf);
-    if (out.length >= MAX_TRANSCRIPT_SEGMENTS) break;
-  }
-  return out.slice(0, MAX_TRANSCRIPT_SEGMENTS);
-}
-
-export const transcriptExt = (name: string): string => name.match(/\.([a-z0-9]{1,5})$/i)?.[1]?.toLowerCase() ?? "";
-
-export const isSubtitleFile = (name: string): boolean => /\.(srt|vtt)$/i.test(name);
-export const isPlainTranscriptName = (name: string): boolean => /\.(txt|text|md|markdown)$/i.test(name);
-
-// A .txt next to a video is probably its transcript only when the name says so.
-export const shouldPairTranscript = (name: string): boolean => isSubtitleFile(name) || (isPlainTranscriptName(name) && /transcript|caption|subtitle|spoken|words/i.test(name));
-
-const UNSUPPORTED = new Set(["ass", "ssa", "sub", "sbv", "ttml", "dfxp"]);
-
-export function parseTranscript(name: string, input: string, source: TranscriptSource = "file"): Transcript {
-  const ext = transcriptExt(name);
-  if (ext === "srt" || ext === "vtt") {
-    const segments = parseCues(input);
-    if (!segments.length) throw new Error(`The .${ext} file has no timed cues — is it a valid transcript?`);
-    return { source, format: ext, segments };
-  }
-  if (["txt", "text", "md", "markdown"].includes(ext)) {
-    const segments = parsePlainTranscript(input);
-    if (!segments.length) throw new Error("The transcript is empty.");
-    return { source, format: "text", segments };
-  }
-  if (UNSUPPORTED.has(ext)) throw new Error(`Unsupported transcript format ".${ext}" — upload .srt, .vtt or .txt.`);
-  throw new Error(`That isn't a transcript this memory can read${ext ? ` (.${ext})` : ""} — upload .srt, .vtt or .txt.`);
-}
-
-export function formatTimestamp(sec: number): string {
-  const total = Math.max(0, Math.floor(sec));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = total % 60;
-  return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-export const hasTiming = (s: TranscriptSegment): boolean => s.start > 0 || s.end > 0;
-
-export function transcriptText(t: Transcript, limit = Infinity): string {
-  return t.segments
-    .map((s) => (hasTiming(s) ? `[${formatTimestamp(s.start)}] ${s.text}` : s.text))
+// Plain-text rendering for search files and the dossier: your words in full, the agent's text in
+// full, tool calls as one-liners.
+export function condense(items: Item[]): string {
+  return items
+    .map((i) => {
+      const day = i.at ? `[${i.at.slice(0, 16).replace("T", " ")}] ` : "";
+      if (i.role === "you") return `\n## ${day}Lind\n${i.text}`;
+      if (i.role === "agent") return `\n${day}Agent: ${i.text}`;
+      return `  · ${i.text}`;
+    })
     .join("\n")
-    .slice(0, limit);
+    .trim();
 }
 
-// The graph's transcript nodes: consecutive cues merged into ~45-second, ~700-character windows.
-export function transcriptWindows(t: Transcript, maxSeconds = 45, maxChars = MAX_WINDOW_CHARS): TranscriptSegment[] {
-  const out: TranscriptSegment[] = [];
-  let cur: TranscriptSegment | null = null;
-  for (const s of t.segments) {
-    if (!cur) {
-      cur = { ...s };
-      continue;
-    }
-    const gap = s.start - cur.end;
-    const timed = hasTiming(cur) || hasTiming(s);
-    const fits = cur.text.length + s.text.length + 1 <= maxChars && (!timed || (s.start - cur.start <= maxSeconds && gap <= 8));
-    if (fits) {
-      cur.end = Math.max(cur.end, s.end);
-      cur.text = `${cur.text} ${s.text}`.trim();
-    } else {
-      out.push(cur);
-      cur = { ...s };
-    }
-    if (out.length >= MAX_WINDOWS) break;
-  }
-  if (cur && out.length < MAX_WINDOWS) out.push(cur);
-  return out;
+// The first real thing Lind asked — used as a title.
+export function titleOf(items: Item[]): string {
+  const first = items.find((i) => i.role === "you" && !i.text.startsWith("/"))?.text ?? items.find((i) => i.role === "you")?.text ?? "";
+  // Paste wrappers and app markup aren't words Lind typed.
+  const plain = first.replace(/<\/?[a-z_]+(?:\s[^>]*)?>/gi, " ").replace(/\[\$([\w-]+)\]\([^)]*\)/g, "$$$1");
+  return clip(plain.replace(/\s+/g, " ").trim(), 90) || "(untitled chat)";
 }

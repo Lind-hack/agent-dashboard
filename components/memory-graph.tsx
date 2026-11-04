@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GraphEntity, GraphGroup, GraphNode, SourceKind } from "@/lib/memory";
+import type { GraphEdge, GraphEntity, GraphGroup, GraphNode, SourceKind } from "@/lib/memory";
+import { formatTimestamp } from "@/lib/video-transcript";
 import { cn } from "@/lib/utils";
 import { ago } from "@/lib/utils";
 
@@ -42,7 +43,7 @@ const hash = (s: string) => {
 };
 const fold = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 
-export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }: { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[]; query: string; lit: Set<string>; total: number }) {
+export function MemoryGraph({ nodes, groups, entities = [], edges = [], query, lit, total }: { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[]; edges?: GraphEdge[]; query: string; lit: Set<string>; total: number }) {
   const [focus, setFocus] = useState<number | null>(null);
   // Read by the draw loop through a ref: putting it in the effect's deps restarted the intro on every move.
   const hoverEnts = useRef<number[]>([]);
@@ -113,7 +114,7 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
         const a = Math.atan2(docs.reduce((s, d) => s + Math.sin(d.a), 0), docs.reduce((s, d) => s + Math.cos(d.a), 0));
         return { ...e, a, r: 0.035 + 0.11 * hash(`hub${e.id}`), color: HUB_COLOR[e.type], docs };
       });
-    return { wedges, placed, hubs, searching: terms.length > 0 || focus !== null };
+    return { wedges, placed, hubs, byId: new Map(placed.map((n) => [n.id, n])), searching: terms.length > 0 || focus !== null };
   }, [nodes, groups, entities, query, lit, focus]);
 
   useEffect(() => {
@@ -231,8 +232,28 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
       }
       ctx.globalAlpha = 1;
 
-      // The dots.
+      // Transcript windows tethered to the video they came from.
       const dim = layout.searching || lit.size > 0;
+      if (edges.length) {
+        ctx.lineWidth = 0.55;
+        ctx.strokeStyle = "rgba(179,146,240,0.5)";
+        for (const e of edges) {
+          const a = layout.byId.get(e.from);
+          const z = layout.byId.get(e.to);
+          if (!a || !z) continue;
+          const on = a.hit || a.lit || z.hit || z.lit;
+          const [x1, y1] = pos(a);
+          const [x2, y2] = pos(z);
+          ctx.globalAlpha = dim ? (on ? 0.7 : 0.06) : on ? 0.7 : 0.22;
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      // The dots.
       for (const n of layout.placed) {
         const [x, y] = pos(n);
         const on = n.hit || n.lit;
@@ -323,7 +344,7 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
       ro.disconnect();
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [layout, lit, focus]);
+  }, [layout, lit, focus, edges]);
 
   // The nearest dot (record or hub) to the pointer.
   function pick(clientX: number, clientY: number): { n: Placed | Hub; x: number; y: number } | null {
@@ -468,6 +489,7 @@ export function MemoryGraph({ nodes, groups, entities = [], query, lit, total }:
                 <p className="line-clamp-2 text-[13px] text-text">{hover.n.title}</p>
                 <p className="mt-0.5 text-faint">
                   <span style={{ color: hover.n.color }}>{hover.n.kind}</span> · {ago(hover.n.at)}
+                  {hover.n.start !== undefined ? ` · ${formatTimestamp(hover.n.start)}${hover.n.end !== undefined ? `–${formatTimestamp(hover.n.end)}` : ""}` : ""}
                   {hover.n.ents?.length ? ` · ${hover.n.ents.length} link${hover.n.ents.length > 1 ? "s" : ""}` : ""}
                   {hover.n.href && !pinned ? " · click to open" : ""}
                 </p>

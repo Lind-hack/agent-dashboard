@@ -3,6 +3,7 @@
 import { ImagePlus, LoaderCircle, Mic, Paperclip, Send, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { LibraryItem } from "@/lib/library";
+import { shouldPairTranscript } from "@/lib/video-transcript";
 import { cn } from "@/lib/utils";
 import { uploadToMemory } from "./memory-upload";
 import { useRecorder } from "./use-recorder";
@@ -12,6 +13,11 @@ import { useRecorder } from "./use-recorder";
 // automation files it.
 
 type Pending = { key: string; file: File; url?: string; progress: number; error?: string };
+
+// Some browsers report no MIME type for .mov and friends; the extension is still a video.
+const isVideoFile = (f: File) => f.type.startsWith("video/") || /\.(mp4|m4v|mov|webm|mkv|avi|ogv|3gp)$/i.test(f.name);
+// Subtitles always pair with a video; a .txt picked in the same upload is taken as its transcript.
+const pairsWithVideo = (name: string) => shouldPairTranscript(name) || /\.(txt|text)$/i.test(name);
 
 export function CaptureDock({ onAdded }: { onAdded: (it: LibraryItem) => void }) {
   const [text, setText] = useState("");
@@ -26,7 +32,7 @@ export function CaptureDock({ onAdded }: { onAdded: (it: LibraryItem) => void })
     const next = [...list].slice(0, 12).map((file) => ({
       key: `${file.name}-${file.size}-${Math.random().toString(36).slice(2, 7)}`,
       file,
-      url: file.type.startsWith("image/") || file.type.startsWith("video/") ? URL.createObjectURL(file) : undefined,
+      url: file.type.startsWith("image/") || isVideoFile(file) ? URL.createObjectURL(file) : undefined,
       progress: 0,
     }));
     previews.current.push(...next.flatMap((n) => (n.url ? [n.url] : [])));
@@ -105,9 +111,18 @@ export function CaptureDock({ onAdded }: { onAdded: (it: LibraryItem) => void })
     let failed = 0;
     try {
       // Files carry the typed text as their note; text alone becomes a note of its own.
-      for (const p of files) {
+      // A video goes first, then its transcript (.srt/.vtt/.txt) is uploaded with it as the parent.
+      const ordered = [...files].sort((a, b) => Number(!isVideoFile(a.file)) - Number(!isVideoFile(b.file)));
+      let videoId: string | undefined;
+      for (const p of ordered) {
+        const isVideo = isVideoFile(p.file);
         try {
-          const it = await uploadToMemory(p.file, { note: body, onProgress: (f) => setFiles((all) => all.map((x) => (x.key === p.key ? { ...x, progress: f } : x))) });
+          const it = await uploadToMemory(p.file, {
+            note: body,
+            parent: !isVideo && videoId && pairsWithVideo(p.file.name) ? videoId : undefined,
+            onProgress: (f) => setFiles((all) => all.map((x) => (x.key === p.key ? { ...x, progress: f } : x))),
+          });
+          if (isVideo) videoId = it.id;
           onAdded(it);
           setFiles((all) => all.filter((x) => x.key !== p.key));
         } catch (e) {
@@ -180,7 +195,7 @@ export function CaptureDock({ onAdded }: { onAdded: (it: LibraryItem) => void })
       )}
 
       <div className="mt-2 flex items-center gap-1.5">
-        <input ref={input} type="file" multiple accept="image/*,video/*,audio/*,application/pdf,.txt,.md,.csv,.json" className="hidden" onChange={(e) => e.target.files && add(e.target.files)} />
+        <input ref={input} type="file" multiple accept="image/*,video/*,audio/*,application/pdf,.txt,.md,.csv,.json,.srt,.vtt" className="hidden" onChange={(e) => e.target.files && add(e.target.files)} />
         <button onClick={() => input.current?.click()} className="press flex h-10 items-center gap-2 rounded-[11px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text" aria-label="Attach photos, videos or files">
           <ImagePlus className="h-4 w-4" /> <span className="hidden sm:inline">Photo / video</span>
         </button>

@@ -4,7 +4,7 @@ import { ArrowUpRight, Brain, CalendarDays, CircleDot, Clock3, FileText, GitPull
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { LibraryItem, Section } from "@/lib/library";
-import type { GraphEntity, GraphGroup, GraphNode, MemoryAnswer, MemoryStats, SourceKind } from "@/lib/memory";
+import type { GraphEdge, GraphEntity, GraphGroup, GraphNode, MemoryAnswer, MemoryStats, SourceKind } from "@/lib/memory";
 import { ago, cn } from "@/lib/utils";
 import { Panel, SectionTitle } from "./kit";
 import { Md } from "./md";
@@ -29,7 +29,7 @@ const KINDS: { kind: SourceKind; label: string; sub: string; icon: typeof Brain 
 const META = Object.fromEntries(KINDS.map((k) => [k.kind, k])) as Record<SourceKind, (typeof KINDS)[number]>;
 
 type Asked = MemoryAnswer & { q: string };
-type Graph = { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[] };
+type Graph = { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[]; edges?: GraphEdge[] };
 
 export function MemoryView({ stats, items: initialItems, sections: initialSections }: { stats: MemoryStats; items: LibraryItem[]; sections: Section[] }) {
   const router = useRouter();
@@ -193,7 +193,7 @@ export function MemoryView({ stats, items: initialItems, sections: initialSectio
           <div className="relative">
             {view === "rings" ? (
               graph ? (
-                <MemoryGraph nodes={visibleNodes} groups={graph.groups} entities={graph.entities ?? []} query={query} lit={lit} total={visibleNodes.length} />
+                <MemoryGraph nodes={visibleNodes} groups={graph.groups} entities={graph.entities ?? []} edges={graph.edges ?? []} query={query} lit={lit} total={visibleNodes.length} />
               ) : (
                 <div className="grid h-[min(78vw,560px)] min-h-[340px] place-items-center text-sm text-faint">Mapping your memory…</div>
               )
