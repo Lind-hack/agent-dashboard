@@ -177,7 +177,7 @@ A restrained neutral system: most of the screen is canvas and ink, and the colou
 
 ## Layout
 
-On the phone there's a sticky top bar (breadcrumb + Voice), a single column with a 16px gutter, and a fixed 6-slot tab bar with the Core squircle raised in the centre. On desktop (≥1024px) a fixed 248px glass sidebar replaces the tab bar. Content is capped at 1180px. The home splits into three instrument columns (0.9 : 1.5 : 0.95, core in the middle) and then 1.25 : 1, with every grid track `minmax(0, …)` so long strings truncate instead of widening the page. Chat views cap at 768px, with the composer pinned above the tab bar on the phone and to the bottom on desktop. Sections are 32px apart and rows are at least 56px.
+On the phone there's a sticky top bar (breadcrumb + Voice), a single column with a 16px gutter, and a fixed 7-slot tab bar with the Core squircle raised in the centre. On desktop (≥1024px) a fixed 248px glass sidebar replaces the tab bar. Content is capped at 1180px. The home splits into three instrument columns (0.9 : 1.5 : 0.95, core in the middle) and then 1.25 : 1, with every grid track `minmax(0, …)` so long strings truncate instead of widening the page. Chat views cap at 768px, with the composer pinned above the tab bar on the phone and to the bottom on desktop. Sections are 32px apart and rows are at least 56px.
 
 ## Elevation & Depth
 
