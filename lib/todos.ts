@@ -53,7 +53,7 @@ function clean(t: Partial<Todo> | null | undefined): Todo | null {
     createdAt: t.createdAt ?? new Date().toISOString(),
     updatedAt: t.updatedAt ?? new Date().toISOString(),
     source: (["ticktick", "assistant", "email", "journal", "mentor"] as const).includes(t.source as "email") ? (t.source as Todo["source"]) : "dashboard",
-    link: typeof t.link === "string" && /^https?:\/\//.test(t.link) ? t.link : undefined,
+    link: typeof t.link === "string" && /^(https?:\/\/|\/[a-z])/.test(t.link) ? t.link : undefined, // a web address, or a page in this app
     ticktick: t.ticktick?.id ? { id: String(t.ticktick.id), projectId: String(t.ticktick.projectId ?? ""), pending: t.ticktick.pending ? true : undefined } : undefined,
   };
 }

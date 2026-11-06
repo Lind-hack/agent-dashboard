@@ -76,6 +76,8 @@ export function Sources({ items, picked, onPick, onChange, onBlurt, onPractice }
         <Search className="pointer-events-none absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-faint" aria-hidden />
         <input
           type="search"
+          name="source-search"
+          autoComplete="off"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search everything you've saved…"
@@ -87,7 +89,7 @@ export function Sources({ items, picked, onPick, onChange, onBlurt, onPractice }
       <p className="mt-2 px-1 text-[13px] text-muted" aria-live="polite">
         {hits ? `${hits.length} ${hits.length === 1 ? "result" : "results"}${hits.length === 60 ? " (showing the first 60)" : ""}` : `${study.length} in Study. Search to add more, inside videos and documents too.`}
       </p>
-      {error && <p className="mt-1 px-1 text-[13px] text-bad">{error}</p>}
+      {error && <p role="alert" className="mt-1 px-1 text-[13px] text-bad">{error}</p>}
 
       {shown.length === 0 ? (
         <p className="panel mt-3 px-5 py-8 text-[15px] text-muted">{hits ? "Nothing saved matches that." : "Nothing in Study yet. Search above and add the first source."}</p>

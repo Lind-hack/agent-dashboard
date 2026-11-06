@@ -7,7 +7,7 @@ import { emptyDigest, inStudy, mergeRead, migrateReviewKeys, normalizePart, read
 import { listItems, mediaDir, mirrorItem, readItem, saveItem, type LibraryItem } from "../lib/library";
 import { formatTimestamp } from "../lib/video-transcript";
 import { askJSON } from "./dump";
-import { still } from "./library";
+import { readLink, still } from "./library";
 
 // The Learning pass (v6, Lind: "way more detailed"): a source in Study is read start to finish, one part
 // at a time. A video's part is its transcript and frames from that stretch, a PDF's part is its pages,
@@ -30,7 +30,8 @@ let migrated = false;
 // What to read next: anything mid-read or waiting first, then old shallow reads, one at a time.
 export function nextToRead(items: LibraryItem[], now = Date.now()): LibraryItem | undefined {
   const free = (l: LearningDigest) => !l.reading?.nextAt || Date.parse(l.reading.nextAt) <= now;
-  const study = items.filter((i) => i.learning && inStudy(i));
+  // Not until the capture has finished: a video's transcript doesn't exist before that.
+  const study = items.filter((i) => i.status === "ready" && i.learning && inStudy(i));
   // A source waiting on a retry only holds up itself.
   const moving = study.find((i) => i.learning!.reading && i.learning!.state !== "failed" && free(i.learning!));
   if (moving) return moving;
@@ -73,9 +74,9 @@ function fullText(it: LibraryItem): string {
 async function partsOf(it: LibraryItem): Promise<ReadPart[]> {
   if (it.transcript?.segments.length) return splitTimed(it.transcript, PART_CHARS);
   if (isPdf(it)) return splitPages(await pdfPages(fs.readFileSync(mediaPath(it))), PART_CHARS, PDF_PAGES);
-  // A silent screen recording: no words, so the frames carry it, ten minutes at a time.
-  if (it.kind === "video" && hasMedia(it) && !it.text.trim() && it.media?.duration) {
-    return Array.from({ length: Math.ceil(it.media.duration / 600) }, (_, i) => ({ text: "(no speech in this part: read it from the frames)", start: i * 600, end: Math.min(it.media!.duration!, (i + 1) * 600) }));
+  // No transcript (a silent screen recording, or too long for Whisper): the frames carry it, ten minutes at a time.
+  if (it.kind === "video" && hasMedia(it) && it.media?.duration) {
+    return Array.from({ length: Math.ceil(it.media.duration / 600) }, (_, i) => ({ text: `(no transcript: read this stretch from the frames)${i === 0 && it.text ? `\n${it.text.slice(0, 2000)}` : ""}`, start: i * 600, end: Math.min(it.media!.duration!, (i + 1) * 600) }));
   }
   return splitText(fullText(it), PART_CHARS);
 }
@@ -123,11 +124,13 @@ async function readPart(it: LibraryItem, part: ReadPart, n: number, total: numbe
 export async function readStep(id: string): Promise<void> {
   const it = readItem(id);
   if (!it?.learning) return;
-  const l = it.learning;
   try {
+    await refreshLink(it);
+    const l = it.learning!;
     const parts = await partsOf(it);
     if (!parts.length || !parts.some((p) => p.text.trim().length >= 200 || p.pageFrom || p.start !== undefined)) throw new Error("Not enough text to study yet — a transcript or document is needed.");
-    const reading = l.reading ?? { next: 0, total: parts.length, sections: [], concepts: [], questions: [], keyPoints: [], tries: 0 };
+    // If the source changed under a read (a better transcript arrived), it starts over.
+    const reading = l.reading?.total === parts.length ? l.reading : { next: 0, total: parts.length, sections: [], concepts: [], questions: [], keyPoints: [], tries: 0 };
     const first = l.state !== "ready";
     const index = Math.min(reading.next, parts.length - 1);
     const done = await readPart(it, parts[index], index + 1, parts.length);
@@ -142,10 +145,13 @@ export async function readStep(id: string): Promise<void> {
       return;
     }
     const final = await askJSON<{ thesis?: string; key_points?: string[]; language?: string }>(FINAL_SYSTEM, `Title: ${it.title}\n\nThe whole source, part by part:\n${next.sections.map((s) => `- ${s.title}: ${s.summary}`).join("\n").slice(0, 16_000)}`, 1500).catch(() => null);
-    fresh.learning = mergeRead(fresh.learning, next, final ?? {}, groqModel(), readReviewRecords(), id);
-    mirrorItem(fresh);
-    saveItem(fresh);
-    log("ready", id, `${fresh.learning.concepts.length} concepts, ${fresh.learning.questions.length} questions`);
+    // The summary takes a while: work from the item as it is now, not as it was before that call.
+    const latest = readItem(id);
+    if (!latest?.learning) return;
+    latest.learning = mergeRead(latest.learning, next, final ?? {}, groqModel(), readReviewRecords(), id);
+    mirrorItem(latest);
+    saveItem(latest);
+    log("ready", id, `${latest.learning.concepts.length} concepts, ${latest.learning.questions.length} questions`);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const fresh = readItem(id);
@@ -159,6 +165,16 @@ export async function readStep(id: string): Promise<void> {
     saveItem(fresh);
     log("failed", id, msg);
   }
+}
+
+// A link saved before v6 only kept an excerpt, or a transcript with no times: fetch it again whole.
+async function refreshLink(it: LibraryItem) {
+  if (it.kind !== "link" || it.learning?.reading || it.transcript) return;
+  const read = await readLink(it).catch(() => null);
+  if (!read) return;
+  if (read.transcript) it.transcript = read.transcript;
+  if (read.text.length > it.text.length) it.text = read.text.slice(0, 40_000);
+  saveItem(it);
 }
 
 const sectionPlace = (p: ReadPart) => ({ ...(p.start !== undefined ? { at: p.start, end: p.end } : {}), ...(p.pageFrom ? { page: p.pageFrom, pageTo: p.pageTo } : {}) });

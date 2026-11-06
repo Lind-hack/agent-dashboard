@@ -85,7 +85,7 @@ export function isStudyMaterial(it: LibraryItem): boolean {
   if (it.kind === "video" || it.transcript || it.media?.mime === "application/pdf") return true;
   if (it.kind === "link" && isVideoUrl(it.url)) return true;
   if (it.kind === "link" && /transcript:/i.test(it.text ?? "")) return true;
-  return (it.kind === "text" || it.kind === "file") && (it.text?.length ?? 0) >= 400;
+  return (it.kind === "text" || it.kind === "file" || it.kind === "link") && (it.text?.length ?? 0) >= 400;
 }
 
 // In Study: he added it, or it was analysed before Study existed. He can take either out.
@@ -96,7 +96,7 @@ export function setStudying(id: string, on: boolean): LibraryItem | null {
   const it = readItem(id);
   if (!it) return null;
   it.studyAt = on ? new Date().toISOString() : false;
-  if (on && !it.learning && isStudyMaterial(it)) it.learning = emptyDigest();
+  if (on && (!it.learning || it.learning.state === "failed") && isStudyMaterial(it)) it.learning = emptyDigest();
   saveItem(it);
   return it;
 }
@@ -118,13 +118,6 @@ export function searchSources(items: LibraryItem[], query: string, limit = 60): 
     if (out.length >= limit) break;
   }
   return out;
-}
-
-// What the analyser reads: the timed transcript first, then the note, summary and visual description.
-export function learningMaterial(it: LibraryItem, limit = 16_000): string {
-  const transcript = it.transcript ? transcriptText(it.transcript, limit) : "";
-  const body = [it.summary, it.note, it.text].filter(Boolean).join("\n\n");
-  return [transcript, body].filter(Boolean).join("\n\n").slice(0, limit);
 }
 
 // ---- the analyser's answer -----------------------------------------------------------------------
@@ -254,7 +247,8 @@ export function mergeRead(old: LearningDigest, r: Reading, final: { thesis?: str
   }
   for (const c of old.concepts) if (records[cardKey(itemId, c.term)] && !byTerm.has(slug(c.term))) byTerm.set(slug(c.term), c);
   const seen = new Set<string>();
-  const questions = r.questions.filter((q) => !seen.has(q.q.toLowerCase()) && seen.add(q.q.toLowerCase()));
+  const kept = old.questions.filter((q) => records[questionKey(itemId, q.q)]);
+  const questions = [...r.questions, ...kept].filter((q) => !seen.has(q.q.toLowerCase()) && seen.add(q.q.toLowerCase()));
   const finalPoints = (Array.isArray(final.key_points) ? final.key_points : []).map((k) => text(k, 400)).filter(Boolean);
   return {
     state: "ready",
@@ -317,7 +311,8 @@ export function readReviewRecords(): Record<string, ReviewRecord> {
   }
 }
 
-const slug = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+const hash = (s: string) => crypto.createHash("sha1").update(s).digest("hex").slice(0, 12);
+const slug = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 80) || hash(s);
 export const cardKey = (itemId: string, term: string) => `${itemId}#t:${slug(term)}`;
 
 // Before v6 a record was keyed by the concept's position, which a new read would scramble.
@@ -337,7 +332,7 @@ export function migrateReviewKeys(items: LibraryItem[]) {
 }
 
 export const saveReviewRecords = (all: Record<string, ReviewRecord>) => atomic(reviewFile(), JSON.stringify(all, null, 1));
-export const questionKey = (itemId: string, q: string) => `${itemId}#q:${slug(q)}`;
+export const questionKey = (itemId: string, q: string) => `${itemId}#q:${hash(q.trim().toLowerCase())}`; // long questions can share a start
 
 export function gradeCard(items: LibraryItem[], key: string, grade: ReviewGrade, now = new Date()): ReviewRecord | null {
   const itemId = key.split("#")[0];

@@ -54,7 +54,7 @@ export function SundaySession({ initial, terms, topics }: { initial: LearningRun
         <p className="tnum mt-3 font-mono text-[13px] text-faint">
           {terms} terms · {topics} topics so far
         </p>
-        {error && <p className="mt-2 text-[13px] text-bad">{error}</p>}
+        {error && <p role="alert" className="mt-2 text-[13px] text-bad">{error}</p>}
         <button onClick={() => void run("start", { action: "start" })} disabled={!!busy || !terms} className="press mt-4 flex h-11 items-center gap-2 rounded-[12px] bg-text px-4 text-[14px] font-semibold text-bg disabled:opacity-50">
           {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />} {terms ? "Start now" : "Add a source to Study first"}
         </button>
@@ -80,7 +80,7 @@ export function SundaySession({ initial, terms, topics }: { initial: LearningRun
           <span key={r.id} className={cn("h-1 flex-1 rounded-full transition-colors duration-200", r.confirmed ? "bg-hermes" : r.id === current?.id ? "bg-white/30" : "bg-white/[0.08]")} />
         ))}
       </div>
-      {error && <p className="mb-3 px-1 text-[13px] text-bad">{error}</p>}
+      {error && <p role="alert" className="mb-3 px-1 text-[13px] text-bad">{error}</p>}
       {current ? (
         <RoundView key={current.id} session={session} round={current} busy={busy} run={run} />
       ) : (

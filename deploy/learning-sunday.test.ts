@@ -245,6 +245,17 @@ test("a blurt on sources he picks uses the same rounds, any day", () => {
   assert.match(s.id, /^custom-/);
 });
 
+test("finishing a blurt on picked sources doesn't tick the Sunday task", async () => {
+  const before = listTodos().filter((t) => t.link === "/learning?tab=sunday" && !t.done).length;
+  const c = startCustom(["M-MONTHSAGO"], new Date("2026-11-16T12:00:00Z"));
+  answer = { feedback: "ok", terms: c.rounds[0].terms.map((_, i) => ({ n: i + 1, status: "recalled" })) };
+  await gradeRound(c.id, c.rounds[0].id, "I remember all of it");
+  confirmRound(c.id, c.rounds[0].id, now);
+  finishSession(c.id, now);
+  assert.equal(listTodos().filter((t) => t.link === "/learning?tab=sunday" && !t.done).length, before);
+  assert.ok(before > 0);
+});
+
 test("practice sessions use every source he picks, not just the first eight", async () => {
   sent = [];
   for (let i = 0; i < 12; i++) source(`M-MANY${String(i).padStart(4, "A").replace(/\d/g, (d) => "ABCDEFGHIJ"[Number(d)])}`, `Source number ${i}`, "2026-10-10T10:00:00.000Z", [`Term ${i}`]);

@@ -66,7 +66,10 @@ export function readItem(id: string): LibraryItem | null {
   try {
     const it = JSON.parse(fs.readFileSync(path.join(itemsDir(), `${id}.json`), "utf8")) as LibraryItem;
     // Older items may predate a field.
-    return it?.id ? { ...it, tags: Array.isArray(it.tags) ? it.tags : [], title: it.title ?? "", summary: it.summary ?? "", text: it.text ?? "" } : null;
+    if (!it?.id) return null;
+    const l = it.learning;
+    const list = <T,>(v: T[] | undefined) => (Array.isArray(v) ? v : []);
+    return { ...it, tags: list(it.tags), title: it.title ?? "", summary: it.summary ?? "", text: it.text ?? "", ...(l ? { learning: { ...l, concepts: list(l.concepts), questions: list(l.questions), keyPoints: list(l.keyPoints) } } : {}) };
   } catch {
     return null;
   }

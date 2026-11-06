@@ -52,6 +52,13 @@ export function LearningView({ overview: initial, topics, session, terms, tab }:
     setCounts(b.counts);
   }, []);
 
+  // The tab lives in the address, so a refresh or the Back button keeps his place.
+  useEffect(() => {
+    const u = new URL(window.location.href);
+    u.searchParams.set("tab", mode);
+    window.history.replaceState(window.history.state, "", u);
+  }, [mode]);
+
   const pending = counts.pending > 0 || items.some((i) => i.learning?.reading);
   useEffect(() => {
     if (!pending) return;
@@ -108,7 +115,7 @@ export function LearningView({ overview: initial, topics, session, terms, tab }:
           })}
         </div>
       </div>
-      {error && <p className="mb-3 px-1 text-[13px] text-bad">{error}</p>}
+      {error && <p role="alert" className="mb-3 px-1 text-[13px] text-bad">{error}</p>}
 
       {mode === "sunday" && <SundaySession key={run?.id ?? "none"} initial={run} terms={terms} topics={topics.length} />}
       {mode === "review" && <Review cards={cards} onCards={setCards} onCounts={setCounts} onWatch={setWatch} items={items} />}
@@ -119,7 +126,7 @@ export function LearningView({ overview: initial, topics, session, terms, tab }:
       {watch && (
         <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center" role="dialog" aria-modal="true" aria-label={watch.title || "Video"}>
           <button aria-label="Close" onClick={() => setWatch(null)} className="palette-scrim absolute inset-0 bg-black/75 backdrop-blur-sm" />
-          <div className="palette-in panel relative max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-b-none bg-bg-raised/95 lg:rounded-[var(--radius-panel)]">
+          <div className="palette-in panel relative max-h-[92dvh] w-full max-w-3xl overflow-y-auto overscroll-contain rounded-b-none bg-bg-raised/95 lg:rounded-[var(--radius-panel)]">
             <div className="flex items-start gap-3 p-4">
               <div className="min-w-0 flex-1">
                 <p className="text-[13px] text-faint">
@@ -345,7 +352,7 @@ function Practice({ items, picked, onSources }: { items: LearningItem[]; picked:
         <button onClick={() => void generate()} disabled={generating || !ids.length} className="press mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-[12px] bg-text text-[14px] font-semibold text-bg disabled:opacity-40">
           {generating ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ChevronRight className="h-4 w-4" />} {session ? "Build a new session" : "Build the session"}
         </button>
-        {error && <p className="mt-2 text-[13px] text-bad">{error}</p>}
+        {error && <p role="alert" className="mt-2 text-[13px] text-bad">{error}</p>}
       </Panel>
 
       {session && active && (

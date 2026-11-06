@@ -36,6 +36,7 @@ export type Round = {
 export type SessionReport = { recalled: number; partial: number; missed: number; fixed: number; strong: string[]; slipping: string[] };
 export type LearningRun = { id: string; day: string; createdAt: string; state: "open" | "done"; rounds: Round[]; doneAt?: string; report?: SessionReport };
 
+const ROUND_MAX = 15;
 const dir = () => path.join(DATA_DIR, "learning", "sessions");
 const file = (id: string) => path.join(dir(), `${id.replace(/[^a-z0-9-]/gi, "")}.json`);
 const save = (s: LearningRun) => {
@@ -71,7 +72,11 @@ export function buildSunday(day: string, items: LibraryItem[], records: Record<s
     .map((t) => ({ t, terms: t.terms.filter((x) => !taken.has(x.key)) }))
     .filter(({ terms }) => terms.length)
     .sort((a, z) => a.t.score - z.t.score)
-    .map(({ t, terms }) => round("older", t.name, terms.map(({ key, term, itemId }) => ({ key, term, itemId }))));
+    .flatMap(({ t, terms }) => {
+      // A topic the sorter hasn't reached can be a whole source: keep each older round one blurt long.
+      const chunks = Array.from({ length: Math.ceil(terms.length / ROUND_MAX) }, (_, i) => terms.slice(i * ROUND_MAX, (i + 1) * ROUND_MAX));
+      return chunks.map((c, i) => round("older", chunks.length > 1 ? `${t.name} · ${i + 1}` : t.name, c.map(({ key, term, itemId }) => ({ key, term, itemId }))));
+    });
   return { id: sundayId(day), day, createdAt: now.toISOString(), state: "open", rounds: [...thisWeek, ...older].filter((r) => r.terms.length) };
 }
 
@@ -194,7 +199,8 @@ export function finishSession(id: string, now = new Date()): LearningRun {
   };
   const done: LearningRun = { ...s, state: "done", doneAt: now.toISOString(), report };
   save(done);
-  for (const t of listTodos()) if (!t.done && t.link === sessionHref && t.day <= s.day) updateTodo(t.id, { done: true });
+  // Only the Sunday session has a task; a blurt on picked sources mustn't tick it.
+  if (s.id.startsWith("sunday-")) for (const t of listTodos()) if (!t.done && t.link === sessionHref && t.day <= addDays(s.day, 6)) updateTodo(t.id, { done: true });
   return done;
 }
 

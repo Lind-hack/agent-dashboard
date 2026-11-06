@@ -93,7 +93,7 @@ export async function sortTopics(items: LibraryItem[], ask: <T>(system: string, 
   let moved = 0;
   for (const raw of Array.isArray(out.topics) ? out.topics : []) {
     const name = String(raw?.name ?? "").trim().slice(0, 80);
-    const keys = (Array.isArray(raw?.keys) ? raw.keys : []).map(String).filter((k) => live.has(k) && !placed.has(k));
+    const keys = [...new Set((Array.isArray(raw?.keys) ? raw.keys : []).map(String))].filter((k) => live.has(k) && !placed.has(k));
     if (!name || !keys.length) continue;
     for (const k of keys) {
       placed.add(k);

@@ -313,15 +313,45 @@ async function fetchPage(start: URL): Promise<{ html: string; url: URL }> {
 
 const YOUTUBE = /^(?:www\.|m\.)?(?:youtube\.com|youtu\.be)$/i;
 
-// Videos: the transcript the platform already has (Supadata, mode "native" — never paid generation).
-async function videoTranscript(u: URL): Promise<string> {
+// Videos: the transcript the platform already has (Supadata, mode "native" — never paid generation),
+// with its times. A long video comes back as a job to poll: https://docs.supadata.ai/get-transcript
+type Cue = { text?: string; offset?: number; duration?: number };
+const JOB_POLLS = 40;
+
+// Short caption lines merged into ~30-second cues, so a two-hour video stays within the transcript's limit.
+export function platformTranscript(content: Cue[], language?: string): Transcript | null {
+  const segments: Transcript["segments"] = [];
+  for (const c of content) {
+    const text = String(c?.text ?? "").replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    const start = Number(c.offset ?? 0) / 1000;
+    const end = start + Number(c.duration ?? 0) / 1000;
+    const last = segments.at(-1);
+    if (last && end - last.start < 30) {
+      last.text += ` ${text}`;
+      last.end = end;
+    } else segments.push({ start, end, text });
+  }
+  return segments.length ? { source: "embedded", format: "text", language, segments } : null;
+}
+
+export async function videoTranscript(u: URL, waitMs = 5000): Promise<Transcript | null> {
   const key = process.env.SUPADATA_API_KEY;
-  if (!key) return "";
-  const q = new URLSearchParams({ url: u.toString(), text: "true", mode: "native" });
-  const res = await fetch(`https://api.supadata.ai/v1/transcript?${q}`, { headers: { "x-api-key": key }, signal: AbortSignal.timeout(60_000) });
-  if (res.status !== 200) return ""; // 202 = a long async job; the page's own title/description still go in
-  const b = (await res.json().catch(() => null)) as { content?: unknown } | null;
-  return typeof b?.content === "string" ? b.content.slice(0, 40_000) : "";
+  if (!key) return null;
+  const headers = { "x-api-key": key };
+  const q = new URLSearchParams({ url: u.toString(), text: "false", mode: "native" });
+  const res = await fetch(`https://api.supadata.ai/v1/transcript?${q}`, { headers, signal: AbortSignal.timeout(60_000) });
+  let b = (await res.json().catch(() => null)) as { content?: Cue[]; lang?: string; jobId?: string; status?: string } | null;
+  if (res.status === 202 && b?.jobId) {
+    const job = b.jobId;
+    for (let i = 0; i < JOB_POLLS; i++) {
+      await new Promise((r) => setTimeout(r, waitMs));
+      const poll = await fetch(`https://api.supadata.ai/v1/transcript/${encodeURIComponent(job)}`, { headers, signal: AbortSignal.timeout(30_000) });
+      b = (await poll.json().catch(() => null)) as typeof b;
+      if (b?.status === "completed" || b?.status === "failed") break;
+    }
+  } else if (res.status !== 200) return null;
+  return Array.isArray(b?.content) ? platformTranscript(b.content, b.lang) : null;
 }
 
 // Articles: the page's main content as markdown (Firecrawl), so Memory can search the whole text.
@@ -341,18 +371,18 @@ async function articleText(u: URL): Promise<{ title?: string; markdown: string }
 
 // Links (v5: full text): YouTube → its transcript; other pages → Firecrawl's main-content markdown.
 // The page's own title + description always go in; without the keys it's those plus a text excerpt.
-async function readLink(it: LibraryItem): Promise<Read> {
+export async function readLink(it: LibraryItem): Promise<Read> {
   const url = new URL(it.url ?? "");
   await assertPublic(url);
   const isVideo = YOUTUBE.test(url.hostname);
   const [{ html }, full] = await Promise.all([
     fetchPage(url),
-    (isVideo ? videoTranscript(url).then((markdown) => ({ title: undefined, markdown })) : articleText(url)).catch(() => ({ title: undefined, markdown: "" })),
+    (isVideo ? videoTranscript(url).then((transcript) => ({ title: undefined, markdown: transcript ? transcriptText(transcript, 40_000) : "", transcript })) : articleText(url).then((a) => ({ ...a, transcript: null }))).catch(() => ({ title: undefined, markdown: "", transcript: null })),
   ]);
   if (full.markdown) {
     const t = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i)?.[1] ?? html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] ?? full.title ?? "";
     const title = t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/\s+/g, " ").trim();
-    return { title: title || undefined, text: withNote(it, [title, it.url, isVideo ? `Transcript:\n${full.markdown}` : full.markdown].filter(Boolean).join("\n\n")) };
+    return { title: title || undefined, transcript: full.transcript ?? undefined, text: withNote(it, [title, it.url, isVideo ? `Transcript:\n${full.markdown}` : full.markdown].filter(Boolean).join("\n\n")) };
   }
   return readPageMeta(it, html);
 }

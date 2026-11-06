@@ -63,7 +63,7 @@ export function LearningSource({ item, digest }: { item: Omit<LibraryItem, "tran
           Open in Memory
         </Link>
         <button onClick={() => void reread()} disabled={busy} className="flex min-h-11 items-center gap-1.5 text-muted hover:text-text disabled:opacity-50">
-          <RotateCw className="h-3.5 w-3.5" /> Read it again
+          <RotateCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} /> {busy ? "Queuing…" : "Read it again"}
         </button>
       </div>
 
@@ -102,7 +102,7 @@ export function LearningSource({ item, digest }: { item: Omit<LibraryItem, "tran
       {!!d?.concepts.length && (
         <div className="relative mt-8">
           <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-faint" aria-hidden />
-          <input type="search" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a term or question…" aria-label="Find in this source" className="h-11 w-full rounded-[12px] border border-line bg-black/30 pr-3 pl-10 text-[16px] placeholder:text-faint focus:border-line-hi focus:outline-none" />
+          <input type="search" name="source-filter" autoComplete="off" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a term or question…" aria-label="Find in this source" className="h-11 w-full rounded-[12px] border border-line bg-black/30 pr-3 pl-10 text-[16px] placeholder:text-faint focus:border-line-hi focus:outline-none" />
         </div>
       )}
 
