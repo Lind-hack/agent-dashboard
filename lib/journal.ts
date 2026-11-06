@@ -7,9 +7,11 @@ import { DATA_DIR } from "./config";
 // The journal (v5.1): Lind's day in his own words, typed or spoken. One file per day in
 // data/journal/<day>.json (the web app writes it), mirrored to the vault's "100 - Me/journal/<day>.md"
 // when that folder is writable. The Buddy and Sol's nightly profile read it; Memory indexes it.
+// v5.5: everything he tells the Buddy lands here too (source "buddy"), under its own heading in the note,
+// so Obsidian, the graph and the planners all have it. Days the vault missed are swept up nightly.
 
 export type Mood = 1 | 2 | 3 | 4 | 5;
-export type JournalEntry = { id: string; at: string; text: string; source: "text" | "voice"; mood?: Mood };
+export type JournalEntry = { id: string; at: string; text: string; source: "text" | "voice" | "buddy"; mood?: Mood };
 export type JournalDay = { day: string; entries: JournalEntry[] };
 
 const dir = () => path.join(DATA_DIR, "journal");
@@ -72,10 +74,40 @@ export function journalDays(): string[] {
 const MOOD = ["", "rough", "meh", "okay", "good", "great"];
 export const moodWord = (m?: number) => (m ? MOOD[m] : "");
 
+// Did he write anything himself today? A chat with the Buddy doesn't cancel "how was your day?".
+export const journalWritten = (day: string) => readJournal(day).entries.some((e) => e.source !== "buddy");
+
+const vaultJournal = () => path.join(vaultDir(), "100 - Me", "journal");
+
+// Can notes reach Obsidian? Shown on the Buddy page: on the VPS this needs deploy/vault-access.sh.
+export function vaultWritable(): boolean {
+  try {
+    fs.mkdirSync(vaultJournal(), { recursive: true });
+    fs.accessSync(vaultJournal(), fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Every day the vault doesn't have, or has an older copy of.
+export function mirrorAll() {
+  const mtime = (f: string) => {
+    try {
+      return fs.statSync(f).mtimeMs;
+    } catch {
+      return 0;
+    }
+  };
+  for (const day of journalDays()) if (mtime(file(day)) > mtime(path.join(vaultJournal(), `${day}.md`))) mirror(readJournal(day));
+}
+
 function mirror(j: JournalDay) {
   try {
-    const d = path.join(vaultDir(), "100 - Me", "journal");
+    const d = vaultJournal();
     fs.mkdirSync(d, { recursive: true });
+    const time = (e: JournalEntry) => new Date(e.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" });
+    const told = j.entries.filter((e) => e.source === "buddy");
     const md = [
       "---",
       "tags: [me, journal]",
@@ -85,7 +117,8 @@ function mirror(j: JournalDay) {
       "",
       `# Journal — ${j.day}`,
       "",
-      ...j.entries.flatMap((e) => [`## ${new Date(e.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" })}${e.mood ? ` · ${moodWord(e.mood)}` : ""}${e.source === "voice" ? " · spoken" : ""}`, "", e.text, ""]),
+      ...j.entries.filter((e) => e.source !== "buddy").flatMap((e) => [`## ${time(e)}${e.mood ? ` · ${moodWord(e.mood)}` : ""}${e.source === "voice" ? " · spoken" : ""}`, "", e.text, ""]),
+      ...(told.length ? ["## Buddy", "", ...told.flatMap((e) => [`**${time(e)}** ${e.text}`, ""])] : []),
     ].join("\n");
     fs.writeFileSync(path.join(d, `${j.day}.md`), md);
   } catch {

@@ -1,7 +1,6 @@
-import { PROFILE_SYSTEM, profileInput, readProfile, saveProfile } from "../lib/buddy";
+import { readProfile, refreshProfile } from "../lib/buddy";
 import { coachNow } from "../lib/coach";
-import { readJournal } from "../lib/journal";
-import { sol } from "../lib/sol";
+import { journalWritten, mirrorAll } from "../lib/journal";
 import { notify } from "./notify";
 
 // The Buddy, runner side (v5.1):
@@ -17,7 +16,7 @@ let profiling = false;
 
 export async function buddyTick(minute: string) {
   const day = coachNow().day;
-  const wrote = readJournal(day).entries.length > 0;
+  const wrote = journalWritten(day);
 
   if (minute === JOURNAL_AT() && !wrote)
     await notify({
@@ -45,18 +44,13 @@ export async function buddyTick(minute: string) {
 
   // Nightly profile, once a night.
   if (minute === PROFILE_AT() && !profiling) {
+    mirrorAll(); // days the vault missed
     // Every night (one Sol call): the journal, the conversations and the scores all feed it.
     const last = readProfile().at ?? "";
     if (last && Date.now() - Date.parse(last) < 20 * 3600_000) return;
     profiling = true;
-    void sol(PROFILE_SYSTEM, profileInput(day), 8 * 60_000)
-      .then((md) => {
-        const clean = md.replace(/^```(?:markdown)?\s*|\s*```$/g, "").trim();
-        if (clean.length > 80) {
-          saveProfile(clean);
-          log("profile updated", clean.length);
-        }
-      })
+    void refreshProfile(day)
+      .then((ok) => log(ok ? "profile updated" : "profile: no model answered"))
       .catch((e) => log("profile", e instanceof Error ? e.message : e))
       .finally(() => (profiling = false));
   }

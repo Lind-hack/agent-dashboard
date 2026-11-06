@@ -3,6 +3,7 @@ import path from "node:path";
 import { agenda, calendarConnected, type CalEvent, type PlanBlock } from "./calendar";
 import { patterns, staleGoals } from "./accountability";
 import { activeGoals, type Goal } from "./goals";
+import { lifeContext } from "./life";
 import { recallMemory } from "./memory";
 import { goalProgress } from "./coach";
 import { groqJSON } from "./groq";
@@ -120,7 +121,7 @@ export function freeSlots(t: Today, now = new Date(), extraBusy: { s: number; e:
 // (Autopilot) instead of Groq; Groq is the fallback.
 // What the planner learns from (v5.2): two weeks of said-vs-did, goals left idle, and what his memory
 // says about each goal (so a block's title can name the real next step).
-async function learned(day: string, goals: Goal[]): Promise<string[]> {
+export async function learned(day: string, goals: Goal[]): Promise<string[]> {
   const p = patterns(day);
   const idle = staleGoals(day);
   const notes = await Promise.all(
@@ -130,6 +131,7 @@ async function learned(day: string, goals: Goal[]): Promise<string[]> {
     }),
   );
   return [
+    lifeContext(day),
     ...(p.lines.length ? [`His real pace (last 2 weeks of blocks):\n${p.lines.map((l) => `- ${l}`).join("\n")}`] : []),
     ...(idle.length ? [`Goals with no work lately: ${idle.map((g) => `${g.id} (${g.idleDays === null ? "never" : `${g.idleDays} days`})`).join(", ")}`] : []),
     ...(notes.some(Boolean) ? [`From his memory about the goals:\n${notes.filter(Boolean).join("\n")}`] : []),
@@ -167,6 +169,7 @@ export async function planDay(note: string, opts: { useSol?: boolean; keep?: Pla
   const SYSTEM = `You plan Lind's day into time blocks. He's a CS student building AI products and running a news site.
 Return JSON: {"summary": string, "blocks": [{"start": "HH:MM", "end": "HH:MM", "title": string, "kind": "task"|"focus"|"break"|"routine", "taskId": string|null, "goalId": string|null}]}.
 - Only inside the free slots, never overlapping each other. Blocks in 15-minute steps.
+- Where Lind says he is right now overrides everything: never book work his stage doesn't allow yet (no selling or outreach for something that isn't live). Use what he's been saying this week to name blocks after the real next step.
 - Tasks marked [MENTOR ORDER] are today's orders from his mentor for his goals: book every one of them first, before anything else that can move, sized to its minutes, the hardest in the morning.
 - Goals first: each active goal's next action gets a "focus" block long enough to make real progress (45–120 min) before generic tasks, unless Lind's note says otherwise. Goals furthest behind their weekly target get the earliest and longest block; the hardest goal block goes in the morning.
 - Then every task with a deadline today must land BEFORE its deadline; then overdue and high-priority tasks, sized to their minutes of work left; then the standing priorities as deep "focus" blocks (60–120 min).
