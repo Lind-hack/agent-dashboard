@@ -1,14 +1,20 @@
-import { LearningView } from "@/components/learning-view";
+import { LearningView, type LearningTab } from "@/components/learning-view";
+import { coachNow } from "@/lib/coach";
 import { learningOverview } from "@/lib/learning";
-import { listItems, readSections } from "@/lib/library";
+import { currentSession } from "@/lib/learning-sunday";
+import { studiedTerms, topicsView } from "@/lib/learning-topics";
+import { listItems } from "@/lib/library";
 
 export const dynamic = "force-dynamic";
 
-export default async function LearningPage() {
-  const overview = learningOverview(listItems());
+const TABS: LearningTab[] = ["sunday", "review", "sources", "topics", "practice"];
+
+export default async function LearningPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const items = listItems();
+  const asked = (await searchParams)?.tab as LearningTab;
   return (
     <div className="mx-auto max-w-6xl">
-      <LearningView overview={overview} sections={readSections()} />
+      <LearningView overview={learningOverview(items)} topics={topicsView(items)} session={currentSession(coachNow().day)} terms={studiedTerms(items).length} tab={TABS.includes(asked) ? asked : undefined} />
       <div className="h-28" aria-hidden />
     </div>
   );

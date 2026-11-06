@@ -15,7 +15,7 @@ delete process.env.GOOGLE_AI_API_KEY;
 
 const { buildReviewQueue, cardKey, dailyQueue, generateSession, gradeCard, learningOverview, readReviewRecords } = await import("../lib/learning");
 const { readTopics, sortTopics, topicsView } = await import("../lib/learning-topics");
-const { buildSunday, confirmRound, currentSession, drillTerm, finishSession, gradeRound, overrideTerm, startCustom, startSunday, sundayOf } = await import("../lib/learning-sunday");
+const { buildSunday, confirmRound, currentSession, drillTerm, finishSession, gradeRound, overrideTerm, readRun, startCustom, startSunday, sundayOf } = await import("../lib/learning-sunday");
 const { saveItem, listItems } = await import("../lib/library");
 const { sundayTick } = await import("../runner/learning-sunday");
 const { listTodos } = await import("../lib/todos");
@@ -154,6 +154,21 @@ test("the AI marks every term; what it doesn't mention counts as missed", async 
   assert.equal(r.graded?.length, 3);
   assert.match(sent.at(-1)!.messages[1].content, /attention lets each token/);
   assert.equal(readReviewRecords()[k("Key")], undefined, "nothing counts until he's seen it");
+});
+
+test("marks come back by number, and a mangled answer is a failure, never 'you forgot everything'", async () => {
+  const c = startCustom(["M-LASTMONTH"], now);
+  const r = c.rounds[0];
+  sent = [];
+  answer = { feedback: "Good.", terms: [{ n: 1, status: "recalled" }, { n: 2, status: "partial", note: "Half of it." }] };
+  const marked = await gradeRound(c.id, r.id, "I remember both of these");
+  assert.equal(marked.graded?.[0].status, "recalled");
+  assert.equal(marked.graded?.[1].status, "partial");
+  assert.match(sent[0].messages[1].content, /1\. Euler path/);
+  const again = startCustom(["M-LASTMONTH"], now);
+  answer = { feedback: "Solid.", terms: [{ key: "something-else", status: "recalled" }] };
+  await assert.rejects(gradeRound(again.id, again.rounds[0].id, "I remember both of these"), /busy/);
+  assert.equal(readRun(again.id)?.rounds[0].graded, undefined, "no fake zero was saved");
 });
 
 test("he can overrule a mark; confirming applies it once; missed terms come back soonest", () => {

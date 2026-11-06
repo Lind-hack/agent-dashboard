@@ -20,7 +20,7 @@ async function post(body: object) {
 
 // A box he can type in or talk into. What he says is added to what's there; a recording that fails to
 // transcribe is kept for another try.
-function VoiceBox({ value, onChange, label, placeholder, rows = 4, disabled }: { value: string; onChange: (v: string) => void; label: string; placeholder?: string; rows?: number; disabled?: boolean }) {
+export function VoiceBox({ value, onChange, label, placeholder, rows = 4, disabled }: { value: string; onChange: (v: string) => void; label: string; placeholder?: string; rows?: number; disabled?: boolean }) {
   const [hearing, setHearing] = useState(false);
   const [err, setErr] = useState("");
   const [unheard, setUnheard] = useState<Blob | null>(null);
