@@ -30,13 +30,13 @@ let migrated = false;
 // What to read next: anything mid-read or waiting first, then old shallow reads, one at a time.
 export function nextToRead(items: LibraryItem[], now = Date.now()): LibraryItem | undefined {
   const free = (l: LearningDigest) => !l.reading?.nextAt || Date.parse(l.reading.nextAt) <= now;
-  const study = items.filter((i) => i.learning && inStudy({ ...i, studyAt: i.studyAt ?? (i.learning.state === "ready" ? undefined : i.studyAt) }));
+  const study = items.filter((i) => i.learning && inStudy(i));
+  // A source waiting on a retry only holds up itself.
   const moving = study.find((i) => i.learning!.reading && i.learning!.state !== "failed" && free(i.learning!));
   if (moving) return moving;
-  if (study.some((i) => i.learning!.reading && i.learning!.state !== "failed")) return undefined; // one source at a time
   const queued = study.find((i) => i.learning!.state === "queued" && (!i.learning!.nextAt || Date.parse(i.learning!.nextAt) <= now));
   if (queued) return queued;
-  return study.find((i) => i.learning!.state === "ready" && i.learning!.depth !== 2);
+  return study.find((i) => i.learning!.state === "ready" && i.learning!.depth !== 2 && !i.learning!.reading);
 }
 
 export function learningTick() {

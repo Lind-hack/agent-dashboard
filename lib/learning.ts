@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
-import { groqJSON } from "./groq";
+import { askJSON } from "./ask";
 import { readItem, saveItem, type LibraryItem } from "./library";
 import { formatTimestamp, transcriptText, type Transcript } from "./video-transcript";
 import { isVideoUrl } from "./video-links";
@@ -36,17 +36,21 @@ export type LearningDigest = {
   depth?: 2; // read start to finish (v6); older digests saw only the first 16,000 characters
   reading?: Reading;
 };
-export type LearningItem = Omit<LibraryItem, "transcript"> & { study: boolean; studying: boolean };
+export type LearningItem = Omit<LibraryItem, "transcript"> & { study: boolean; studying: boolean; conceptCount: number; questionCount: number };
 export type SourceHit = { id: string; title: string; kind: LibraryItem["kind"]; section?: string; createdAt: string; snippet: string; studying: boolean; state?: LearningDigest["state"]; concepts: number };
 
 export type ReviewGrade = "again" | "hard" | "good" | "easy";
-export type ReviewRecord = { due: string; interval: number; ease: number; reps: number; lapses: number; last?: string };
+export type ReviewRecord = { due: string; interval: number; ease: number; reps: number; lapses: number; last?: string; first?: string };
 export type ReviewCard = {
   key: string;
+  type: "concept" | "question";
   itemId: string;
-  term: string;
-  explanation: string;
+  term: string; // the term, or the question
+  explanation: string; // what it is, or the model answer
+  example?: string;
+  questionKind?: QuestionKind;
   at?: number;
+  page?: number;
   itemTitle: string;
   kind: LibraryItem["kind"];
   due: string;
@@ -170,7 +174,7 @@ export type ReadPart = { text: string; start?: number; end?: number; pageFrom?: 
 
 export function splitTimed(t: Transcript, max: number): ReadPart[] {
   const parts: ReadPart[] = [];
-  let cur: ReadPart | null = null;
+  let cur = null as ReadPart | null;
   for (const s of t.segments) {
     const line = s.start !== undefined && s.end !== undefined && s.end > 0 ? `[${formatTimestamp(s.start)}] ${s.text}` : s.text;
     if (cur && cur.text.length + line.length + 1 > max) {
@@ -200,15 +204,15 @@ export function splitText(body: string, max: number): ReadPart[] {
 
 export function splitPages(pages: string[], maxChars: number, maxPages: number): ReadPart[] {
   const parts: ReadPart[] = [];
-  let cur: ReadPart | null = null;
-  pages.forEach((page, i) => {
-    const text = `[page ${i + 1}]\n${page.trim()}`;
+  let cur = null as ReadPart | null;
+  for (let i = 0; i < pages.length; i++) {
+    const text = `[page ${i + 1}]\n${pages[i].trim()}`;
     if (cur && (cur.text.length + text.length > maxChars || i + 1 - cur.pageFrom! >= maxPages)) {
       parts.push(cur);
       cur = null;
     }
     cur = cur ? { ...cur, text: `${cur.text}\n\n${text}`, pageTo: i + 1 } : { text, pageFrom: i + 1, pageTo: i + 1 };
-  });
+  }
   return cur ? [...parts, cur] : parts;
 }
 
@@ -291,7 +295,7 @@ export function nextReview(previous: ReviewRecord | null, grade: ReviewGrade, no
     reps += 1;
   }
   interval = Math.min(365, interval);
-  return { due: new Date(now.getTime() + Math.round(interval * DAY)).toISOString(), interval, ease, reps, lapses, last: now.toISOString() };
+  return { due: new Date(now.getTime() + Math.round(interval * DAY)).toISOString(), interval, ease, reps, lapses, last: now.toISOString(), first: previous?.first ?? now.toISOString() };
 }
 
 export function readReviewRecords(): Record<string, ReviewRecord> {
@@ -302,7 +306,7 @@ export function readReviewRecords(): Record<string, ReviewRecord> {
       Object.entries(v as Record<string, unknown>).flatMap(([k, r]) => {
         const o = r as Partial<ReviewRecord>;
         if (typeof o?.due !== "string" || Number.isNaN(Date.parse(o.due))) return [];
-        return [[k, { due: o.due, interval: Number(o.interval) || 0, ease: Number(o.ease) || 2.5, reps: Number(o.reps) || 0, lapses: Number(o.lapses) || 0, last: o.last }]];
+        return [[k, { due: o.due, interval: Number(o.interval) || 0, ease: Number(o.ease) || 2.5, reps: Number(o.reps) || 0, lapses: Number(o.lapses) || 0, last: o.last, first: o.first }]];
       }),
     );
   } catch {
@@ -329,37 +333,39 @@ export function migrateReviewKeys(items: LibraryItem[]) {
   if (changed) atomic(reviewFile(), JSON.stringify(all, null, 1));
 }
 
-export function gradeConcept(items: LibraryItem[], itemId: string, term: string, grade: ReviewGrade, now = new Date()): ReviewRecord | null {
-  const key = cardKey(itemId, term);
-  if (!items.find((i) => i.id === itemId)?.learning?.concepts.some((c) => cardKey(itemId, c.term) === key)) return null;
+export const saveReviewRecords = (all: Record<string, ReviewRecord>) => atomic(reviewFile(), JSON.stringify(all, null, 1));
+export const questionKey = (itemId: string, q: string) => `${itemId}#q:${slug(q)}`;
+
+export function gradeCard(items: LibraryItem[], key: string, grade: ReviewGrade, now = new Date()): ReviewRecord | null {
+  const itemId = key.split("#")[0];
+  const l = items.find((i) => i.id === itemId)?.learning;
+  if (!l?.concepts.some((c) => cardKey(itemId, c.term) === key) && !l?.questions.some((q) => questionKey(itemId, q.q) === key)) return null;
   const all = readReviewRecords();
   const next = nextReview(all[key] ?? null, grade, now);
   all[key] = next;
-  atomic(reviewFile(), JSON.stringify(all, null, 1));
+  saveReviewRecords(all);
   return next;
+}
+
+// Today's sitting: everything due, plus new cards up to the day's limit, so a two-hour lecture joins
+// gradually instead of burying him. Sunday covers all of it regardless.
+export function dailyQueue(cards: ReviewCard[], records: Record<string, ReviewRecord>, now: Date, newPerDay = 20): ReviewCard[] {
+  const today = now.toISOString().slice(0, 10);
+  const started = Object.values(records).filter((r) => r.first?.startsWith(today)).length;
+  const fresh = cards.filter((c) => c.isNew).slice(0, Math.max(0, newPerDay - started));
+  return [...cards.filter((c) => !c.isNew && Date.parse(c.due) <= now.getTime()), ...fresh];
 }
 
 export function buildReviewQueue(items: LibraryItem[], records = readReviewRecords(), now = new Date()): ReviewCard[] {
   const cards: ReviewCard[] = [];
   for (const it of items) {
     if (it.learning?.state !== "ready" || !inStudy(it)) continue;
-    it.learning.concepts.forEach((c) => {
-      const key = cardKey(it.id, c.term);
+    const card = (key: string, c: Pick<ReviewCard, "type" | "term" | "explanation" | "example" | "questionKind" | "at" | "page">): ReviewCard => {
       const rec = records[key];
-      cards.push({
-        key,
-        itemId: it.id,
-        term: c.term,
-        explanation: c.explanation,
-        at: c.at,
-        itemTitle: it.title || it.kind,
-        kind: it.kind,
-        due: rec?.due ?? now.toISOString(),
-        reps: rec?.reps ?? 0,
-        interval: rec?.interval ?? 0,
-        isNew: !rec,
-      });
-    });
+      return { key, itemId: it.id, ...c, itemTitle: it.title || it.kind, kind: it.kind, due: rec?.due ?? now.toISOString(), reps: rec?.reps ?? 0, interval: rec?.interval ?? 0, isNew: !rec };
+    };
+    for (const c of it.learning.concepts) cards.push(card(cardKey(it.id, c.term), { type: "concept", term: c.term, explanation: c.explanation, example: c.example, at: c.at, page: c.page }));
+    for (const q of it.learning.questions) cards.push(card(questionKey(it.id, q.q), { type: "question", term: q.q, explanation: q.a, questionKind: q.kind, at: q.at, page: q.page }));
   }
   return cards.sort((a, b) => Date.parse(a.due) - Date.parse(b.due) || a.itemTitle.localeCompare(b.itemTitle));
 }
@@ -369,11 +375,14 @@ export function buildReviewQueue(items: LibraryItem[], records = readReviewRecor
 export function learningOverview(items: LibraryItem[], now = new Date()): LearningOverview {
   const study = items.filter(isStudyMaterial);
   const ready = items.filter((i) => inStudy(i) && i.learning?.state === "ready");
-  const cards = buildReviewQueue(items, readReviewRecords(), now);
+  const records = readReviewRecords();
+  const cards = dailyQueue(buildReviewQueue(items, records, now), records, now);
   const lean: LearningItem[] = items.map((it) => {
     const study = isStudyMaterial(it);
     const { transcript: _transcript, ...rest } = it;
-    return { ...rest, text: (it.text ?? "").slice(0, 300), study, studying: inStudy(it) };
+    // The list carries counts; a source's own page loads the full notes.
+    const l = it.learning;
+    return { ...rest, text: (it.text ?? "").slice(0, 300), study, studying: inStudy(it), conceptCount: l?.concepts.length ?? 0, questionCount: l?.questions.length ?? 0, learning: l && { ...l, concepts: [], questions: [], keyPoints: [], sections: undefined, reading: l.reading && { ...l.reading, sections: [], concepts: [], questions: [], keyPoints: [] } } };
   });
   return {
     items: lean,
@@ -383,7 +392,7 @@ export function learningOverview(items: LibraryItem[], now = new Date()): Learni
       study: items.filter(inStudy).length,
       videos: items.filter((i) => i.kind === "video" || (i.kind === "link" && isVideoUrl(i.url))).length,
       concepts: ready.reduce((n, i) => n + (i.learning?.concepts.length ?? 0), 0),
-      due: cards.filter((c) => Date.parse(c.due) <= now.getTime()).length,
+      due: cards.length,
       analyzed: ready.length,
       pending: items.filter((i) => inStudy(i) && (i.learning?.state === "queued" || i.learning?.state === "analyzing")).length,
       failed: study.filter((i) => i.learning?.state === "failed").length,
@@ -419,8 +428,9 @@ function fallbackSteps(mode: LearningMode, items: LibraryItem[]): LearningStep[]
 export async function generateSession(mode: LearningMode, items: LibraryItem[], goal = ""): Promise<LearningSession> {
   const ready = items.filter((i) => i.learning?.state === "ready");
   if (!ready.length) throw new Error("Analyze at least one item first — open it in the library and tap Analyze.");
+  // Every source he picked gets its share of the room.
+  const share = Math.floor(14_000 / ready.length);
   const material = ready
-    .slice(0, 8)
     .map((i) => {
       const d = i.learning!;
       return [
@@ -430,10 +440,10 @@ export async function generateSession(mode: LearningMode, items: LibraryItem[], 
         d.concepts.length ? `Concepts:\n${d.concepts.map((c) => `- ${c.term}: ${c.explanation}${c.at !== undefined ? ` (at ${formatTimestamp(c.at)})` : ""}`).join("\n")}` : "",
       ]
         .filter(Boolean)
-        .join("\n");
+        .join("\n")
+        .slice(0, share);
     })
-    .join("\n\n")
-    .slice(0, 14_000);
+    .join("\n\n");
 
   const ask =
     mode === "goal"
@@ -447,7 +457,7 @@ export async function generateSession(mode: LearningMode, items: LibraryItem[], 
   let intro = "";
   let generated = false;
   try {
-    const out = await groqJSON<{ title?: string; intro?: string; steps?: { prompt?: string; answer?: string; at?: number }[] }>(
+    const out = await askJSON<{ title?: string; intro?: string; steps?: { prompt?: string; answer?: string; at?: number }[] }>(
       `You are Lind's learning coach. Lind is a CS student in Kosovo; he saves videos and notes to Memory and wants to understand them deeply, not memorise them.
 ${ask}
 Return JSON: {"title": string (≤8 words), "intro": string (1-2 sentences), "steps": [{"prompt": string, "answer": string, "at": number|null}]}.
@@ -455,8 +465,7 @@ Return JSON: {"title": string (≤8 words), "intro": string (1-2 sentences), "st
 - at: seconds into the source video when that idea is discussed, or null.
 - Write in English unless the material is clearly Albanian.`,
       `Goal: ${goal || "(none — general mastery)"}\n\nMaterial:\n\n${material}`,
-      0.3,
-      { maxTokens: 2600 },
+      { maxTokens: 3500, temperature: 0.3, good: (o) => Array.isArray(o.steps) && o.steps.length > 0 },
     );
     const raw = Array.isArray(out?.steps) ? out.steps : [];
     steps = raw
@@ -475,5 +484,5 @@ Return JSON: {"title": string (≤8 words), "intro": string (1-2 sentences), "st
   if (!steps.length) steps = fallbackSteps(mode, ready);
   if (!steps.length) throw new Error("Nothing to practise yet — analyze an item with a transcript first.");
   if (!intro) intro = mode === "goal" ? `A plan built from ${ready.length} saved ${ready.length === 1 ? "item" : "items"}.` : "Answer out loud first, then check the model answer.";
-  return { mode, title, intro, steps, generated, sources: ready.slice(0, 8).map((i) => i.title || i.kind) };
+  return { mode, title, intro, steps, generated, sources: ready.map((i) => i.title || i.kind) };
 }

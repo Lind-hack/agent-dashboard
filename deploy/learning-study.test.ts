@@ -8,7 +8,7 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "learning-study-tes
 process.env.MEMORY_VAULT_DIR = path.join(process.env.DATA_DIR, "no-vault");
 process.env.DASHBOARD_TZ = "UTC";
 
-const { buildReviewQueue, gradeConcept, inStudy, learningOverview, migrateReviewKeys, readReviewRecords, searchSources, setStudying } = await import("../lib/learning");
+const { buildReviewQueue, cardKey, gradeCard, inStudy, learningOverview, migrateReviewKeys, readReviewRecords, searchSources, setStudying } = await import("../lib/learning");
 const { saveItem, readItem, listItems } = await import("../lib/library");
 const { POST: studyPOST } = await import("../app/api/learning/study/route");
 
@@ -74,7 +74,7 @@ test("review progress follows the term, not its position, so a deeper read keeps
   assert.equal(card.reps, 6);
   assert.equal(card.isNew, false);
   assert.equal(buildReviewQueue(listItems()).find((c) => c.term === "Encoder")!.isNew, true);
-  gradeConcept(listItems(), "M-VIDEO1", "Key", "good");
+  gradeCard(listItems(), cardKey("M-VIDEO1", "Key"), "good");
   assert.equal(Object.keys(readReviewRecords()).filter((k) => k.startsWith("M-VIDEO1")).length, 1, "one record per term");
 });
 

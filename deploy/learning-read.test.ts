@@ -126,7 +126,7 @@ test("an old shallow read gets redone in the background: reviews keep working an
   assert.match(idea.explanation, /at length/, "the deeper explanation wins");
   assert.ok(d.concepts.some((c) => c.term === "Renamed away"), "anything he has reviewed stays");
   assert.ok(!d.concepts.some((c) => c.term === "Never reviewed"));
-  assert.equal(buildReviewQueue(listItems()).find((c) => c.term === "Idea 1")!.reps, 4);
+  assert.equal(buildReviewQueue(listItems()).find((c) => c.itemId === "M-OLDREAD1" && c.term === "Idea 1")!.reps, 4);
   assert.ok(readReviewRecords()[cardKey("M-OLDREAD1", "Idea 1")]);
 });
 
