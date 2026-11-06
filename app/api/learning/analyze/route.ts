@@ -14,8 +14,9 @@ export async function POST(request: Request) {
   for (const it of targets) {
     const fresh = readItem(it.id);
     if (!fresh || !isStudyMaterial(fresh)) continue;
-    // Re-analysing keeps the old digest visible until the new one lands.
-    fresh.learning = { ...(fresh.learning?.state === "ready" ? fresh.learning : emptyDigest()), state: "queued", error: undefined, nextAt: undefined, attempts: 0 };
+    // A source read before stays reviewable while it's read again; the runner replaces it when done.
+    fresh.learning = fresh.learning?.state === "ready" ? { ...fresh.learning, depth: undefined, reading: undefined, error: undefined } : emptyDigest();
+    fresh.studyAt ||= new Date().toISOString();
     saveItem(fresh);
     queued++;
   }

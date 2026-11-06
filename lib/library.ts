@@ -35,6 +35,7 @@ export type LibraryItem = {
   parent?: string; // a part of a memory dump: the dump's item id
   transcript?: Transcript; // timed cues for a video, or its uploaded transcript file
   learning?: LearningDigest; // core concepts, key points and recall questions read from it
+  studyAt?: string | false; // v6: when Lind added it to Study, false if he took it out (see inStudy)
   // A memory dump being split into parts (lib/dump.ts): windows read so far, of how many, and the parts.
   split?: { state: "splitting" | "done"; next: number; total: number; parts: string[]; fails?: number; context?: string };
 };
@@ -65,7 +66,10 @@ export function readItem(id: string): LibraryItem | null {
   try {
     const it = JSON.parse(fs.readFileSync(path.join(itemsDir(), `${id}.json`), "utf8")) as LibraryItem;
     // Older items may predate a field.
-    return it?.id ? { ...it, tags: Array.isArray(it.tags) ? it.tags : [], title: it.title ?? "", summary: it.summary ?? "", text: it.text ?? "" } : null;
+    if (!it?.id) return null;
+    const l = it.learning;
+    const list = <T,>(v: T[] | undefined) => (Array.isArray(v) ? v : []);
+    return { ...it, tags: list(it.tags), title: it.title ?? "", summary: it.summary ?? "", text: it.text ?? "", ...(l ? { learning: { ...l, concepts: list(l.concepts), questions: list(l.questions), keyPoints: list(l.keyPoints) } } : {}) };
   } catch {
     return null;
   }

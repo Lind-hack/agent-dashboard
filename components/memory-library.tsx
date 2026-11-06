@@ -1,6 +1,7 @@
 "use client";
 
-import { AudioLines, Download, FileText, Film, Image as ImageIcon, Link2, Pencil, Plus, RotateCw, StickyNote, Trash2 } from "lucide-react";
+import { AudioLines, Download, FileText, Film, GraduationCap, Image as ImageIcon, Link2, Pencil, Plus, RotateCw, StickyNote, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ItemKind, LibraryItem, Section } from "@/lib/library";
 import { ago, cn } from "@/lib/utils";
@@ -138,8 +139,9 @@ export function Library({
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {shown.map((it, i) => (
-            <li key={it.id} className="land" style={{ animationDelay: `${Math.min(i, 12) * 35}ms` }}>
+            <li key={it.id} className="land relative" style={{ animationDelay: `${Math.min(i, 12) * 35}ms` }}>
               <Card it={it} section={sections.find((s) => s.id === it.section)} onOpen={() => setOpen(it)} />
+              <StudyTap it={it} onChange={onChange} />
             </li>
           ))}
         </ul>
@@ -147,6 +149,24 @@ export function Library({
 
       {open && <ItemSheet it={items.find((x) => x.id === open.id) ?? open} items={items} sections={sections} onClose={() => setOpen(null)} onChange={onChange} onOpen={setOpen} />}
     </section>
+  );
+}
+
+// One tap from the list, for what's worth studying.
+function StudyTap({ it, onChange }: { it: LibraryItem; onChange: (it: LibraryItem) => void }) {
+  const [busy, setBusy] = useState(false);
+  const on = it.studyAt === false ? false : !!it.studyAt || it.learning?.state === "ready";
+  if (it.kind !== "video" && it.media?.mime !== "application/pdf" && !(it.kind === "link" && it.text.length >= 400)) return null;
+  async function tap() {
+    setBusy(true);
+    const res = await fetch("/api/learning/study", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: it.id, on: !on }) }).catch(() => null);
+    if (res?.ok) onChange({ ...it, studyAt: on ? false : new Date().toISOString() });
+    setBusy(false);
+  }
+  return (
+    <button onClick={() => void tap()} disabled={busy} aria-pressed={on} aria-label={on ? `${it.title || it.kind} is in Study. Tap to take it out` : `Add ${it.title || it.kind} to Study`} className={cn("press absolute top-2 right-2 grid h-11 w-11 place-items-center rounded-full border backdrop-blur disabled:opacity-50", on ? "border-hermes/50 bg-hermes/25 text-hermes" : "border-line-hi bg-black/60 text-muted")}>
+      <GraduationCap className="h-4 w-4" />
+    </button>
   );
 }
 
@@ -233,6 +253,15 @@ function ItemSheet({
     const out = await res.json().catch(() => null);
     if (res.ok && out?.item) onChange(out.item);
   }
+  // One tap puts a saved source into Study, which starts its full read (v6).
+  const studying = it.studyAt === false ? false : !!it.studyAt || it.learning?.state === "ready";
+  const [adding, setAdding] = useState(false);
+  async function study(on: boolean) {
+    setAdding(true);
+    const res = await fetch("/api/learning/study", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: it.id, on }) }).catch(() => null);
+    if (res?.ok) onChange({ ...it, studyAt: on ? new Date().toISOString() : false });
+    setAdding(false);
+  }
   async function remove() {
     if (!armed) return setArmed(true);
     const res = await fetch(`/api/memory/items/${it.id}`, { method: "DELETE" });
@@ -278,6 +307,18 @@ function ItemSheet({
             </button>
           )}
           {it.summary && <p className="mt-2 text-[15px] leading-relaxed text-muted">{it.summary}</p>}
+          {(it.kind === "video" || it.kind === "link" || it.kind === "file" || it.text.length >= 400) && (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button onClick={() => void study(!studying)} disabled={adding} className={cn("press flex h-11 items-center gap-2 rounded-[12px] px-4 text-[14px] disabled:opacity-50", studying ? "border border-line text-muted" : "bg-text font-semibold text-bg")}>
+                <GraduationCap className="h-4 w-4" /> {studying ? "In Study" : "Add to Study"}
+              </button>
+              {studying && (
+                <Link href={`/learning/${it.id}`} className="text-[14px] text-muted hover:text-text">
+                  Open the notes
+                </Link>
+              )}
+            </div>
+          )}
           {it.split?.state === "splitting" && (
             <p className="mt-3 text-[13px] text-muted">
               Reading it in full and splitting it by topic — {it.split.next} of {it.split.total} pieces read, {it.split.parts.length} parts so far.

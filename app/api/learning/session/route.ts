@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listItems } from "@/lib/library";
-import { generateSession, type LearningMode } from "@/lib/learning";
+import { generateSession, inStudy, type LearningMode } from "@/lib/learning";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   if (!MODES.includes(b?.mode as LearningMode)) return NextResponse.json({ error: "unknown learning mode" }, { status: 400 });
   const ids = new Set((Array.isArray(b?.itemIds) ? b.itemIds : []).filter((x): x is string => typeof x === "string"));
   const all = listItems();
-  const picked = ids.size ? all.filter((i) => ids.has(i.id)) : all;
+  const picked = ids.size ? all.filter((i) => ids.has(i.id)) : all.filter(inStudy);
   try {
     const session = await generateSession(b!.mode as LearningMode, picked, (b?.goal ?? "").toString().trim().slice(0, 300));
     return NextResponse.json({ session });

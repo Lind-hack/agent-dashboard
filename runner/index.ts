@@ -15,6 +15,7 @@ import { mentorTick } from "./mentor";
 import { taskSyncTick } from "../lib/task-sync";
 import { libraryTick } from "./library";
 import { learningTick } from "./learning";
+import { learningSundayTick } from "./learning-sunday";
 import { monitorTick } from "./monitor";
 import { sourcesTick } from "./sources";
 import { mailTick } from "./mail";
@@ -646,6 +647,7 @@ async function tick() {
   try {
     libraryTick();
     learningTick();
+    learningSundayTick();
     mailTick();
     coachTick();
     mentorTick();
