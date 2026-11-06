@@ -111,7 +111,10 @@ export function searchSources(items: LibraryItem[], query: string, limit = 60): 
     const hay = `${it.title}\n${it.tags.join(" ")}\n${body}`.toLowerCase();
     if (!words.every((w) => hay.includes(w))) continue;
     const at = words.length ? Math.max(0, body.toLowerCase().indexOf(words[0])) : 0;
-    out.push(hit(it, body.slice(Math.max(0, at - 60), at + 140).replace(/\s+/g, " ").trim()));
+    // Whole words: start after the first space, end at the last.
+    const cut = body.slice(Math.max(0, at - 60), at + 160).replace(/\s+/g, " ").trim();
+    const snippet = at > 60 ? `…${cut.slice(cut.indexOf(" ") + 1)}` : cut;
+    out.push(hit(it, snippet.includes(" ") ? snippet.slice(0, snippet.lastIndexOf(" ")) : snippet));
     if (out.length >= limit) break;
   }
   return out;

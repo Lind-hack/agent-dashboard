@@ -94,14 +94,14 @@ export function LearningView({ overview: initial, topics, session, terms, tab }:
         }
       />
 
-      <div className="mb-5 -mx-1 overflow-x-auto px-1" role="tablist" aria-label="Learning">
-        <div className="flex w-max gap-1 rounded-[14px] border border-line p-1">
+      <div className="mb-5" role="tablist" aria-label="Learning">
+        <div className="grid grid-cols-5 gap-0.5 rounded-[14px] border border-line p-1 sm:flex sm:w-max sm:gap-1">
           {TABS.map((m) => {
             const Icon = m.icon;
             return (
-              <button key={m.key} role="tab" aria-selected={mode === m.key} onClick={() => setMode(m.key)} className={cn("press flex h-10 items-center gap-1.5 rounded-[10px] px-3 text-[13.5px] transition-colors duration-150", mode === m.key ? "bg-text font-medium text-bg" : "text-muted hover:text-text")}>
-                <Icon className="h-4 w-4" /> {m.label}
-                {m.key === "review" && counts.due > 0 && <span className={cn("tnum font-mono text-[11px]", mode === m.key ? "text-bg/60" : "text-faint")}>{counts.due}</span>}
+              <button key={m.key} role="tab" aria-selected={mode === m.key} onClick={() => setMode(m.key)} className={cn("press relative flex h-11 items-center justify-center gap-1.5 rounded-[10px] px-1 text-[13px] transition-colors duration-150 sm:px-3 sm:text-[13.5px]", mode === m.key ? "bg-text font-medium text-bg" : "text-muted hover:text-text")}>
+                <Icon className="hidden h-4 w-4 sm:block" /> {m.label}
+                {m.key === "review" && counts.due > 0 && <span className={cn("tnum absolute top-0.5 right-1 font-mono text-[10px] sm:static sm:text-[11px]", mode === m.key ? "text-bg/60" : "text-faint")}>{counts.due}</span>}
                 {m.key === "sunday" && run?.state === "open" && <span className={cn("h-1.5 w-1.5 rounded-full", mode === m.key ? "bg-bg/60" : "bg-hermes")} aria-label="open" />}
               </button>
             );

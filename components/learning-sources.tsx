@@ -142,10 +142,10 @@ export function Sources({ items, picked, onPick, onChange, onBlurt, onPractice }
                   onClick={() => void toggle(h.id, !h.studying)}
                   disabled={busy === h.id}
                   aria-label={h.studying ? `Remove ${h.title} from Study` : `Add ${h.title} to Study`}
-                  className={cn("press flex h-10 shrink-0 items-center gap-1.5 rounded-[11px] px-3 text-[13px]", h.studying ? "border border-line text-muted" : "bg-text font-semibold text-bg")}
+                  className={cn("press flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-[11px] text-[13px]", h.studying ? "w-11 border border-line text-muted sm:w-auto sm:px-3" : "bg-text px-3 font-semibold text-bg")}
                 >
                   {busy === h.id ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : h.studying ? <Minus className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-                  {h.studying ? "Remove" : "Add"}
+                  <span className={cn(h.studying && "hidden sm:inline")}>{h.studying ? "Remove" : "Add"}</span>
                 </button>
               </li>
             );

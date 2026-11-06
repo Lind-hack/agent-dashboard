@@ -71,7 +71,7 @@ export function SundaySession({ initial, terms, topics }: { initial: LearningRun
     <section aria-label="Blurting session" className="mx-auto max-w-2xl">
       <div className="mb-3 flex items-baseline justify-between gap-3 px-1">
         <p className="tnum font-mono text-[12px] text-muted">
-          Round {Math.min(done + 1, session.rounds.length)} of {session.rounds.length}
+          Round {current ? session.rounds.indexOf(current) + 1 : session.rounds.length} of {session.rounds.length}
         </p>
         <p className="tnum font-mono text-[12px] text-faint">{session.rounds.reduce((n, r) => n + r.terms.length, 0)} terms</p>
       </div>
