@@ -3,9 +3,8 @@ import { addDays, calendarConnected, createEvent, gcal, replacePlan } from "./ca
 import { clockNow, coachNow, coachTz, nextFreeSlot, calendarBusy } from "./coach";
 import { readGoals, writeGoals, type GoalHorizon } from "./goals";
 import { archiveHabit, listHabits, saveHabit } from "./habits";
-import { groqJSON } from "./groq";
+import { askJSON } from "./ask";
 import { addEntry } from "./journal";
-import { nemotron, nvidiaReady } from "./nvidia";
 import { activeBlocks, addBlock, readPlan, removeBlock } from "./plan-store";
 import { addTodo, listTodos, removeTodo } from "./todos";
 
@@ -66,18 +65,8 @@ export async function parseSay(text: string, from: "today" | "goals" = "today"):
   const open = listTodos().filter((t) => !t.done).slice(-60);
   const weekday = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(new Date(`${today}T12:00:00Z`));
   const user = `Now: ${weekday} ${today}, ${clockNow(tz)} (${tz}). Tomorrow: ${addDays(today, 1)}.\nGoals (id | title): ${goals.map((g) => `${g.id} | ${g.title}`).join("; ") || "none"}\nOpen tasks (id | title): ${open.map((t) => `${t.id} | ${t.title}`).join("; ") || "none"}\n${from === "goals" ? "He is on the Goals page: a long-term ambition is a goal, and all he says about it goes in that goal's notes.\n" : ""}\nLind said: ${text}`;
-  // Room for the answer grows with what he said; low effort so a reasoning model doesn't spend it thinking.
-  const maxTokens = Math.min(6000, 2500 + Math.round(text.length / 2));
-  let out = await groqJSON<{ items: unknown[] }>(SYSTEM, user, 0.1, { maxTokens, timeoutMs: 40_000, reasoningEffort: "low" }).catch(() => null);
-  if (!Array.isArray(out?.items) && nvidiaReady()) {
-    const raw = await nemotron(`${SYSTEM}\nReturn ONLY the JSON object.`, user, { maxTokens, temperature: 0.1 }).catch(() => "");
-    try {
-      out = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-    } catch {
-      out = null;
-    }
-  }
-  // No usable answer is a failure, never "you said nothing".
+  // Room for the answer grows with what he said. No usable answer is a failure, never "you said nothing".
+  const out = await askJSON<{ items: unknown[] }>(SYSTEM, user, { maxTokens: Math.min(6000, 2500 + Math.round(text.length / 2)), temperature: 0.1, good: (o) => Array.isArray(o.items) });
   if (!Array.isArray(out?.items)) throw new Error("Couldn't sort that right now — the models are busy. Your words are safe below.");
   const raw = out.items;
   return draftItems(raw, cleanItems(raw, today, new Set(goals.map((g) => g.id))), text, open.map((t) => ({ id: t.id, title: t.title })));

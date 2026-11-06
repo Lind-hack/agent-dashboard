@@ -9,6 +9,8 @@ process.env.MEMORY_VAULT_DIR = path.join(process.env.DATA_DIR, "no-vault");
 process.env.DASHBOARD_TZ = "UTC";
 process.env.GROQ_API_KEY = "test";
 delete process.env.NVIDIA_API_KEY;
+delete process.env.GEMINI_API_KEY;
+delete process.env.GOOGLE_AI_API_KEY;
 
 const { applySay, cleanItems, draftItems, parseSay, undoSay } = await import("../lib/say");
 const { listTodos } = await import("../lib/todos");
@@ -69,6 +71,22 @@ test("an empty or broken answer from every model is a failure, never 'no tasks s
   await assert.rejects(parseSay(ramble), /busy/);
   answer = "{}";
   await assert.rejects(parseSay(ramble), /busy/);
+});
+
+test("when Groq's daily quota is gone, a dictation still gets sorted by the next model", async () => {
+  const stub = globalThis.fetch;
+  process.env.GEMINI_API_KEY = "test";
+  globalThis.fetch = (async (url: string) =>
+    String(url).includes("generativelanguage")
+      ? new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify({ items: [{ kind: "task", title: "Finish the landing page", day: today(), quote: "finish the landing page", dupOf: null }] }) }] } }] }), { status: 200 })
+      : new Response(JSON.stringify({ error: { message: "Rate limit reached" } }), { status: 429 })) as typeof fetch;
+  try {
+    const drafts = await parseSay(ramble);
+    assert.deepEqual(drafts.map((d) => d.item.title), ["Finish the landing page"]);
+  } finally {
+    globalThis.fetch = stub;
+    delete process.env.GEMINI_API_KEY;
+  }
 });
 
 test("the route reads a 10-minute dictation to the end", async () => {

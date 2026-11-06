@@ -10,6 +10,8 @@ process.env.DASHBOARD_TZ = "UTC";
 process.env.GROQ_API_KEY = "test";
 process.env.SOL_ENABLED = "0";
 delete process.env.NVIDIA_API_KEY;
+delete process.env.GEMINI_API_KEY;
+delete process.env.GOOGLE_AI_API_KEY;
 fs.mkdirSync(process.env.MEMORY_VAULT_DIR, { recursive: true });
 
 const { lifeContext, readStage, saveStage } = await import("../lib/life");
