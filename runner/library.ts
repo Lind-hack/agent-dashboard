@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { geminiJSON, geminiReady, type InlineImage } from "../lib/gemini";
 import { groqJSON, transcribe, transcribeDetailed } from "../lib/groq";
-import { emptyDigest, isStudyMaterial } from "../lib/learning";
+import { emptyDigest, inStudy, isStudyMaterial } from "../lib/learning";
 import { splitStep, startSplitIfDump, unsplitDump } from "./dump";
 import { addSection, listItems, mediaDir, mirrorItem, readItem, readSections, removeMirror, saveItem, type LibraryItem, type Section } from "../lib/library";
 import { isPlainTranscriptName, isSubtitleFile, parseTranscript, shouldPairTranscript, transcriptText, type Transcript } from "../lib/video-transcript";
@@ -87,7 +87,7 @@ async function processItem(id: string) {
     });
     // Videos, transcripts and long notes get a Learning pass next; a failed pass is retried when
     // the item is read again (a better transcript may have arrived).
-    if (isStudyMaterial(fresh) && (!fresh.learning || fresh.learning.state === "failed")) fresh.learning = emptyDigest();
+    if (fresh.studyAt && isStudyMaterial(fresh) && (!fresh.learning || fresh.learning.state === "failed")) fresh.learning = emptyDigest();
     mirrorItem(fresh);
     saveItem(fresh);
     log("ready", fresh.id, fresh.section, fresh.title);
@@ -189,7 +189,7 @@ function attachTranscript(parentId: string, transcript: Transcript) {
   const block = `Transcript:\n${transcriptText(transcript, 20_000)}`;
   if (!parent.text.includes(block.slice(0, 80))) parent.text = [parent.text, block].filter(Boolean).join("\n\n").slice(0, 40_000);
   // A transcript can land after the video was analysed; study the better text next.
-  if (!parent.learning || parent.learning.state === "failed") parent.learning = emptyDigest();
+  if (inStudy(parent) && (!parent.learning || parent.learning.state === "failed")) parent.learning = emptyDigest();
   mirrorItem(parent);
   saveItem(parent);
   log("transcript attached", parentId, transcript.source, transcript.segments.length);

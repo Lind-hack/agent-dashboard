@@ -361,7 +361,7 @@ function Review({
   async function grade(g: ReviewGrade) {
     if (!card || grading) return;
     setGrading(true);
-    const b = await fetch("/api/learning/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: card.itemId, concept: card.concept, grade: g }) })
+    const b = await fetch("/api/learning/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId: card.itemId, term: card.term, grade: g }) })
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
     if (b?.cards) onCards(b.cards);

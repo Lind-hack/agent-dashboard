@@ -35,6 +35,7 @@ export type LibraryItem = {
   parent?: string; // a part of a memory dump: the dump's item id
   transcript?: Transcript; // timed cues for a video, or its uploaded transcript file
   learning?: LearningDigest; // core concepts, key points and recall questions read from it
+  studyAt?: string | false; // v6: when Lind added it to Study, false if he took it out (see inStudy)
   // A memory dump being split into parts (lib/dump.ts): windows read so far, of how many, and the parts.
   split?: { state: "splitting" | "done"; next: number; total: number; parts: string[]; fails?: number; context?: string };
 };

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DATA_DIR } from "./config";
 import { groqJSON } from "./groq";
-import type { LibraryItem } from "./library";
+import { readItem, saveItem, type LibraryItem } from "./library";
 import { formatTimestamp, transcriptText } from "./video-transcript";
 import { isVideoUrl } from "./video-links";
 
@@ -11,6 +11,8 @@ import { isVideoUrl } from "./video-links";
 // digest (core concepts, key points, recall questions), then reviewed with spaced repetition or
 // turned into a goal plan, a code review or a mock interview. Everything here is server-side; the
 // dashboard only receives the plain records.
+// v6 (Lind: "not some terms I learned months back left out so I forget them"): only sources he adds to
+// Study count; progress follows the term, not its position, so a deeper read keeps it.
 
 export type Concept = { term: string; explanation: string; at?: number };
 export type QuestionKind = "recall" | "code" | "interview";
@@ -28,14 +30,14 @@ export type LearningDigest = {
   attempts?: number;
   nextAt?: string;
 };
-export type LearningItem = Omit<LibraryItem, "transcript"> & { study: boolean };
+export type LearningItem = Omit<LibraryItem, "transcript"> & { study: boolean; studying: boolean };
+export type SourceHit = { id: string; title: string; kind: LibraryItem["kind"]; section?: string; createdAt: string; snippet: string; studying: boolean; state?: LearningDigest["state"]; concepts: number };
 
 export type ReviewGrade = "again" | "hard" | "good" | "easy";
 export type ReviewRecord = { due: string; interval: number; ease: number; reps: number; lapses: number; last?: string };
 export type ReviewCard = {
   key: string;
   itemId: string;
-  concept: number;
   term: string;
   explanation: string;
   at?: number;
@@ -67,13 +69,42 @@ const atomic = (file: string, data: string) => {
 
 // ---- what can be studied -------------------------------------------------------------------------
 
-// A video, anything with a timed transcript, a saved video link, or a long-enough note.
+// A video, anything with a timed transcript, a PDF, a saved video link, or a long-enough note.
 export function isStudyMaterial(it: LibraryItem): boolean {
   if (it.status === "failed") return false;
-  if (it.kind === "video" || it.transcript) return true;
+  if (it.kind === "video" || it.transcript || it.media?.mime === "application/pdf") return true;
   if (it.kind === "link" && isVideoUrl(it.url)) return true;
   if (it.kind === "link" && /transcript:/i.test(it.text ?? "")) return true;
   return (it.kind === "text" || it.kind === "file") && (it.text?.length ?? 0) >= 400;
+}
+
+// In Study: he added it, or it was analysed before Study existed. He can take either out.
+export const inStudy = (it: Pick<LibraryItem, "studyAt" | "learning">) => (it.studyAt === false ? false : !!it.studyAt || it.learning?.state === "ready");
+
+// Add or take out a source. Adding one that hasn't been read queues its read.
+export function setStudying(id: string, on: boolean): LibraryItem | null {
+  const it = readItem(id);
+  if (!it) return null;
+  it.studyAt = on ? new Date().toISOString() : false;
+  if (on && !it.learning && isStudyMaterial(it)) it.learning = emptyDigest();
+  saveItem(it);
+  return it;
+}
+
+// Search everything saved, by title, tags or the text inside it; every word has to match.
+export function searchSources(items: LibraryItem[], query: string, limit = 60): SourceHit[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (it: LibraryItem, snippet: string): SourceHit => ({ id: it.id, title: it.title || it.kind, kind: it.kind, section: it.section, createdAt: it.createdAt, snippet, studying: inStudy(it), state: it.learning?.state, concepts: it.learning?.concepts.length ?? 0 });
+  const out: SourceHit[] = [];
+  for (const it of items) {
+    const body = [it.summary, it.note, it.text, it.transcript ? transcriptText(it.transcript) : ""].filter(Boolean).join("\n");
+    const hay = `${it.title}\n${it.tags.join(" ")}\n${body}`.toLowerCase();
+    if (!words.every((w) => hay.includes(w))) continue;
+    const at = words.length ? Math.max(0, body.toLowerCase().indexOf(words[0])) : 0;
+    out.push(hit(it, body.slice(Math.max(0, at - 60), at + 140).replace(/\s+/g, " ").trim()));
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 // What the analyser reads: the timed transcript first, then the note, summary and visual description.
@@ -174,14 +205,29 @@ export function readReviewRecords(): Record<string, ReviewRecord> {
   }
 }
 
-const cardKey = (itemId: string, concept: number) => `${itemId}#${concept}`;
+const slug = (s: string) => s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "").slice(0, 80);
+export const cardKey = (itemId: string, term: string) => `${itemId}#t:${slug(term)}`;
 
-export function gradeConcept(items: LibraryItem[], itemId: string, concept: number, grade: ReviewGrade, now = new Date()): ReviewRecord | null {
-  const it = items.find((i) => i.id === itemId);
-  const c = it?.learning?.concepts[concept];
-  if (!it || !c) return null;
+// Before v6 a record was keyed by the concept's position, which a new read would scramble.
+export function migrateReviewKeys(items: LibraryItem[]) {
   const all = readReviewRecords();
-  const key = cardKey(itemId, concept);
+  let changed = false;
+  for (const key of Object.keys(all)) {
+    const m = key.match(/^(.+)#(\d+)$/);
+    if (!m) continue;
+    const term = items.find((i) => i.id === m[1])?.learning?.concepts[Number(m[2])]?.term;
+    if (!term) continue;
+    all[cardKey(m[1], term)] ??= all[key];
+    delete all[key];
+    changed = true;
+  }
+  if (changed) atomic(reviewFile(), JSON.stringify(all, null, 1));
+}
+
+export function gradeConcept(items: LibraryItem[], itemId: string, term: string, grade: ReviewGrade, now = new Date()): ReviewRecord | null {
+  const key = cardKey(itemId, term);
+  if (!items.find((i) => i.id === itemId)?.learning?.concepts.some((c) => cardKey(itemId, c.term) === key)) return null;
+  const all = readReviewRecords();
   const next = nextReview(all[key] ?? null, grade, now);
   all[key] = next;
   atomic(reviewFile(), JSON.stringify(all, null, 1));
@@ -191,14 +237,13 @@ export function gradeConcept(items: LibraryItem[], itemId: string, concept: numb
 export function buildReviewQueue(items: LibraryItem[], records = readReviewRecords(), now = new Date()): ReviewCard[] {
   const cards: ReviewCard[] = [];
   for (const it of items) {
-    if (it.learning?.state !== "ready") continue;
-    it.learning.concepts.forEach((c, n) => {
-      const key = cardKey(it.id, n);
+    if (it.learning?.state !== "ready" || !inStudy(it)) continue;
+    it.learning.concepts.forEach((c) => {
+      const key = cardKey(it.id, c.term);
       const rec = records[key];
       cards.push({
         key,
         itemId: it.id,
-        concept: n,
         term: c.term,
         explanation: c.explanation,
         at: c.at,
@@ -211,26 +256,26 @@ export function buildReviewQueue(items: LibraryItem[], records = readReviewRecor
       });
     });
   }
-  return cards.sort((a, b) => Date.parse(a.due) - Date.parse(b.due) || a.itemTitle.localeCompare(b.itemTitle) || a.concept - b.concept);
+  return cards.sort((a, b) => Date.parse(a.due) - Date.parse(b.due) || a.itemTitle.localeCompare(b.itemTitle));
 }
 
 // The dashboard payload: everything Lind captured (minus heavy transcripts), the review queue as it
 // stands, and the counters the header shows.
 export function learningOverview(items: LibraryItem[], now = new Date()): LearningOverview {
   const study = items.filter(isStudyMaterial);
-  const ready = study.filter((i) => i.learning?.state === "ready");
+  const ready = items.filter((i) => inStudy(i) && i.learning?.state === "ready");
   const cards = buildReviewQueue(items, readReviewRecords(), now);
   const lean: LearningItem[] = items.map((it) => {
     const study = isStudyMaterial(it);
     const { transcript: _transcript, ...rest } = it;
-    return { ...rest, text: (it.text ?? "").slice(0, 300), study };
+    return { ...rest, text: (it.text ?? "").slice(0, 300), study, studying: inStudy(it) };
   });
   return {
     items: lean,
     cards,
     counts: {
       items: items.length,
-      study: study.length,
+      study: items.filter(inStudy).length,
       videos: items.filter((i) => i.kind === "video" || (i.kind === "link" && isVideoUrl(i.url))).length,
       concepts: ready.reduce((n, i) => n + (i.learning?.concepts.length ?? 0), 0),
       due: cards.filter((c) => Date.parse(c.due) <= now.getTime()).length,
