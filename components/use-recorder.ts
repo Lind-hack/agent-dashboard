@@ -13,12 +13,15 @@ function pickMime(): string {
 export const audioFilename = (blob: Blob) => (blob.type.includes("mp4") ? "note.mp4" : "note.webm");
 
 // Tap to start, tap again to stop; `onDone` gets the recording.
+// v5.5: long dictations. 48 kbit/s is plenty for speech and keeps 15 minutes well under the 25 MB upload limit;
+// the screen stays awake while recording, because a phone that sleeps ends the recording.
 export function useRecorder(onDone: (audio: Blob) => void) {
   const [recording, setRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [error, setError] = useState("");
   const recorder = useRef<MediaRecorder | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const awake = useRef<{ release(): Promise<void> } | null>(null);
 
   async function toggle() {
     if (recording) {
@@ -29,7 +32,7 @@ export function useRecorder(onDone: (audio: Blob) => void) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mime = pickMime();
-      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      const rec = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 48_000 });
       const chunks: Blob[] = [];
       rec.ondataavailable = (e) => {
         if (e.data.size) chunks.push(e.data);
@@ -37,10 +40,13 @@ export function useRecorder(onDone: (audio: Blob) => void) {
       rec.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
         if (timer.current) clearInterval(timer.current);
+        void awake.current?.release().catch(() => {});
+        awake.current = null;
         setRecording(false);
         onDone(new Blob(chunks, { type: rec.mimeType || mime || "audio/webm" }));
       };
-      rec.start();
+      rec.start(1000);
+      awake.current = (await navigator.wakeLock?.request("screen").catch(() => null)) ?? null;
       recorder.current = rec;
       setSeconds(0);
       timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);

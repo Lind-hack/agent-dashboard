@@ -34,7 +34,7 @@ async function transcribe(audio: Blob): Promise<string> {
   return String(out?.text ?? "").trim();
 }
 
-export function BuddyView({ initialThread, today, week, focusJournal, profileAt, locked }: { initialThread: BuddyTurn[]; today: JournalDay; week: JournalDay[]; focusJournal: boolean; profileAt: string | null; locked?: { score: number; label: string } }) {
+export function BuddyView({ initialThread, today, week, focusJournal, profileAt, locked, obsidian }: { initialThread: BuddyTurn[]; today: JournalDay; week: JournalDay[]; focusJournal: boolean; profileAt: string | null; locked?: { score: number; label: string }; obsidian: boolean }) {
   const [thread, setThread] = useState(initialThread);
   const [thinking, setThinking] = useState(false);
   const [text, setText] = useState("");
@@ -128,6 +128,7 @@ export function BuddyView({ initialThread, today, week, focusJournal, profileAt,
       </header>
 
       <Journal initial={today} focus={focusJournal} />
+      {!obsidian && <p className="px-1 text-[12.5px] text-warn">Your journal is saved here, but it can&apos;t reach Obsidian right now. Run deploy/vault-access.sh on the server, and it catches up overnight.</p>}
 
       <section aria-label="Conversation" className="panel relative overflow-hidden">
         <div className="flex max-h-[62vh] min-h-[220px] flex-col gap-3 overflow-y-auto px-4 py-4">
@@ -304,7 +305,10 @@ function Journal({ initial, focus }: { initial: JournalDay; focus: boolean }) {
             {timeOf(e.at)}
             {e.mood && <span className="mt-1 block h-1.5 w-6 rounded-full" style={{ background: MOODS[e.mood - 1].hue }} title={MOODS[e.mood - 1].label} />}
           </span>
-          <p className="min-w-0 flex-1 whitespace-pre-wrap">{e.text}</p>
+          <p className="min-w-0 flex-1 whitespace-pre-wrap">
+            {e.source === "buddy" && <span className="mr-1.5 font-mono text-[10.5px] tracking-[0.1em] text-faint uppercase">To Buddy</span>}
+            {e.text}
+          </p>
           <button onClick={() => void remove(e)} aria-label="Delete entry" className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-faint opacity-0 group-hover:opacity-100 hover:text-bad focus:opacity-100">
             <Trash2 className="h-3.5 w-3.5" />
           </button>

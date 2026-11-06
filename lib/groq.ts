@@ -60,7 +60,7 @@ export async function transcribeDetailed(audio: Blob, filename: string, opts: { 
       method: "POST",
       headers: { Authorization: `Bearer ${groqKey()}` },
       body: form,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(opts.accurate ? 120_000 : 30_000), // a long dictation takes a while on large-v3
     }).catch(() => null);
     const body = (await res?.json().catch(() => null)) as { text?: string; language?: string; segments?: Segment[]; error?: { message?: string } } | null;
     if (res?.ok) return { text: keepSegments(body?.segments, body?.text ?? ""), language: body?.language ?? "", segments: timedSegments(body?.segments) };
@@ -98,8 +98,11 @@ export async function groqJSON<T>(system: string, user: string, temperature = 0.
     }).catch(() => null);
     const body = (await res?.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
     if (!res?.ok) continue;
+    // An empty answer (a reasoning model that spent its tokens thinking) isn't an answer: next model.
+    const content = body?.choices?.[0]?.message?.content;
+    if (!content?.trim()) continue;
     try {
-      return (JSON.parse(body?.choices?.[0]?.message?.content ?? "{}") ?? {}) as Partial<T>;
+      return (JSON.parse(content) ?? {}) as Partial<T>;
     } catch {
       // malformed JSON — try the next model
     }

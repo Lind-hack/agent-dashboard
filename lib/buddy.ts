@@ -8,8 +8,10 @@ import { DATA_DIR } from "./config";
 import { discipline } from "./discipline";
 import { groqJSON } from "./groq";
 import { moodWord, recentJournal } from "./journal";
+import { readStage } from "./life";
 import { recallMemory, recallText } from "./memory";
 import { nemotron, nvidiaReady } from "./nvidia";
+import { sol } from "./sol";
 
 // The Buddy (v5.1): one long conversation with someone who knows Lind — his goals, his days, his
 // journal, how he works — and helps him reach what he's going for. Replies come from a fast model
@@ -38,6 +40,11 @@ export function readThread(): BuddyTurn[] {
 }
 export const appendThread = (...turns: BuddyTurn[]) => writeAtomic(threadFile(), JSON.stringify([...readThread(), ...turns].slice(-400)));
 
+// A journal entry he deletes goes from the conversation too, so it leaves the memory graph with it.
+export function forgetTurn(text: string) {
+  writeAtomic(threadFile(), JSON.stringify(readThread().filter((t) => !(t.role === "lind" && t.text === text))));
+}
+
 export function readProfile(): { text: string; at?: string } {
   try {
     return { text: fs.readFileSync(profileFile(), "utf8"), at: fs.statSync(profileFile()).mtime.toISOString() };
@@ -52,7 +59,10 @@ How you talk: like a friend texting — warm, direct, specific, a little playful
 
 function journalBlock(today: string): string {
   return (
+    // What he told the Buddy is already in the conversation.
     recentJournal(today, 7)
+      .map((j) => ({ ...j, entries: j.entries.filter((e) => e.source !== "buddy") }))
+      .filter((j) => j.entries.length)
       .map((j) => `${j.day}:\n${j.entries.map((e) => `- ${e.mood ? `(${moodWord(e.mood)}) ` : ""}${e.text.replace(/\s+/g, " ").slice(0, 600)}`).join("\n")}`)
       .join("\n\n") || "(no journal entries this week)"
   );
@@ -76,6 +86,7 @@ Keep it under ~150 words unless he asks for more. When something concrete would 
 Return JSON: {"reply": "<markdown>", "actions": [ ... ]}.
 ${ACTIONS_SPEC}`;
   const user = [
+    `Where he says he is right now, in his own words (this beats your notes):\n${readStage().text || "(he hasn't written it yet)"}`,
     `What you know about Lind (your notes, updated nightly):\n${readProfile().text || "(nothing yet — learn as you go)"}`,
     `His journal, last 7 days:\n${journalBlock(today)}`,
     `Recent day scores:\n${recapBlock(today)}`,
@@ -109,6 +120,7 @@ export function profileInput(today: string): string {
   const since = new Date(Date.now() - 3 * 86_400_000).toISOString();
   return [
     `Current profile:\n${readProfile().text || "(empty — write the first one)"}`,
+    `Where he says he is right now, in his own words (this beats the profile when they disagree):\n${readStage().text || "(not written yet)"}`,
     `Journal, last 7 days:\n${journalBlock(today)}`,
     `Day scores:\n${recapBlock(today)}`,
     `Said vs did, block by block — today and yesterday:\n${[today, addDays(today, -1)].map((d) => `${d}:\n${mirrorText(mirror(d))}`).join("\n")}`,
@@ -124,3 +136,14 @@ export function profileInput(today: string): string {
 export const PROFILE_SYSTEM = `You keep the Buddy's private notes about Lind: a living profile used in every conversation. Update it from the new journal entries, scores and conversations. Keep what's still true, change what changed, drop what's stale. Be concrete (names, numbers, dates). Never invent.
 Sections, as markdown with these headings: ## Right now (this week's focus, mood, energy), ## Goals and where they stand, ## What works for him, ## What trips him up (when he starts late, what he skips, what overruns — from the block-by-block record), ## People and projects, ## Things to follow up on (with dates).
 Under 450 words. Return ONLY the markdown.`;
+
+// The nightly rewrite: Sol, and Groq when Sol is out of credits, so the notes never go stale.
+export async function refreshProfile(today: string): Promise<boolean> {
+  const input = profileInput(today);
+  const fromSol = await sol(PROFILE_SYSTEM, input, 8 * 60_000).catch(() => "");
+  const fromGroq = fromSol ? null : await groqJSON<{ profile: string }>(`${PROFILE_SYSTEM.replace("Return ONLY the markdown.", 'Return JSON: {"profile": "<the markdown>"}.')}`, input, 0.2, { maxTokens: 3000, timeoutMs: 60_000, reasoningEffort: "low" }).catch(() => null);
+  const clean = (fromSol || fromGroq?.profile || "").replace(/^```(?:markdown)?\s*|\s*```$/g, "").trim();
+  if (clean.length <= 60) return false;
+  saveProfile(clean);
+  return true;
+}

@@ -122,9 +122,9 @@ test("Say it: the model's items are checked", () => {
     new Set(["g1"]),
   );
   assert.deepEqual(items, [
-    { kind: "block", title: "Gym", day: "2026-10-31", start: "06:00", length: 60, goalId: undefined },
-    { kind: "task", title: "Finish pitch", day: "2026-10-31", due: undefined, goalId: "g1", estimateMin: undefined, priority: undefined },
-    { kind: "event", title: "Dentist", date: "2026-11-02", start: "10:00", end: undefined },
-    { kind: "goal", title: "Save 2k", horizon: "short", next: "", why: "", due: "2027-03-01", weeklyMin: undefined },
+    { kind: "block", title: "Gym", day: "2026-10-31", start: "06:00", length: 60, goalId: undefined, notes: undefined, steps: undefined },
+    { kind: "task", title: "Finish pitch", day: "2026-10-31", due: undefined, goalId: "g1", estimateMin: undefined, priority: undefined, notes: undefined, steps: undefined },
+    { kind: "event", title: "Dentist", date: "2026-11-02", start: "10:00", end: undefined, notes: undefined },
+    { kind: "goal", title: "Save 2k", horizon: "short", next: "", why: "", due: "2027-03-01", weeklyMin: undefined, notes: undefined },
   ]);
 });

@@ -23,7 +23,7 @@ export type CalEvent = {
   planned?: boolean; // a time block written by "Plan my day"
 };
 
-export type EventDraft = { title: string; date: string; start?: string; end?: string; allDay: boolean; location?: string };
+export type EventDraft = { title: string; date: string; start?: string; end?: string; allDay: boolean; location?: string; notes?: string };
 
 const credsFile = () => path.join(DATA_DIR, "google.json");
 const API = "https://www.googleapis.com/calendar/v3";
@@ -247,9 +247,10 @@ export async function mirrorBlock(day: string, b: PlanBlock) {
 export async function createEvent(d: EventDraft): Promise<CalEvent> {
   const tz = await timeZone();
   const body = d.allDay || !d.start
-    ? { summary: d.title, location: d.location, start: { date: d.date }, end: { date: addDays(d.date, 1) } }
+    ? { summary: d.title, description: d.notes, location: d.location, start: { date: d.date }, end: { date: addDays(d.date, 1) } }
     : {
         summary: d.title,
+        description: d.notes,
         location: d.location,
         start: { dateTime: `${d.date}T${d.start}:00`, timeZone: tz },
         // An end before the start means it runs past midnight.

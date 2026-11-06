@@ -3,14 +3,15 @@
 import { Check, ChevronDown, Compass, LoaderCircle, Minus, Plus, RefreshCw, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { MentorDay, Scorecard } from "@/lib/mentor";
+import type { MentorDay, PlanTalk, Scorecard } from "@/lib/mentor";
 import { cn } from "@/lib/utils";
+import { PlanTalkPanel } from "./plan-together";
 
 // The Mentor on Goals (v5.4): today's orders on top — what to do and exactly how — then each goal's
 // plan as a scoreboard: where the number is against the straight line to the target, the next
 // milestone, and this week's leading indicators with a + to log them on the spot.
 
-export type MentorGoal = { id: string; title: string; due?: string; card: Scorecard | null };
+export type MentorGoal = { id: string; title: string; due?: string; card: Scorecard | null; talk: PlanTalk | null };
 
 const fmtN = (n: number) => (Math.abs(n) >= 1000 ? n.toLocaleString("en", { maximumFractionDigits: 0 }) : String(Math.round(n * 10) / 10));
 
@@ -62,7 +63,7 @@ export function MentorOrders({ day, done, hasPlans }: { day: MentorDay | null; d
         )}
       </div>
 
-      {!hasPlans && <p className="relative mt-3 max-w-prose text-[13.5px] text-muted">Build a plan for a goal below. From then on, every morning at 07:00 the mentor reads your numbers and puts 1–3 orders on Today — before the day is planned — with exactly how to do them.</p>}
+      {!hasPlans && <p className="relative mt-3 max-w-prose text-[13.5px] text-muted">Plan a goal with your mentor below and lock it. From then on, every morning at 07:00 it reads your numbers and where you are, and puts 1–3 orders on Today with exactly how to do them.</p>}
       {day?.note && <p className="relative mt-3 max-w-prose text-[14px] leading-relaxed text-text/85">{day.note}</p>}
 
       {day && day.orders.length > 0 && (
@@ -97,7 +98,6 @@ export function GoalPlans({ goals, today }: { goals: MentorGoal[]; today: string
   const router = useRouter();
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [note, setNote] = useState<Record<string, string>>({});
   const [level, setLevel] = useState<Record<string, string>>({});
 
   async function run(key: string, body: object) {
@@ -123,20 +123,15 @@ export function GoalPlans({ goals, today }: { goals: MentorGoal[]; today: string
       <ul className="grid gap-3 lg:grid-cols-2">
         {goals.map((g) => {
           const c = g.card;
+          if (g.talk) return <PlanTalkPanel key={g.id} title={g.title} talk={g.talk} />;
+          const start = () => void run(`talk:${g.id}`, { action: "talk-start", goalId: g.id });
           if (!c) {
             return (
               <li key={g.id} className="panel flex flex-col gap-3 p-5">
                 <p className="text-[15px] font-semibold">{g.title}</p>
-                <p className="text-[13px] text-muted">No plan yet. The mentor breaks it into the target number, dated milestones and the weekly numbers you control — then gives you orders every morning.</p>
-                <textarea
-                  value={note[g.id] ?? ""}
-                  onChange={(e) => setNote({ ...note, [g.id]: e.target.value })}
-                  rows={2}
-                  placeholder="Optional: where you are now, what you've tried, hours a week you have…"
-                  className="rounded-[10px] border border-line bg-black/30 px-3 py-2 text-[14px] placeholder:text-faint"
-                />
-                <button onClick={() => void run(`plan:${g.id}`, { action: "plan", goalId: g.id, note: note[g.id] ?? "" })} disabled={!!busy} className="flex h-10 items-center justify-center gap-2 self-start rounded-[11px] bg-white px-4 text-[13.5px] font-semibold text-black disabled:opacity-60">
-                  {busy === `plan:${g.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Build the plan
+                <p className="text-[13.5px] text-muted">No plan yet. Your mentor reads your notes and journal, tells you where it thinks you stand and asks what it needs. Then you build the plan together.</p>
+                <button onClick={start} disabled={!!busy} className="flex h-11 items-center justify-center gap-2 self-start rounded-[12px] bg-text px-4 text-[14px] font-semibold text-bg disabled:opacity-60">
+                  {busy === `talk:${g.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {busy === `talk:${g.id}` ? "Reading your notes…" : "Plan this with your mentor"}
                 </button>
               </li>
             );
@@ -149,6 +144,14 @@ export function GoalPlans({ goals, today }: { goals: MentorGoal[]; today: string
           const daysLeft = Math.ceil((Date.parse(`${o.by}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 86_400_000);
           return (
             <li key={g.id} className="panel flex flex-col gap-4 p-5">
+              {!c.plan.lockedAt && (
+                <div className="flex flex-col gap-2.5 rounded-[12px] border border-warn/30 bg-warn/[0.07] p-3">
+                  <p className="text-[13.5px] leading-snug">This plan was made before your mentor knew where you are. No orders from it until you plan it again together.</p>
+                  <button onClick={start} disabled={!!busy} className="flex h-10 items-center justify-center gap-2 self-start rounded-[11px] bg-text px-3.5 text-[13.5px] font-semibold text-bg disabled:opacity-60">
+                    {busy === `talk:${g.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {busy === `talk:${g.id}` ? "Reading your notes…" : "Plan it again"}
+                  </button>
+                </div>
+              )}
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-mono text-[10.5px] tracking-[0.14em] text-faint uppercase">{o.label}</p>
@@ -249,9 +252,11 @@ export function GoalPlans({ goals, today }: { goals: MentorGoal[]; today: string
                   <p className="mt-2 text-[13px] leading-relaxed whitespace-pre-line text-muted">{c.plan.strategy}</p>
                 </details>
               )}
-              <button onClick={() => void run(`plan:${g.id}`, { action: "plan", goalId: g.id })} disabled={!!busy} className="flex items-center gap-1.5 self-start text-[12px] text-faint hover:text-text disabled:opacity-60">
-                {busy === `plan:${g.id}` ? <LoaderCircle className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} Rebuild the plan
-              </button>
+              {c.plan.lockedAt && (
+                <button onClick={start} disabled={!!busy} className="flex min-h-11 items-center gap-1.5 self-start text-[12.5px] text-muted hover:text-text disabled:opacity-60">
+                  {busy === `talk:${g.id}` ? <LoaderCircle className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />} {busy === `talk:${g.id}` ? "Reading your notes…" : "Plan it again"}
+                </button>
+              )}
             </li>
           );
         })}

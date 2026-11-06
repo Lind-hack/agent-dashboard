@@ -341,7 +341,8 @@ function calendarDocs(): Doc[] {
   // The journal (v5.1): Lind's own words about each day.
   const journal = readDir(path.join(DATA_DIR, "journal"), /^\d{4}-\d{2}-\d{2}\.json$/).map(({ name, json }) => {
     const day = name.slice(0, 10);
-    const entries = (Array.isArray(json.entries) ? json.entries : []) as { text?: string; at?: string }[];
+    // What he told the Buddy is its own record below ("Buddy talk"), in the same group.
+    const entries = ((Array.isArray(json.entries) ? json.entries : []) as { text?: string; at?: string; source?: string }[]).filter((e) => e.source !== "buddy");
     return {
       id: `calendar:journal:${day}`,
       kind: "calendar" as const,
@@ -360,7 +361,7 @@ function calendarDocs(): Doc[] {
       if (!t?.text || !t.at) continue;
       const day = t.at.slice(0, 10);
       const d = buddy.get(day) ?? { at: t.at, lines: [] };
-      d.lines.push(`${t.role === "lind" ? "Lind" : "Buddy"}: ${t.text.slice(0, 1200)}`);
+      d.lines.push(t.role === "lind" ? `Lind: ${t.text}` : `Buddy: ${t.text.slice(0, 1200)}`); // all of what he said
       d.at = t.at;
       buddy.set(day, d);
     }

@@ -1,12 +1,14 @@
 import { GoalsBoard } from "@/components/goals-board";
 import { GoalsEditor } from "@/components/goals-editor";
 import { GoalPlans, MentorOrders } from "@/components/mentor";
+import { StageCard } from "@/components/plan-together";
 import { SectionHero } from "@/components/motion";
 import { SayIt } from "@/components/say-it";
 import { addDays, dayString } from "@/lib/calendar";
 import { buildRecap, coachTz, goalProgress, readRecap } from "@/lib/coach";
 import { readGoals } from "@/lib/goals";
-import { readLog, readMentorDay, readPlanFor, scorecard } from "@/lib/mentor";
+import { readStage } from "@/lib/life";
+import { readLog, readMentorDay, readPlanFor, readTalk, scorecard } from "@/lib/mentor";
 import { listTodos } from "@/lib/todos";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +28,10 @@ export default async function GoalsPage({ searchParams }: { searchParams: Promis
   const log = readLog();
   const mentorGoals = goals.filter((g) => !g.done).map((g) => {
     const plan = readPlanFor(g.id);
-    return { id: g.id, title: g.title, due: g.due, card: plan ? scorecard(plan, today, log) : null };
+    return { id: g.id, title: g.title, due: g.due, card: plan ? scorecard(plan, today, log) : null, talk: readTalk(g.id) };
   });
   const orders = readMentorDay(today);
+  const stage = readStage();
   const todos = listTodos();
   const done = Object.fromEntries(todos.filter((t) => orders?.orders.some((o) => o.todoId === t.id)).map((t) => [t.id, t.done]));
   return (
@@ -40,10 +43,11 @@ export default async function GoalsPage({ searchParams }: { searchParams: Promis
         sub="What you're chasing and how much real focus each one got this week. One tap turns a goal into time on today's plan — the Coach keeps you on it."
       />
       <div className="mb-6">
-        <SayIt placeholder="New goal: save 2k by March · 2 hours on the pitch tomorrow at 10…" />
+        <SayIt from="goals" placeholder="New goal: 10k a month by the end of 2027, and talk through it…" />
       </div>
       <div className="mb-6 flex flex-col gap-6">
-        <MentorOrders day={orders} done={done} hasPlans={mentorGoals.some((g) => g.card)} />
+        <StageCard key={stage.at ?? "new"} text={stage.text} at={stage.at} today={today} />
+        <MentorOrders day={orders} done={done} hasPlans={mentorGoals.some((g) => g.card?.plan.lockedAt)} />
         <GoalPlans goals={mentorGoals} today={today} />
       </div>
       <GoalsBoard progress={progress} recap={recap} today={today} todos={todos.filter((t) => t.goalId)} />
