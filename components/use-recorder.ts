@@ -13,7 +13,7 @@ function pickMime(): string {
 export const audioFilename = (blob: Blob) => (blob.type.includes("mp4") ? "note.mp4" : "note.webm");
 
 // Tap to start, tap again to stop; `onDone` gets the recording.
-// v5.5: long dictations. 48 kbit/s is plenty for speech and keeps 15 minutes under the 10 MB body limit;
+// v5.5: long dictations. 48 kbit/s is plenty for speech and keeps 15 minutes well under the 25 MB upload limit;
 // the screen stays awake while recording, because a phone that sleeps ends the recording.
 export function useRecorder(onDone: (audio: Blob) => void) {
   const [recording, setRecording] = useState(false);

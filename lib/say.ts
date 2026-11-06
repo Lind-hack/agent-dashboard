@@ -54,7 +54,7 @@ Every item also carries "quote": the exact words (copied from what he said, 2–
 He often dictates for minutes at a time, thinking out loud. That is how he plans, so read all of it, to the end:
 - What he says he will do IS an item, however loosely he says it: "I have to", "I need to", "I'm going to", "I want to", "tomorrow I'll", "first I'll…", and the same in Albanian ("duhet", "do ta", "dua me", "nesër").
 - One job is ONE item, however long he talks about it. Everything he says about it goes on that item, not into new items: "steps" = the concrete sub-steps he named, in order (at most 8, short); "notes" = the rest in his own words: how he wants it done, why, names, numbers, decisions. Keep every detail; don't summarise them away. notes and steps may be empty for a short request.
-- A new item only for a genuinely separate job.
+- A new item only for a genuinely separate job. Never more than 12 items.
 What is NOT an item: feelings, things that already happened, things other people will do, examples, filler, and anything he didn't say. His review screen catches a wrong card, so don't skip real work; but never invent one.
 Rules: resolve relative dates and times from "Now" ("tonight" = today, "at 6" in the evening = 18:00 unless clearly morning). goalId only from the goal list, and only when the item is plainly about that goal (same project or subject) — otherwise null. Titles short and clear, in his language, without filler ("I need to"). Nothing he didn't ask for. If it's not a request for any of these, return {"items": []}.`;
 
@@ -104,7 +104,7 @@ export function draftItems(raw: unknown[], items: SayItem[], said: string, open:
     const r = rawByTitle.get(item.title) ?? {};
     const quote = str(r.quote, 200);
     // Grounded: the quote or the title is mostly words he actually said. Half-grounded ones are offered
-    // unticked (a long dictation paraphrases); nothing he said at all is dropped.
+    // unticked (a long dictation paraphrases); ones that aren't in his words at all are dropped.
     const grounded = Math.max(quote ? overlap(quote, said) : 0, overlap(item.title, said));
     if (grounded < 0.3) continue;
     if (out.some((d) => d.item.kind === item.kind && similar(d.item.title, item.title))) continue;
@@ -123,7 +123,7 @@ export function sayVocabulary(): string {
 }
 
 // A model's (or a card's) details: line breaks stay, length is capped.
-const longText = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 1900) : undefined);
+const longText = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, SAY_MAX) : undefined);
 const stepList = (v: unknown) => {
   const steps = (Array.isArray(v) ? v : []).map((s) => str(s, 160)).filter(Boolean).slice(0, 8);
   return steps.length ? steps : undefined;

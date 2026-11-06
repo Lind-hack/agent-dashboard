@@ -89,6 +89,19 @@ test("his answers make a draft, nothing is a plan until he locks it, and he can 
   assert.match(sent[0].messages[1].content, /Do a soft launch first/);
 });
 
+test("a draft that finishes after he stopped planning doesn't bring the talk back", async () => {
+  answer = JSON.stringify({ read: "r", questions: ["q"] });
+  await startTalk(fit, TODAY);
+  const stub = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    cancelTalk(fit.id); // he taps stop while the model is thinking
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(rawPlan()) } }] }), { status: 200 });
+  }) as typeof fetch;
+  await assert.rejects(answerTalk(fit, TODAY, "three times a week"), /stopped planning/);
+  globalThis.fetch = stub;
+  assert.equal(readTalk(fit.id), null);
+});
+
 test("locking makes it the plan and ends the talk", () => {
   const plan = lockTalk(money.id)!;
   assert.ok(plan.lockedAt);

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { forgetTurn } from "@/lib/buddy";
 import { coachNow } from "@/lib/coach";
 import { addEntry, readJournal, recentJournal, removeEntry } from "@/lib/journal";
 import { invalidateMemory } from "@/lib/memory";
@@ -27,7 +28,10 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   const u = new URL(request.url);
   const day = u.searchParams.get("day") ?? "";
-  if (!removeEntry(day, u.searchParams.get("id") ?? "")) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const id = u.searchParams.get("id") ?? "";
+  const entry = readJournal(day).entries.find((e) => e.id === id);
+  if (entry?.source === "buddy") forgetTurn(entry.text);
+  if (!removeEntry(day, id)) return NextResponse.json({ error: "not found" }, { status: 404 });
   invalidateMemory();
   return NextResponse.json({ ok: true });
 }

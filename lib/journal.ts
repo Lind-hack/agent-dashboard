@@ -31,7 +31,7 @@ export function readJournal(day: string): JournalDay {
 
 export function addEntry(day: string, text: string, source: JournalEntry["source"], mood?: number): JournalEntry {
   if (!DAY.test(day)) throw new Error("bad day");
-  const body = text.trim().slice(0, 8000);
+  const body = text.trim().slice(0, 24_000);
   if (!body) throw new Error("Nothing to save.");
   const j = readJournal(day);
   const e: JournalEntry = { id: crypto.randomBytes(5).toString("hex"), at: new Date().toISOString(), text: body, source, mood: mood && mood >= 1 && mood <= 5 ? (Math.round(mood) as Mood) : undefined };

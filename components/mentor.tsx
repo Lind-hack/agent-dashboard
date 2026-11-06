@@ -130,7 +130,7 @@ export function GoalPlans({ goals, today }: { goals: MentorGoal[]; today: string
               <li key={g.id} className="panel flex flex-col gap-3 p-5">
                 <p className="text-[15px] font-semibold">{g.title}</p>
                 <p className="text-[13.5px] text-muted">No plan yet. Your mentor reads your notes and journal, tells you where it thinks you stand and asks what it needs. Then you build the plan together.</p>
-                <button onClick={start} disabled={!!busy} className="flex h-11 items-center justify-center gap-2 self-start rounded-[12px] bg-white px-4 text-[14px] font-semibold text-black disabled:opacity-60">
+                <button onClick={start} disabled={!!busy} className="flex h-11 items-center justify-center gap-2 self-start rounded-[12px] bg-text px-4 text-[14px] font-semibold text-bg disabled:opacity-60">
                   {busy === `talk:${g.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {busy === `talk:${g.id}` ? "Reading your notes…" : "Plan this with your mentor"}
                 </button>
               </li>
@@ -147,7 +147,7 @@ export function GoalPlans({ goals, today }: { goals: MentorGoal[]; today: string
               {!c.plan.lockedAt && (
                 <div className="flex flex-col gap-2.5 rounded-[12px] border border-warn/30 bg-warn/[0.07] p-3">
                   <p className="text-[13.5px] leading-snug">This plan was made before your mentor knew where you are. No orders from it until you plan it again together.</p>
-                  <button onClick={start} disabled={!!busy} className="flex h-10 items-center justify-center gap-2 self-start rounded-[11px] bg-white px-3.5 text-[13.5px] font-semibold text-black disabled:opacity-60">
+                  <button onClick={start} disabled={!!busy} className="flex h-10 items-center justify-center gap-2 self-start rounded-[11px] bg-text px-3.5 text-[13.5px] font-semibold text-bg disabled:opacity-60">
                     {busy === `talk:${g.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} {busy === `talk:${g.id}` ? "Reading your notes…" : "Plan it again"}
                   </button>
                 </div>

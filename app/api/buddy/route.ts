@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     const r = await applyAction(coachNow().day, b.apply);
     return "error" in r ? NextResponse.json({ error: r.error }, { status: r.status }) : NextResponse.json({ ok: true, ...r });
   }
-  const message = String(b?.message ?? "").trim().slice(0, 8000);
+  const message = String(b?.message ?? "").trim().slice(0, 24_000);
   if (!message) return NextResponse.json({ error: "Say something." }, { status: 400 });
   const mine: BuddyTurn = { role: "lind", text: message, at: new Date().toISOString(), voice: !!b?.voice };
   appendThread(mine);

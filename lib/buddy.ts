@@ -40,6 +40,11 @@ export function readThread(): BuddyTurn[] {
 }
 export const appendThread = (...turns: BuddyTurn[]) => writeAtomic(threadFile(), JSON.stringify([...readThread(), ...turns].slice(-400)));
 
+// A journal entry he deletes goes from the conversation too, so it leaves the memory graph with it.
+export function forgetTurn(text: string) {
+  writeAtomic(threadFile(), JSON.stringify(readThread().filter((t) => !(t.role === "lind" && t.text === text))));
+}
+
 export function readProfile(): { text: string; at?: string } {
   try {
     return { text: fs.readFileSync(profileFile(), "utf8"), at: fs.statSync(profileFile()).mtime.toISOString() };

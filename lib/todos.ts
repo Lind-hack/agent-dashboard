@@ -41,7 +41,7 @@ function clean(t: Partial<Todo> | null | undefined): Todo | null {
   return {
     id: String(t.id),
     title: String(t.title).slice(0, 200),
-    notes: t.notes ? String(t.notes).slice(0, 2000) : undefined,
+    notes: t.notes ? String(t.notes).slice(0, 24000) : undefined,
     goalId: t.goalId || undefined,
     priority: ([0, 1, 2, 3].includes(pr) ? pr : 0) as Priority,
     estimateMin: Math.max(5, Math.min(480, Number(t.estimateMin) || 30)),

@@ -58,14 +58,14 @@ function VoiceBox({ value, onChange, label, placeholder, rows = 4, disabled }: {
           rows={rows}
           aria-label={label}
           placeholder={placeholder}
-          className="w-full rounded-[12px] border border-line bg-black/30 py-2.5 pr-14 pl-3 text-[15px] leading-relaxed placeholder:text-faint"
+          className="w-full rounded-[12px] border border-line bg-black/30 py-2.5 pr-[60px] pl-3 text-[15px] leading-relaxed placeholder:text-faint"
         />
         <button
           type="button"
           onClick={() => void mic.toggle()}
           disabled={disabled || hearing}
           aria-label={mic.recording ? "Stop" : `Say it: ${label}`}
-          className={cn("press absolute top-2 right-2 grid h-10 w-10 place-items-center rounded-[11px] transition-colors disabled:opacity-50", mic.recording ? "bg-bad text-white" : "bg-hud/15 text-hud hover:bg-hud/25")}
+          className={cn("press absolute top-2 right-2 grid h-11 w-11 place-items-center rounded-[11px] transition-colors disabled:opacity-50", mic.recording ? "bg-bad text-white" : "bg-hud/15 text-hud hover:bg-hud/25")}
         >
           {hearing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : mic.recording ? <Square className="h-3.5 w-3.5" fill="currentColor" /> : <Mic className="h-4 w-4" />}
         </button>

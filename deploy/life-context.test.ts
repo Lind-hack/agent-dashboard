@@ -19,6 +19,8 @@ const { addEntry, journalWritten, mirrorAll, readJournal } = await import("../li
 const { readProfile, refreshProfile, saveProfile } = await import("../lib/buddy");
 const { coachNow } = await import("../lib/coach");
 const { POST } = await import("../app/api/buddy/route");
+const { DELETE } = await import("../app/api/journal/route");
+const { readThread } = await import("../lib/buddy");
 const { learned } = await import("../lib/planner");
 
 let answer = "";
@@ -52,6 +54,16 @@ test("a Buddy message long enough to be a dictation isn't cut", async () => {
   const long = `${"word ".repeat(1200)}the end of it`;
   await POST(new Request("http://x/api/buddy", { method: "POST", body: JSON.stringify({ message: long }) }));
   assert.ok(note(day()).includes("the end of it"));
+});
+
+test("deleting a Buddy entry takes it out of the note and the conversation", async () => {
+  answer = JSON.stringify({ reply: "ok", actions: [] });
+  await POST(new Request("http://x/api/buddy", { method: "POST", body: JSON.stringify({ message: "something I want gone" }) }));
+  const e = readJournal(day()).entries.find((x) => x.text === "something I want gone")!;
+  const res = await DELETE(new Request(`http://x/api/journal?day=${day()}&id=${e.id}`, { method: "DELETE" }));
+  assert.equal(res.status, 200);
+  assert.doesNotMatch(note(day()), /something I want gone/);
+  assert.equal(readThread().some((t) => t.text === "something I want gone"), false);
 });
 
 test("days written while the vault was unreachable reach it on the next sweep", () => {

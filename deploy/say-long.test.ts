@@ -57,6 +57,12 @@ test("a long ramble about one job stays one task, its details kept as notes and 
   assert.deepEqual(t.subtasks.map((s) => s.title), ["Fix the hero", "Write the pricing section", "Ship it to Vercel"]);
 });
 
+test("a whole dictation fits in one task's notes", async () => {
+  const notes = `${"word ".repeat(2000)}the last words`;
+  await applySay([{ kind: "task", title: "One long thought", day: today(), notes }]);
+  assert.equal(listTodos().find((t) => t.title === "One long thought")?.notes, notes);
+});
+
 test("the model gets room to answer a long dictation", async () => {
   sent = [];
   answer = JSON.stringify({ items: [] });

@@ -11,7 +11,7 @@ import { moodWord, recentJournal } from "./journal";
 
 const file = () => path.join(DATA_DIR, "stage.md");
 const vaultFile = () => path.join(process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain", "100 - Me", "Where I am now.md");
-const STAGE_MAX = 4000;
+const STAGE_MAX = 8000;
 const JOURNAL_MAX = 5000;
 
 export function readStage(): { text: string; at?: string } {
@@ -55,7 +55,7 @@ export function lifeContext(today: string): string {
   const stage = readStage().text;
   return [
     `Where Lind says he is right now, in his own words. This overrides everything else here and anything you assume:\n${stage || "(He hasn't written this yet. Don't assume any business is live, has customers or has an audience: go by what's below, and say what you're unsure of.)"}`,
-    `The Buddy's notes on him (updated nightly):\n${readProfile().text.slice(0, 2500) || "(none yet)"}`,
+    `The Buddy's notes on him (updated nightly):\n${readProfile().text.slice(0, 4000) || "(none yet)"}`,
     `What he's been saying this week (journal, and what he told the Buddy):\n${weekBlock(today) || "(nothing this week)"}`,
   ].join("\n\n");
 }

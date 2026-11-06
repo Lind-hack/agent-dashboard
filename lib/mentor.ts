@@ -114,14 +114,14 @@ export function savePlan(p: GoalPlan) {
   writeJSON(planFile(p.goalId), p);
 }
 
-const MENTOR = `You are Lind's mentor: an operator who has built and scaled businesses, and who thinks the way Alex Hormozi and Jeff Bezos teach — work backwards from the goal; find the one constraint; volume beats talent (more outreach, more offers, more reps); make offers so good people feel stupid saying no; one-way-door decisions slowly, two-way-door decisions fast; measure inputs you control, not just outcomes. You are NOT them and never quote them or put words in their mouths; your lines are your own. Blunt, specific, numbers-first, zero fluff. Lind is a first-year CS student in Pristina, Kosovo.
-Everything you know about what he has built and where it stands comes from what you're given below: his own words first. Never assume something is live, has customers or has an audience unless it says so. Sequence is the whole job: he can't sell what doesn't exist, so the right move is the next one his stage allows. Before something is launched, the constraint is launching it, not outreach.`;
+const MENTOR = `You are Lind's mentor: an operator who has built and scaled businesses, and who thinks the way Alex Hormozi and Jeff Bezos teach — work backwards from the goal; find the one constraint; volume beats talent (more outreach, more offers, more reps); make offers so good people feel stupid saying no; one-way-door decisions slowly, two-way-door decisions fast; measure inputs you control, not just outcomes. You are NOT them and never quote them or put words in their mouths; your lines are your own. Blunt, specific, numbers-first, zero fluff.
+Everything you know about Lind, what he has built and where it stands comes from what you're given below: his own words first. Never assume something is live, has customers or has an audience unless it says so. Sequence is the whole job: he can't sell what doesn't exist, so the right move is the next one his stage allows. Before something is launched, the constraint is launching it, not outreach.`;
 
 const TALK_SYSTEM = `${MENTOR}
 Lind has a goal and you're about to plan it WITH him. First, before any plan, tell him where you think he stands and ask what you need to know.
 Return JSON: {"read": string, "questions": [string]}
 - read: 3–6 short lines, second person: what exists and what doesn't for this goal, what's live, what the real constraint is right now. Only from what you're given. Say plainly what you don't know.
-- questions: 2–4 questions whose answers would change the plan, each specific to his situation ("What's left before 383ks.com can take its first paying customer?"). Never ask what you were already told. No generic coaching questions.`;
+- questions: 2–4 questions whose answers would change the plan, each specific to his situation and this goal. Never ask what you were already told. No generic coaching questions.`;
 
 const PLAN_SYSTEM = `${MENTOR}
 Turn one of Lind's goals into a plan he can execute and measure, from what you've told him and what he answered.
@@ -140,7 +140,9 @@ Return JSON: {"outcome": {"label": string, "unit": string, "target": number, "by
 
 export function readTalk(goalId: string): PlanTalk | null {
   const t = readJSON<PlanTalk>(talkFile(goalId));
-  return t?.goalId ? { ...t, questions: t.questions ?? [], said: t.said ?? [] } : null;
+  if (!t?.goalId) return null;
+  const draft = t.draft ? { ...t.draft, milestones: t.draft.milestones ?? [], indicators: t.draft.indicators ?? [], assumes: t.draft.assumes ?? [] } : undefined;
+  return { ...t, questions: t.questions ?? [], said: t.said ?? [], draft };
 }
 export function cancelTalk(goalId: string) {
   fs.rmSync(talkFile(goalId), { force: true });
@@ -180,7 +182,10 @@ export async function answerTalk(goal: Goal, today: string, text: string): Promi
   ].join("\n\n");
   const draft = cleanPlan(goal, await askJSON<GoalPlan>(PLAN_SYSTEM, input, { maxTokens: 5000, temperature: 0.3, good: (o) => !!o.outcome }), "mentor", today);
   if (!draft) throw new Error("The mentor couldn't draft that just now — try again. Your words are still here.");
-  const next: PlanTalk = { ...talk, said, draft, updatedAt: new Date().toISOString() };
+  // The model takes a while: if he stopped or locked meanwhile (another tab), this draft is dropped.
+  const current = readTalk(goal.id);
+  if (!current) throw new Error("You stopped planning this goal, so that draft wasn't kept.");
+  const next: PlanTalk = { ...current, said: [...current.said, said.at(-1)!], draft, updatedAt: new Date().toISOString() };
   writeJSON(talkFile(goal.id), next);
   addEntry(today, `Planning "${goal.title}" with the mentor: ${text.trim()}`, "text");
   return next;

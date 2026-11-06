@@ -95,7 +95,7 @@ export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitc
   // His words as one task: the first sentence is the title, all of it the notes. A card, so he can rename it.
   function oneTask() {
     const first = leftover.split(/(?<=[.!?])\s/)[0].slice(0, 80).trim();
-    setCards([{ item: { kind: "task", title: first, day: today, notes: leftover.slice(0, 1900) }, quote: "", keep: true }]);
+    setCards([{ item: { kind: "task", title: first, day: today, notes: leftover }, quote: "", keep: true }]);
     setHeard(leftover);
     setLeftover("");
     setErr("");
@@ -104,7 +104,7 @@ export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitc
     setBusy("sorting");
     setErr("");
     try {
-      const res = await fetch("/api/journal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: leftover, source: "voice" }) });
+      const res = await fetch("/api/journal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: leftover }) });
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Couldn't save that.");
       setLeftover("");
       setSaved(true);

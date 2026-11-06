@@ -361,7 +361,7 @@ function calendarDocs(): Doc[] {
       if (!t?.text || !t.at) continue;
       const day = t.at.slice(0, 10);
       const d = buddy.get(day) ?? { at: t.at, lines: [] };
-      d.lines.push(`${t.role === "lind" ? "Lind" : "Buddy"}: ${t.text.slice(0, 1200)}`);
+      d.lines.push(t.role === "lind" ? `Lind: ${t.text}` : `Buddy: ${t.text.slice(0, 1200)}`); // all of what he said
       d.at = t.at;
       buddy.set(day, d);
     }
