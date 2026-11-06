@@ -207,7 +207,7 @@ async function readImage(it: LibraryItem): Promise<Read> {
   return { title: seen.title, waiting: undefined, text: [it.note, seen.description, seen.text_in_image ? `Text in the image: ${seen.text_in_image}` : ""].filter(Boolean).join("\n\n") };
 }
 
-async function still(input: string, at: number | null, width: number): Promise<Buffer> {
+export async function still(input: string, at: number | null, width: number): Promise<Buffer> {
   const tmp = path.join(os.tmpdir(), `lib-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`);
   try {
     await run("ffmpeg", ["-y", "-v", "error", ...(at === null ? [] : ["-ss", at.toFixed(2)]), "-i", input, "-frames:v", "1", "-vf", `scale='min(${width},iw)':-2`, "-q:v", "3", tmp], { timeout: 120_000 });

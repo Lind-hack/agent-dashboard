@@ -59,7 +59,7 @@ const sectionRules = (sections: Section[]) =>
 // A dump can be hundreds of thousands of tokens — far past Groq's free daily caps — so the bulk
 // reading goes to Nemotron (free, no daily cap), then Gemini, then Groq's ladder. Throws with each
 // model's reason when none answered (the step is retried later).
-async function askJSON<T>(system: string, user: string, maxTokens: number): Promise<Partial<T>> {
+export async function askJSON<T>(system: string, user: string, maxTokens: number): Promise<Partial<T>> {
   const why: string[] = [];
   if (nvidiaReady()) {
     const raw = await nemotron(`${system}\nReturn ONLY the JSON object.`, user, { maxTokens, temperature: 0.2 }).catch((e: unknown) => {

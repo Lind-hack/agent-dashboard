@@ -4,7 +4,7 @@ import path from "node:path";
 import { DATA_DIR } from "./config";
 import { groqJSON } from "./groq";
 import { readItem, saveItem, type LibraryItem } from "./library";
-import { formatTimestamp, transcriptText } from "./video-transcript";
+import { formatTimestamp, transcriptText, type Transcript } from "./video-transcript";
 import { isVideoUrl } from "./video-links";
 
 // Learning lives on top of the Library: video transcripts and long captures are read once into a
@@ -14,12 +14,16 @@ import { isVideoUrl } from "./video-links";
 // v6 (Lind: "not some terms I learned months back left out so I forget them"): only sources he adds to
 // Study count; progress follows the term, not its position, so a deeper read keeps it.
 
-export type Concept = { term: string; explanation: string; at?: number };
-export type QuestionKind = "recall" | "code" | "interview";
-export type LearningQuestion = { q: string; a: string; at?: number; kind: QuestionKind };
+export type Concept = { term: string; explanation: string; example?: string; at?: number; page?: number };
+export type QuestionKind = "recall" | "explain" | "apply" | "code" | "interview";
+export type LearningQuestion = { q: string; a: string; at?: number; page?: number; kind: QuestionKind };
+export type DigestSection = { title: string; summary: string; at?: number; end?: number; page?: number; pageTo?: number };
+// A read in progress: which part is next, and everything taken from the parts so far.
+export type Reading = { next: number; total: number; sections: DigestSection[]; concepts: Concept[]; questions: LearningQuestion[]; keyPoints: string[]; tries: number; nextAt?: string };
 export type LearningDigest = {
   state: "queued" | "analyzing" | "ready" | "failed";
   thesis?: string;
+  sections?: DigestSection[];
   concepts: Concept[];
   keyPoints: string[];
   questions: LearningQuestion[];
@@ -29,6 +33,8 @@ export type LearningDigest = {
   error?: string;
   attempts?: number;
   nextAt?: string;
+  depth?: 2; // read start to finish (v6); older digests saw only the first 16,000 characters
+  reading?: Reading;
 };
 export type LearningItem = Omit<LibraryItem, "transcript"> & { study: boolean; studying: boolean };
 export type SourceHit = { id: string; title: string; kind: LibraryItem["kind"]; section?: string; createdAt: string; snippet: string; studying: boolean; state?: LearningDigest["state"]; concepts: number };
@@ -158,6 +164,105 @@ export function normalizeDigest(raw: unknown): { thesis?: string; concepts: Conc
   return { thesis: text(o.thesis, 700) || undefined, concepts, keyPoints, questions, language: text(o.language, 20) || undefined };
 }
 
+// ---- reading a whole source, part by part ---------------------------------------------------------
+
+export type ReadPart = { text: string; start?: number; end?: number; pageFrom?: number; pageTo?: number };
+
+export function splitTimed(t: Transcript, max: number): ReadPart[] {
+  const parts: ReadPart[] = [];
+  let cur: ReadPart | null = null;
+  for (const s of t.segments) {
+    const line = s.start !== undefined && s.end !== undefined && s.end > 0 ? `[${formatTimestamp(s.start)}] ${s.text}` : s.text;
+    if (cur && cur.text.length + line.length + 1 > max) {
+      parts.push(cur);
+      cur = null;
+    }
+    cur = cur ? { ...cur, text: `${cur.text}\n${line}`, end: s.end } : { text: line, start: s.start, end: s.end };
+  }
+  return cur ? [...parts, cur] : parts;
+}
+
+export function splitText(body: string, max: number): ReadPart[] {
+  const parts: ReadPart[] = [];
+  let cur = "";
+  for (const para of body.split(/\n\s*\n/)) {
+    for (let i = 0; i < para.length || i === 0; i += max) {
+      const piece = para.slice(i, i + max);
+      if (cur && cur.length + piece.length + 2 > max) {
+        parts.push({ text: cur });
+        cur = "";
+      }
+      cur = cur ? `${cur}\n\n${piece}` : piece;
+    }
+  }
+  return cur.trim() ? [...parts, { text: cur }] : parts;
+}
+
+export function splitPages(pages: string[], maxChars: number, maxPages: number): ReadPart[] {
+  const parts: ReadPart[] = [];
+  let cur: ReadPart | null = null;
+  pages.forEach((page, i) => {
+    const text = `[page ${i + 1}]\n${page.trim()}`;
+    if (cur && (cur.text.length + text.length > maxChars || i + 1 - cur.pageFrom! >= maxPages)) {
+      parts.push(cur);
+      cur = null;
+    }
+    cur = cur ? { ...cur, text: `${cur.text}\n\n${text}`, pageTo: i + 1 } : { text, pageFrom: i + 1, pageTo: i + 1 };
+  });
+  return cur ? [...parts, cur] : parts;
+}
+
+const place = (o: { at?: unknown; page?: unknown }) => {
+  const page = typeof o.page === "number" && o.page > 0 ? Math.round(o.page) : undefined;
+  return { at: seconds(o.at), ...(page ? { page } : {}) };
+};
+const KINDS: QuestionKind[] = ["recall", "explain", "apply", "code", "interview"];
+
+// One part as the model wrote it, checked. Detail is the point, so the limits are generous.
+export function normalizePart(raw: unknown, itemId = "") {
+  const o = (raw ?? {}) as RawDigest & { title?: string; summary?: string };
+  const concepts = (Array.isArray(o.concepts) ? o.concepts : []).flatMap((c): Concept[] => {
+    const term = text(c?.term, 80);
+    const explanation = text(c?.explanation, 1600);
+    const example = text((c as { example?: unknown })?.example, 800);
+    return term && explanation ? [{ term, explanation, ...(example ? { example } : {}), ...place(c ?? {}) }] : [];
+  });
+  const questions = (Array.isArray(o.questions) ? o.questions : []).flatMap((q): LearningQuestion[] => {
+    const prompt = text(q?.q ?? q?.question, 600);
+    const answer = text(q?.a ?? q?.answer, 2000);
+    return prompt && answer ? [{ q: prompt, a: answer, kind: KINDS.includes(q?.kind as QuestionKind) ? (q!.kind as QuestionKind) : "recall", ...place(q ?? {}) }] : [];
+  });
+  const keyPoints = (Array.isArray(o.key_points) ? o.key_points : []).map((k) => text(k, 400)).filter(Boolean);
+  return { itemId, section: { title: text(o.title, 120) || "Part", summary: text(o.summary, 1200) }, concepts, questions, keyPoints };
+}
+
+// All the parts become the digest. A term repeated across parts keeps its fullest explanation, and
+// anything he has already reviewed stays, even if this read didn't name it: nothing learned is dropped.
+export function mergeRead(old: LearningDigest, r: Reading, final: { thesis?: string; key_points?: string[]; language?: string }, model: string, records: Record<string, ReviewRecord>, itemId: string): LearningDigest {
+  const byTerm = new Map<string, Concept>();
+  for (const c of r.concepts) {
+    const k = slug(c.term);
+    const had = byTerm.get(k);
+    if (!had || c.explanation.length > had.explanation.length) byTerm.set(k, { ...had, ...c, example: c.example ?? had?.example });
+  }
+  for (const c of old.concepts) if (records[cardKey(itemId, c.term)] && !byTerm.has(slug(c.term))) byTerm.set(slug(c.term), c);
+  const seen = new Set<string>();
+  const questions = r.questions.filter((q) => !seen.has(q.q.toLowerCase()) && seen.add(q.q.toLowerCase()));
+  const finalPoints = (Array.isArray(final.key_points) ? final.key_points : []).map((k) => text(k, 400)).filter(Boolean);
+  return {
+    state: "ready",
+    thesis: text(final.thesis, 900) || old.thesis || r.sections[0]?.summary,
+    sections: r.sections,
+    concepts: [...byTerm.values()],
+    keyPoints: finalPoints.length ? finalPoints : r.keyPoints.slice(0, 15),
+    questions,
+    language: text(final.language, 20) || old.language,
+    model,
+    at: new Date().toISOString(),
+    depth: 2,
+  };
+}
+
 // ---- spaced repetition ---------------------------------------------------------------------------
 
 const DAY = 86_400_000;
@@ -280,7 +385,7 @@ export function learningOverview(items: LibraryItem[], now = new Date()): Learni
       concepts: ready.reduce((n, i) => n + (i.learning?.concepts.length ?? 0), 0),
       due: cards.filter((c) => Date.parse(c.due) <= now.getTime()).length,
       analyzed: ready.length,
-      pending: study.filter((i) => i.learning?.state === "queued" || i.learning?.state === "analyzing").length,
+      pending: items.filter((i) => inStudy(i) && (i.learning?.state === "queued" || i.learning?.state === "analyzing")).length,
       failed: study.filter((i) => i.learning?.state === "failed").length,
     },
   };
