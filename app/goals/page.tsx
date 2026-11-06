@@ -40,7 +40,7 @@ export default async function GoalsPage({ searchParams }: { searchParams: Promis
         sub="What you're chasing and how much real focus each one got this week. One tap turns a goal into time on today's plan — the Coach keeps you on it."
       />
       <div className="mb-6">
-        <SayIt placeholder="New goal: save 2k by March · 2 hours on the pitch tomorrow at 10…" />
+        <SayIt from="goals" placeholder="New goal: 10k a month by the end of 2027, and talk through it…" />
       </div>
       <div className="mb-6 flex flex-col gap-6">
         <MentorOrders day={orders} done={done} hasPlans={mentorGoals.some((g) => g.card)} />

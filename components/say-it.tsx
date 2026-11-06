@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarPlus, Check, Copy, Flag, LoaderCircle, Mic, Repeat, RotateCcw, Square, Target, TimerReset, ListTodo, X } from "lucide-react";
+import { BookOpen, CalendarPlus, Check, Copy, Flag, LoaderCircle, Mic, Repeat, RotateCcw, Square, Target, TimerReset, ListTodo, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { SayDraft, SayItem, SayResult } from "@/lib/say";
@@ -12,6 +12,9 @@ import { audioFilename, useRecorder } from "./use-recorder";
 // each listed with its own Undo.
 // v5.4: nothing is saved until he's seen it. What it heard comes back as cards — keep, rename, set the
 // priority, or drop — with repeats of open tasks and vague ones unticked; "Add" saves the kept ones.
+// v5.5: long dictations. A card carries the notes and steps he talked through. Whatever goes wrong, his
+// words stay on screen: try again, make them one task, or save them to the journal. A failed
+// transcription keeps the recording for another go.
 
 const ICON = { task: ListTodo, block: TimerReset, event: CalendarPlus, goal: Target, habit: Repeat } as const;
 const PRIORITY = [
@@ -32,7 +35,7 @@ function detail(it: SayItem, today: string): string {
   return `${it.target}${it.unit ? ` ${it.unit}` : ""} · ${it.days.length ? `${it.days.length} days a week` : "every day"}`;
 }
 
-export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitch today, new goal…" }: { placeholder?: string }) {
+export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitch today, new goal…", from = "today" }: { placeholder?: string; from?: "today" | "goals" }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<"" | "hearing" | "sorting">("");
@@ -41,21 +44,29 @@ export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitc
   const [cards, setCards] = useState<Card[]>([]);
   const today = new Date().toLocaleDateString("en-CA");
   const [err, setErr] = useState("");
+  const [leftover, setLeftover] = useState(""); // his words, when they didn't become cards
+  const [unheard, setUnheard] = useState<Blob | null>(null); // a recording that didn't transcribe
+  const [saved, setSaved] = useState(false);
 
   async function send(said: string) {
     if (!said.trim()) return;
     setBusy("sorting");
     setErr("");
+    setSaved(false);
     try {
-      const res = await fetch("/api/say", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: said }) });
+      const res = await fetch("/api/say", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: said, from }) });
       const out = await res.json().catch(() => null);
       if (!res.ok) throw new Error(out?.error ?? `error ${res.status}`);
       setHeard(out.heard ?? said);
       setResults([]);
-      setCards(((out.drafts ?? []) as SayDraft[]).map((d) => ({ ...d, keep: !d.dupOf && !d.vague })));
-      if (out.error) setErr(out.error);
+      const drafts = (out.drafts ?? []) as SayDraft[];
+      setCards(drafts.map((d) => ({ ...d, keep: !d.dupOf && !d.vague && !d.unsure })));
+      setLeftover(drafts.length ? "" : said);
+      if (!drafts.length) setErr("I couldn't pull a clear task out of that. Your words are below.");
       setText("");
     } catch (e) {
+      setLeftover(said);
+      setText("");
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy("");
@@ -81,19 +92,42 @@ export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitc
       setBusy("");
     }
   }
-  const edit = (i: number, patch: Partial<Card> & { title?: string; priority?: 0 | 1 | 2 | 3 }) =>
+  // His words as one task: the first sentence is the title, all of it the notes. A card, so he can rename it.
+  function oneTask() {
+    const first = leftover.split(/(?<=[.!?])\s/)[0].slice(0, 80).trim();
+    setCards([{ item: { kind: "task", title: first, day: today, notes: leftover.slice(0, 1900) }, quote: "", keep: true }]);
+    setHeard(leftover);
+    setLeftover("");
+    setErr("");
+  }
+  async function toJournal() {
+    setBusy("sorting");
+    setErr("");
+    try {
+      const res = await fetch("/api/journal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: leftover, source: "voice" }) });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Couldn't save that.");
+      setLeftover("");
+      setSaved(true);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  const edit = (i: number, patch: Partial<Card> & { title?: string; priority?: 0 | 1 | 2 | 3; notes?: string; steps?: string[] }) =>
     setCards((cs) =>
       cs.map((c, k) => {
         if (k !== i) return c;
-        const { title, priority, ...rest } = patch;
-        const item = { ...c.item, ...(title !== undefined ? { title } : {}), ...(priority !== undefined && c.item.kind === "task" ? { priority } : {}) } as SayItem;
+        const { title, priority, notes, steps, ...rest } = patch;
+        const item = { ...c.item, ...(title !== undefined ? { title } : {}), ...(priority !== undefined && c.item.kind === "task" ? { priority } : {}), ...(notes !== undefined ? { notes } : {}), ...(steps !== undefined ? { steps } : {}) } as SayItem;
         return { ...c, ...rest, item };
       }),
     );
 
-  const mic = useRecorder(async (audio) => {
+  async function hear(audio: Blob) {
     setBusy("hearing");
     setErr("");
+    setUnheard(null);
     try {
       const form = new FormData();
       form.append("audio", audio, audioFilename(audio));
@@ -105,10 +139,12 @@ export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitc
       if (!said) throw new Error("Didn't catch anything — try again.");
       await send(said);
     } catch (e) {
+      setUnheard(audio);
       setErr(e instanceof Error ? e.message : String(e));
       setBusy("");
     }
-  });
+  }
+  const mic = useRecorder(hear);
 
   async function undo(i: number) {
     const r = results[i];
@@ -155,6 +191,30 @@ export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitc
         )}
       </form>
       {(mic.error || err) && <p className="border-t border-line px-4 py-2 text-[12.5px] text-bad">{mic.error || err}</p>}
+      {unheard && (
+        <div className="border-t border-line px-4 py-2.5">
+          <button onClick={() => void hear(unheard)} disabled={!!busy} className="press flex h-10 items-center gap-2 rounded-[11px] border border-line-hi px-3.5 text-[13.5px] disabled:opacity-50">
+            <RotateCcw className="h-3.5 w-3.5" /> Your recording is safe. Try it again
+          </button>
+        </div>
+      )}
+      {saved && <p className="border-t border-line px-4 py-2 text-[12.5px] text-ok">Saved to today&apos;s journal.</p>}
+      {leftover && (
+        <div className="border-t border-line p-3 sm:px-4">
+          <textarea value={leftover} onChange={(e) => setLeftover(e.target.value)} rows={5} aria-label="What you said" className="w-full rounded-[12px] border border-line bg-black/30 px-3 py-2.5 text-[14.5px] leading-relaxed" />
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button onClick={() => void send(leftover)} disabled={!!busy || !leftover.trim()} className="press flex h-10 items-center gap-2 rounded-[11px] bg-text px-3.5 text-[13.5px] font-semibold text-bg disabled:opacity-50">
+              <RotateCcw className="h-3.5 w-3.5" /> Try again
+            </button>
+            <button onClick={oneTask} disabled={!!busy || !leftover.trim()} className="press flex h-10 items-center gap-2 rounded-[11px] border border-line-hi px-3.5 text-[13.5px] disabled:opacity-50">
+              <ListTodo className="h-3.5 w-3.5" /> Make it one task
+            </button>
+            <button onClick={() => void toJournal()} disabled={!!busy || !leftover.trim()} className="press flex h-10 items-center gap-2 rounded-[11px] border border-line-hi px-3.5 text-[13.5px] disabled:opacity-50">
+              <BookOpen className="h-3.5 w-3.5" /> Save to journal
+            </button>
+          </div>
+        </div>
+      )}
       {cards.length > 0 && (
         <div className="border-t border-line px-3 py-3 sm:px-4">
           <p className="mb-2 line-clamp-2 px-1 text-[12px] text-faint">“{heard}”</p>
@@ -180,6 +240,23 @@ export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitc
                     </button>
                   </div>
                   <p className="mt-1 pl-[60px] text-[12px] text-faint">{detail(c.item, today)}</p>
+                  {"steps" in c.item && !!c.item.steps?.length && (
+                    <ol className="mt-1.5 flex flex-col gap-0.5 pl-[60px]">
+                      {c.item.steps.map((s, k) => (
+                        <li key={k} className="flex items-center gap-1.5 text-[13px] text-muted">
+                          <span className="tnum w-4 shrink-0 font-mono text-[11px] text-faint">{k + 1}</span>
+                          <span className="min-w-0 flex-1">{s}</span>
+                          <button onClick={() => edit(i, { steps: ("steps" in c.item ? (c.item.steps ?? []) : []).filter((_, n) => n !== k) })} aria-label={`Remove step: ${s}`} className="grid h-6 w-6 shrink-0 place-items-center text-faint hover:text-text">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                  {"notes" in c.item && !!c.item.notes && (
+                    <textarea value={c.item.notes} onChange={(e) => edit(i, { notes: e.target.value })} rows={Math.min(6, Math.ceil(c.item.notes.length / 60))} aria-label="Notes" className="bare-field mt-1.5 ml-[60px] w-[calc(100%-60px)] resize-none rounded-[8px] bg-black/20 px-2 py-1.5 text-[13px] leading-relaxed text-muted focus:outline-none" />
+                  )}
+                  {c.unsure && !c.dupOf && <p className="mt-1 pl-[60px] text-[12px] text-warn">Not sure you asked for this. Tick it to keep it.</p>}
                   {c.dupOf && (
                     <p className="mt-1 flex items-center gap-1.5 pl-[60px] text-[12px] text-warn">
                       <Copy className="h-3 w-3 shrink-0" /> Already on your list: “{c.dupOf.title}”
