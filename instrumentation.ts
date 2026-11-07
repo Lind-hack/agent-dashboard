@@ -3,5 +3,7 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs" || process.env.NODE_ENV !== "production" || process.env.NEXT_PHASE === "phase-production-build") return;
   const { taskSyncTick } = await import("./lib/task-sync");
-  setInterval(taskSyncTick, 30_000).unref();
+  const { ownerTenant, runAs } = await import("./lib/tenant");
+  // TickTick sync is the owner's; outside a request the tenant must be named.
+  setInterval(() => runAs(ownerTenant(), taskSyncTick), 30_000).unref();
 }

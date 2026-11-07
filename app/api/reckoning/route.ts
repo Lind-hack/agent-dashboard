@@ -6,19 +6,20 @@ import { reckonReply } from "@/lib/goggins";
 import { addEntry } from "@/lib/journal";
 import { invalidateMemory } from "@/lib/memory";
 import { answer, readReckoning, reckoningDue, VERDICT_WORDS } from "@/lib/reckoning";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // The reckoning (v5.2). GET → the day Lind still owes an answer for (null when none), with its blocks.
 // POST { day, answer } → his answer is kept with the day's numbers, the coach replies, and it goes into
 // his journal too (so the Buddy and tomorrow's push know what he said).
-export async function GET() {
+async function GET_() {
   const due = reckoningDue();
   const rows = due ? mirror(due.day, due.day < coachNow().day ? Number.MAX_SAFE_INTEGER : Date.now()).rows : [];
   return NextResponse.json({ due, rows, face: faceSet() });
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { day?: string; answer?: string } | null;
   const day = String(b?.day ?? "");
   const text = String(b?.answer ?? "").trim();
@@ -37,3 +38,6 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ reckoning: r });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

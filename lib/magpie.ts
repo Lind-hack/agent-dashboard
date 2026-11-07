@@ -1,8 +1,9 @@
+import { apiKey } from "./user-keys";
 // GPU speech via the dashboard's existing NVIDIA account. Keep credentials on the server.
 // https://build.nvidia.com/nvidia/magpie-tts-multilingual/api
 const ENDPOINT = "https://877104f7-e885-42b9-8de8-f6e4c6303969.invocation.api.nvcf.nvidia.com/v1/audio/synthesize";
 let retryAfter = 0;
-export const magpieReady = () => !!process.env.NVIDIA_API_KEY && Date.now() >= retryAfter;
+export const magpieReady = () => !!apiKey("NVIDIA_API_KEY") && Date.now() >= retryAfter;
 
 export async function magpieWav(text: string, signal?: AbortSignal): Promise<Buffer | null> {
   if (!magpieReady() || signal?.aborted) return null;
@@ -11,7 +12,7 @@ export async function magpieWav(text: string, signal?: AbortSignal): Promise<Buf
   try {
     const timeout = AbortSignal.timeout(1500);
     const res = await fetch(ENDPOINT, {
-      method: "POST", headers: { Authorization: `Bearer ${process.env.NVIDIA_API_KEY}` }, body: form,
+      method: "POST", headers: { Authorization: `Bearer ${apiKey("NVIDIA_API_KEY")}` }, body: form,
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
     if (!res.ok) throw new Error(`Speech HTTP ${res.status}`);

@@ -3,8 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
 import { NextResponse } from "next/server";
-import { DATA_DIR } from "@/lib/config";
+
 import { pushInbox } from "@/lib/store";
+import { dataDir } from "@/lib/tenant";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +34,7 @@ async function readCapped(request: Request): Promise<Buffer | null> {
 // The PC collector (Bearer HANDOFF_TOKEN) posts its skill folders + a manifest of plugins, hooks and MCP
 // servers as gzipped JSON. Stored as-is under a unique name; the runner validates and installs it (it's
 // the only writer of the agents' skill folders).
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const raw = await readCapped(request);
   if (!raw) return NextResponse.json({ error: "too large — split the upload" }, { status: 413 });
   let body: { kind?: string } | null = null;
@@ -42,7 +44,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "body must be gzipped JSON" }, { status: 400 });
   }
   if (body?.kind !== "skills" && body?.kind !== "manifest") return NextResponse.json({ error: "kind must be skills or manifest" }, { status: 400 });
-  const dir = path.join(DATA_DIR, "skills-inbox");
+  const dir = path.join(dataDir(), "skills-inbox");
   fs.mkdirSync(dir, { recursive: true });
   // Time first (the runner applies uploads in order), then a random part so nothing collides.
   const name = `${Date.now()}-${crypto.randomUUID()}-${body.kind}.json.gz`;
@@ -52,3 +54,5 @@ export async function POST(request: Request) {
   pushInbox({ kind: "sync" });
   return NextResponse.json({ ok: true });
 }
+
+export const POST = guarded(POST_, { owner: true });

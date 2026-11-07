@@ -1,5 +1,8 @@
 import { groqKey, groqModel, repoShort, type RepoKey, type TaskAgent } from "./config";
 import type { TranscriptSegment } from "./video-transcript";
+import { anyJSON, providerOrder } from "./llm";
+import { isOwner } from "./tenant";
+import { apiKey } from "./user-keys";
 
 // Groq free tier: Whisper for speech-to-text, gpt-oss for turning a ramble into a ticket.
 // https://console.groq.com/docs/speech-to-text — OpenAI-compatible endpoints.
@@ -45,6 +48,12 @@ export function timedSegments(segments: Segment[] | undefined): TranscriptSegmen
 // opts.prompt: words to spell right (goal and task names, people) — Whisper takes ≤224 tokens.
 // opts.accurate: whisper-large-v3 instead of the pruned turbo, for "Say it" where a wrong word makes a wrong task.
 export async function transcribeDetailed(audio: Blob, filename: string, opts: { prompt?: string; accurate?: boolean } = {}): Promise<Transcription> {
+  // Users without a Groq key: OpenAI's Whisper if they have it, else Gemini listens.
+  const groq = apiKey("GROQ_API_KEY");
+  const openai = groq ? "" : apiKey("OPENAI_API_KEY");
+  if (!groq && !openai) return geminiTranscribe(audio, opts.prompt);
+  const url = groq ? "https://api.groq.com/openai/v1/audio/transcriptions" : "https://api.openai.com/v1/audio/transcriptions";
+  const model = groq ? (opts.accurate ? "whisper-large-v3" : "whisper-large-v3-turbo") : "whisper-1";
   // Language is left on auto-detect so Albanian and English both transcribe as spoken (Whisper
   // translates nothing on this endpoint). One retry covers a dropped connection or a cold model.
   let last = "";
@@ -52,13 +61,13 @@ export async function transcribeDetailed(audio: Blob, filename: string, opts: { 
     if (attempt) await new Promise((r) => setTimeout(r, 400));
     const form = new FormData();
     form.append("file", audio, filename);
-    form.append("model", opts.accurate ? "whisper-large-v3" : "whisper-large-v3-turbo");
+    form.append("model", model);
     form.append("response_format", "verbose_json");
     form.append("temperature", "0");
     if (opts.prompt) form.append("prompt", opts.prompt.slice(0, 600));
-    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    const res = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${groqKey()}` },
+      headers: { Authorization: `Bearer ${groq || openai}` },
       body: form,
       signal: AbortSignal.timeout(opts.accurate ? 120_000 : 30_000), // a long dictation takes a while on large-v3
     }).catch(() => null);
@@ -70,6 +79,33 @@ export async function transcribeDetailed(audio: Blob, filename: string, opts: { 
   throw new Error(last);
 }
 
+// https://ai.google.dev/gemini-api/docs/audio — inline audio up to ~20 MB, plenty for a dictation.
+async function geminiTranscribe(audio: Blob, prompt?: string): Promise<Transcription> {
+  const key = apiKey("GEMINI_API_KEY");
+  if (!key) throw new Error("No speech-to-text key yet: add a Gemini or Groq key in Settings → AI keys");
+  const model = process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
+  const data = Buffer.from(await audio.arrayBuffer()).toString("base64");
+  const ask = `Transcribe this recording word for word in the language spoken. Don't translate, summarise or add anything; leave out silence and noise.${prompt ? ` Words that may appear: ${prompt.slice(0, 600)}` : ""}\nReturn JSON: {"text": string, "language": string (ISO 639-1)}.`;
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: ask }, { inline_data: { mime_type: audio.type || "audio/webm", data } }] }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0 },
+    }),
+    signal: AbortSignal.timeout(120_000),
+  }).catch(() => null);
+  const body = (await res?.json().catch(() => null)) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } } | null;
+  if (!res?.ok) throw new Error(`Gemini speech: ${body?.error?.message ?? res?.status ?? "unreachable"}`);
+  try {
+    const out = JSON.parse(body?.candidates?.[0]?.content?.parts?.map((x) => x.text ?? "").join("") ?? "{}") as { text?: string; language?: string };
+    const text = keepSegments(undefined, String(out.text ?? ""));
+    return { text: PHANTOM.test(text) ? "" : text, language: String(out.language ?? ""), segments: [] };
+  } catch {
+    throw new Error("Gemini speech returned malformed JSON");
+  }
+}
+
 export async function transcribe(audio: Blob, filename: string): Promise<string> {
   return (await transcribeDetailed(audio, filename)).text;
 }
@@ -79,6 +115,12 @@ const FALLBACK_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
 
 // One JSON answer from the first model on the ladder that still has quota; null if all fail.
 export async function groqJSON<T>(system: string, user: string, temperature = 0.2, options: { models?: string[]; maxTokens?: number; reasoningEffort?: "none" | "low" | "medium" | "high"; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Partial<T> | null> {
+  // Everyone but the owner (and the owner without Groq) uses their own providers, their chosen one first.
+  const ownGroq = isOwner() && !!apiKey("GROQ_API_KEY");
+  if (!ownGroq) {
+    if (!providerOrder().length) return null;
+    return anyJSON<T>(system, user, { maxTokens: options.maxTokens, temperature, timeoutMs: Math.max(options.timeoutMs ?? 20_000, 40_000), signal: options.signal });
+  }
   for (const model of [...new Set(options.models ?? [groqModel(), ...FALLBACK_MODELS])]) {
     const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",

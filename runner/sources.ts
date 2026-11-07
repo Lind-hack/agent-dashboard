@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { calendarConnected, gcal } from "../lib/calendar";
-import { DATA_DIR } from "../lib/config";
+import { dataDir } from "../lib/tenant";
+import { isOwner, perTenant } from "../lib/tenant";
 
 // Extra memory sources (v5), synced by the runner once an hour into data/sources/ so the Memory page
 // never waits on an API:
@@ -10,10 +11,10 @@ import { DATA_DIR } from "../lib/config";
 // - calendar.json: Google Calendar events from 60 days back to 14 ahead (what he actually spent time on).
 
 const log = (...a: unknown[]) => console.log(new Date().toISOString(), "sources:", ...a);
-const dir = () => path.join(DATA_DIR, "sources");
+const dir = () => path.join(dataDir(), "sources");
 const EVERY = 60 * 60_000;
-let lastRun = 0;
-let running = false;
+// One copy per account (the runner runs every user's jobs in turn).
+const st = perTenant(() => ({ lastRun: 0, running: false }));
 
 export type GithubItem = { id: string; kind: "pr" | "issue"; repo: string; number: number; title: string; body: string; state: string; url: string; at: string; author: string; labels: string[] };
 export type CalendarItem = { id: string; title: string; start: string; end: string; allDay: boolean; location?: string; description?: string; calendar?: string; link?: string; planned: boolean };
@@ -26,6 +27,7 @@ function save(name: string, v: unknown) {
 }
 
 async function gh<T>(url: string): Promise<T | null> {
+  if (!isOwner()) return null; // the GitHub token is the owner's
   const token = process.env.GITHUB_READ_TOKEN ?? process.env.GITHUB_TOKEN;
   if (!token) return null;
   const res = await fetch(`https://api.github.com${url}`, { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }, signal: AbortSignal.timeout(20_000) });
@@ -97,10 +99,10 @@ async function syncCalendar() {
 
 // Called every runner tick; does the work at most once an hour, in the background.
 export function sourcesTick() {
-  if (running || Date.now() - lastRun < EVERY || process.env.SOURCES_ENABLED === "0") return;
-  running = true;
-  lastRun = Date.now();
+  if (st().running || Date.now() - st().lastRun < EVERY || process.env.SOURCES_ENABLED === "0") return;
+  st().running = true;
+  st().lastRun = Date.now();
   void Promise.allSettled([syncGithub(), syncCalendar()])
     .then((r) => r.forEach((x) => x.status === "rejected" && log(x.reason instanceof Error ? x.reason.message : x.reason)))
-    .finally(() => (running = false));
+    .finally(() => (st().running = false));
 }

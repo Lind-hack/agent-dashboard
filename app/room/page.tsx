@@ -10,6 +10,7 @@ import { seats } from "@/lib/council";
 import { agentModels, judgeModelName, listRooms, type Room } from "@/lib/rooms";
 import { planUsage } from "@/lib/usage";
 import { ago, cn } from "@/lib/utils";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ const STATUS: Record<Room["status"], string> = {
   refused: "refused",
 };
 
-export default async function RoomPage({ searchParams }: { searchParams: Promise<{ task?: string; mode?: string }> }) {
+async function RoomPage({ searchParams }: { searchParams: Promise<{ task?: string; mode?: string }> }) {
   const sp = await searchParams;
   const initialMode = sp?.mode === "solo" || sp?.mode === "team" ? sp.mode : "roast";
   const [statuses, repos] = await Promise.all([agentStatuses().catch(() => []), listRepos().catch(() => [])]);
@@ -73,3 +74,5 @@ export default async function RoomPage({ searchParams }: { searchParams: Promise
     </div>
   );
 }
+
+export default page(RoomPage, { owner: true });

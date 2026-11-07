@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { dataDir, vaultDir } from "./tenant";
 
 // Short- and long-term goals live in the Syncthing vault so Lind can edit them in Obsidian and the
 // planner reads the same file. One markdown list, one goal per line:
@@ -10,7 +11,6 @@ import path from "node:path";
 // `why:` is the reason to keep going, `due:` an optional target date,
 // `weekly:` the focus time Lind wants on it each week (the Coach measures progress against it). Ticks are kept on the line.
 
-const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 
 export type GoalHorizon = "now" | "short" | "long";
 
@@ -55,7 +55,7 @@ const HORIZONS: Record<string, GoalHorizon> = {
 // "100 - Me/Goals.md" for Obsidian whenever the vault folder is writable. Before v5.1 the vault file
 // was the only copy, so it's still read when the data copy doesn't exist yet.
 export const goalsFile = () => path.join(vaultDir(), "100 - Me", "Goals.md");
-const dataGoalsFile = () => path.join(process.env.DATA_DIR ?? "/var/lib/agent-dashboard", "goals.md");
+const dataGoalsFile = () => path.join(dataDir(), "goals.md");
 
 const clip = (s: string, n = 200) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const validDate = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined);

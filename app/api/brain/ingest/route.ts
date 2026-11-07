@@ -1,12 +1,13 @@
 import { gunzipSync } from "node:zlib";
 import { NextResponse } from "next/server";
 import { queueBrainItem, validBrainItem, type BrainItem } from "@/lib/brain";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // The PC brain collector (handoff/brain-collect.mjs, Bearer HANDOFF_TOKEN) posts one gzipped JSON
 // BrainItem per chat or graph report — already condensed and redacted. The runner processes the queue.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   let item: Partial<BrainItem> | null = null;
   try {
     const raw = Buffer.from(await request.arrayBuffer());
@@ -30,3 +31,5 @@ export async function POST(request: Request) {
   });
   return NextResponse.json({ ok: true });
 }
+
+export const POST = guarded(POST_, { owner: true });

@@ -23,6 +23,7 @@ import { freeSlots, today } from "@/lib/planner";
 import { listTodos } from "@/lib/todos";
 import { ticktickConnected } from "@/lib/ticktick";
 import { cn } from "@/lib/utils";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ function zoned(day: string, hhmm: string, tz: string): string {
 }
 
 
-export default async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_error?: string; replan?: string; autopilot?: string }> }) {
+async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_error?: string; replan?: string; autopilot?: string }> }) {
   const { ticktick_error, replan, autopilot } = await searchParams;
   const t = await today();
   const host = (await headers()).get("x-forwarded-host");
@@ -263,3 +264,5 @@ function NowRule({ tz }: { tz: (iso: string) => string }) {
     </div>
   );
 }
+
+export default page(TodayPage);

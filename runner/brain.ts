@@ -7,6 +7,7 @@ import { codexBin } from "../lib/config";
 import { limited, nemotron, nvidiaModel, nvidiaReady } from "../lib/nvidia";
 import { redact } from "../lib/redact";
 import { listJobs } from "../lib/store";
+import { vaultDir } from "../lib/tenant";
 
 // The brain, VPS side (plan §D). Writes into the Obsidian vault (MEMORY_VAULT_DIR, Syncthing-shared with
 // the PC), following the vault's AGENTS.md (LLM-Wiki layers, append-only log.md, provenance):
@@ -20,7 +21,7 @@ import { listJobs } from "../lib/store";
 // Every appended entry carries <!-- brain:<id> --> and is recorded in a ledger first-come, so retries and
 // crashes never double-append. Only the weekly Luna pass edits existing pages, and only owned ones.
 
-const vault = () => process.env.MEMORY_VAULT_DIR ?? "";
+const vault = () => vaultDir();
 const stateFile = () => path.join(BRAIN_DIR(), "state.json");
 const ledgerFile = () => path.join(BRAIN_DIR(), "ledger.ndjson");
 const today = () => new Date().toISOString().slice(0, 10);

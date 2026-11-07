@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import { listRepos } from "./github";
 import { githubToken } from "./config";
 import { agentIssues } from "./linear";
@@ -8,6 +8,7 @@ import { readBrainStatus } from "./brain";
 import { readDone, readMail, readPiles } from "./gmail";
 import { failedUnits } from "./ops";
 import { listJobs } from "./store";
+import { dataDir, isOwner } from "./tenant";
 
 // Everything waiting on Lind, newest first. "Seen" lives in data/seen.json, written by the web app
 // (the runner never touches it), so opening an item clears it from the badge.
@@ -23,7 +24,7 @@ export type InboxItem = {
   tone: "claude" | "codex" | "hermes" | "opencode" | "ok" | "bad" | "neutral";
 };
 
-const seenFile = () => path.join(DATA_DIR, "seen.json");
+const seenFile = () => path.join(dataDir(), "seen.json");
 
 export function readSeen(): Record<string, string> {
   try {
@@ -37,7 +38,7 @@ export function markSeen(keys: string[]) {
   const seen = readSeen();
   const now = new Date().toISOString();
   for (const k of keys) seen[k] = now;
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   fs.writeFileSync(`${seenFile()}.tmp`, JSON.stringify(seen));
   fs.renameSync(`${seenFile()}.tmp`, seenFile());
 }
@@ -64,6 +65,7 @@ async function openPRs() {
 }
 
 export async function inboxItems(): Promise<InboxItem[]> {
+  if (!isOwner()) return []; // pull requests and agent chats are the owner's
   const items: InboxItem[] = [];
 
   for (const pr of await openPRs()) {
@@ -154,6 +156,7 @@ let countCache: { at: number; n: number } | null = null;
 
 // For the nav badge on every page — cached briefly so navigation stays fast.
 export async function inboxCount(): Promise<number> {
+  if (!isOwner()) return 0;
   if (countCache && Date.now() - countCache.at < 30_000) return countCache.n;
   // Email the Core put in "Reply today" counts too — that's mail waiting on Lind.
   const piles = readPiles();

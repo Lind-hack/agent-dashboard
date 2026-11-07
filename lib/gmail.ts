@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { accessToken, gmailConnected } from "./calendar";
-import { DATA_DIR } from "./config";
+
 import { listAccounts } from "./accounts";
 import { groqJSON } from "./groq";
 import { extraMail } from "./mail-sources";
+import { dataDir } from "./tenant";
 
 // Gmail in the Inbox (developers.google.com/workspace/gmail/api/reference/rest): read-only. The last
 // week of the inbox is cached in data/mail/messages.json; piles (what the Core sorted each message
@@ -38,7 +39,7 @@ export type Mail = {
 };
 export type Sorted = { pile: PileKey; why: string; at: string };
 
-const dir = () => path.join(DATA_DIR, "mail");
+const dir = () => path.join(dataDir(), "mail");
 const json = <T,>(name: string, fallback: T): T => {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir(), name), "utf8")) ?? fallback;

@@ -6,6 +6,7 @@ import { listItems } from "../lib/library";
 import { addTodo, listTodos } from "../lib/todos";
 import { askJSON } from "./dump";
 import { notify as realNotify } from "./notify";
+import { perTenant } from "../lib/tenant";
 
 // The Sunday blurt, runner side (v6). At 10:00 on Sunday the week's session opens, with a push and a task
 // on Today. If it's still open on Monday at 10:00, one more push. Between times, topics get sorted.
@@ -35,17 +36,17 @@ export async function sundayTick({ day, minute, notify, now }: { day: string; mi
   log("opened", day, s.rounds.length, terms);
 }
 
-let sorting = false;
-let lastSort = 0;
+// One copy per account (the runner runs every user's jobs in turn).
+const st = perTenant(() => ({ sorting: false, lastSort: 0 }));
 const SORT_EVERY = 10 * 60_000;
 
 export function learningSundayTick() {
   void sundayTick({ day: coachNow().day, minute: clockNow(coachTz()), notify: realNotify as Notify, now: new Date() }).catch((e) => log(e instanceof Error ? e.message : e));
-  if (sorting || Date.now() - lastSort < SORT_EVERY) return;
-  sorting = true;
-  lastSort = Date.now();
+  if (st().sorting || Date.now() - st().lastSort < SORT_EVERY) return;
+  st().sorting = true;
+  st().lastSort = Date.now();
   void sortTopics(listItems(), (system, user, tokens) => askJSON(system, user, tokens))
     .then((n) => n && log("sorted", n))
     .catch((e) => log("topics", e instanceof Error ? e.message : e))
-    .finally(() => (sorting = false));
+    .finally(() => (st().sorting = false));
 }

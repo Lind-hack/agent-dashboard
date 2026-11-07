@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { setSourceToggle } from "@/lib/library";
 import { invalidateMemory, SOURCE_KINDS, type SourceKind } from "@/lib/memory";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // POST { kind, on } switches a source in or out of search; POST { refresh: true } rebuilds the index.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { kind?: string; on?: boolean; refresh?: boolean } | null;
   if (b?.refresh) {
     invalidateMemory();
@@ -16,3 +17,5 @@ export async function POST(request: Request) {
   invalidateMemory();
   return NextResponse.json({ ok: true });
 }
+
+export const POST = guarded(POST_);

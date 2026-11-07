@@ -1,6 +1,7 @@
 import { autopilotEnabled, markStep, readAutopilot, runEvening, runMidday, runMorning, syncCalendar, type Step, type StepLog } from "../lib/autopilot";
 import { coachNow } from "../lib/coach";
 import { notify } from "./notify";
+import { perTenant } from "../lib/tenant";
 
 // Autopilot, runner side (v5.1): runs each step once a day at its time (or up to 3 hours later if the
 // runner was down or Sol failed — 3 tries, 15 minutes apart), in the background, and pushes what it did
@@ -14,8 +15,8 @@ const AT: Record<Step, () => string> = {
 };
 const RUN: Record<Step, () => Promise<StepLog> | StepLog> = { morning: runMorning, midday: runMidday, evening: runEvening };
 const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-const tries = new Map<string, { n: number; last: number }>();
-let running = false;
+// One copy per account (the runner runs every user's jobs in turn).
+const st = perTenant(() => ({ tries: new Map<string, { n: number; last: number }>(), running: false }));
 
 const PUSH: Record<Step, (l: StepLog) => { title: string; body: string } | null> = {
   morning: (l) => (l.skipped ? null : { title: `Your day is planned: ${l.blocks ?? 0} blocks`, body: `${l.summary.slice(0, 120)} — tap to see it or undo.` }),
@@ -27,7 +28,7 @@ const PUSH: Record<Step, (l: StepLog) => { title: string; body: string } | null>
 const settled = (l: StepLog | undefined) => !!l && !l.failed;
 
 export function autopilotTick(minute: string) {
-  if (running || !autopilotEnabled()) return;
+  if (st().running || !autopilotEnabled()) return;
   const day = coachNow().day;
   const done = readAutopilot(day).steps;
   for (const step of ["morning", "midday", "evening"] as Step[]) {
@@ -35,7 +36,7 @@ export function autopilotTick(minute: string) {
     const prev = done[step];
     if (late < 0 || settled(prev) && !prev?.calendarPending) continue;
     const key = `${day}:${step}`;
-    const t = tries.get(key) ?? { n: 0, last: 0 };
+    const t = st().tries.get(key) ?? { n: 0, last: 0 };
     // Out of time or out of tries: record that it gave up, so the briefing goes ahead without it.
     if (late > 180 || t.n >= 3) {
       if (!settled(prev)) markStep(day, step, { ...(prev ?? { at: new Date().toISOString() }), summary: prev?.summary || (late > 180 ? "Missed — the runner wasn't up in time." : "Gave up after 3 tries."), failed: false, skipped: prev?.skipped ?? "gave-up" });
@@ -43,13 +44,13 @@ export function autopilotTick(minute: string) {
       continue;
     }
     if (Date.now() - t.last < 15 * 60_000) continue;
-    tries.set(key, { n: t.n + 1, last: Date.now() });
-    running = true;
+    st().tries.set(key, { n: t.n + 1, last: Date.now() });
+    st().running = true;
     // The plan is saved but the calendar write failed: only that is tried again.
     if (prev && settled(prev) && prev.calendarPending) {
       void syncCalendar(day)
         .then((err) => (err ? log(step, "calendar still failing", err) : markStep(day, step, { ...prev, calendarPending: false, error: undefined })))
-        .finally(() => (running = false));
+        .finally(() => (st().running = false));
       return;
     }
     // Inside .then, so a step that throws synchronously still releases `running`.
@@ -71,7 +72,7 @@ export function autopilotTick(minute: string) {
           });
       })
       .catch((e) => log(step, e instanceof Error ? e.message : e))
-      .finally(() => (running = false));
+      .finally(() => (st().running = false));
     return;
   }
 }

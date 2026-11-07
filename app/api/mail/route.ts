@@ -3,12 +3,13 @@ import { markMailDone, movePile, refreshMail, sortMail } from "@/lib/gmail";
 import { invalidateInboxCount } from "@/lib/inbox";
 import { draftReply } from "@/lib/mail-actions";
 import { invalidateMemory } from "@/lib/memory";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // POST { action: "sort" } fetches the inbox and sorts every message into a pile;
 // { action: "refresh" } only fetches; { action: "done", ids } hides; { action: "move", id, pile }.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { action?: string; ids?: string[]; id?: string; pile?: string; all?: boolean; note?: string } | null;
   try {
     if (b?.action === "sort" || b?.action === "refresh") {
@@ -38,3 +39,5 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ error: "bad request" }, { status: 400 });
 }
+
+export const POST = guarded(POST_, { owner: true });

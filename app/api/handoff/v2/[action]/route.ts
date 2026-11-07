@@ -5,12 +5,13 @@ import { NextResponse } from "next/server";
 import { listRepos } from "@/lib/github";
 import { abortUpload, finishUpload, handoffDir, jobIdFor, putChunk, startUpload, validateMeta, type HandoffMeta } from "@/lib/handoff";
 import { pushInbox, readJob } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Hand-off v2 upload protocol, called by handoff/handoff.mjs on the PC (Bearer HANDOFF_TOKEN, see
 // lib/bearer-routes.ts): start → chunk (transcript + context parts, ≤ 8 MB each) → finish.
-export async function POST(request: Request, ctx: { params: Promise<{ action: string }> }) {
+async function POST_(request: Request, ctx: { params: Promise<{ action: string }> }) {
   const { action } = await ctx.params;
   const url = new URL(request.url);
 
@@ -74,7 +75,7 @@ function handoffJob(sid?: string, gen?: string) {
 }
 
 // GET export?session=&generation=&part=manifest|transcript — only once the runner has written it.
-export async function GET(request: Request, ctx: { params: Promise<{ action: string }> }) {
+async function GET_(request: Request, ctx: { params: Promise<{ action: string }> }) {
   const { action } = await ctx.params;
   if (action !== "export") return NextResponse.json({ error: "unknown action" }, { status: 404 });
   const q = new URL(request.url).searchParams;
@@ -87,3 +88,6 @@ export async function GET(request: Request, ctx: { params: Promise<{ action: str
   const stream = Readable.toWeb(fs.createReadStream(file)) as ReadableStream;
   return new Response(stream, { headers: { "Content-Type": "application/octet-stream", "Content-Length": String(fs.statSync(file).size) } });
 }
+
+export const POST = guarded(POST_, { owner: true });
+export const GET = guarded(GET_, { owner: true });

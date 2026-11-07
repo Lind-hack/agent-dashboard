@@ -3,10 +3,11 @@ import path from "node:path";
 import { keptStreak, mirror, type Mirror } from "./accountability";
 import { addDays } from "./calendar";
 import { clockNow, coachNow, coachTz } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { tally } from "./day-tally";
 import { habitProgress } from "./habits";
 import { VERDICT_WORDS, type DayVerdict } from "./verdict";
+import { dataDir } from "./tenant";
 
 export { VERDICT_WORDS, type DayVerdict };
 
@@ -38,7 +39,7 @@ export type Reckoning = {
   reply?: string;
 };
 
-const dir = () => path.join(DATA_DIR, "coach", "reckoning");
+const dir = () => path.join(dataDir(), "coach", "reckoning");
 const file = (day: string) => path.join(dir(), `${day}.json`);
 // The first day the reckoning ran: days before it are never asked about.
 const sinceFile = () => path.join(dir(), "since");
@@ -115,6 +116,8 @@ export function reckoningDue(at = new Date()): Reckoning | null {
   const y = addDays(today, -1);
   if (y >= first && !readReckoning(y)?.answeredAt) return snapshot(y, Number.MAX_SAFE_INTEGER);
   if (readReckoning(today)?.answeredAt) return null;
+  // The first day on the dashboard is for setting it up: no one answers for a day they never planned.
+  if (today === first) return null;
   const now = clockNow(coachTz(), at);
   const m = mirror(today, at.getTime());
   if (now >= RECKON_AT() || (now >= "19:00" && m.over)) return snapshot(today, at.getTime());

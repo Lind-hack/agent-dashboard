@@ -1,0 +1,9 @@
+{
+  "id": "agentic-os-sync",
+  "name": "Agentic OS Sync",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Keeps this vault in sync with your Agentic OS dashboard, so your coach, planner and memory read your notes and your journal lands here.",
+  "author": "Agentic OS",
+  "isDesktopOnly": false
+}

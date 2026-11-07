@@ -5,6 +5,7 @@ import { addDays } from "@/lib/calendar";
 import { calendarBusy, coachNow, nextFreeSlot } from "@/lib/coach";
 import { dropMissed, readPlan, rescheduleBlock } from "@/lib/plan-store";
 import { updateTodo } from "@/lib/todos";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -13,11 +14,11 @@ export const dynamic = "force-dynamic";
 // time, and its task with it.
 // GET → what he owes a decision on. POST { day, id, action: "back", start? } → into today's next free
 // slot (or at `start`); POST { day, id, action: "drop", reason } → let go, with the reason on the record.
-export async function GET() {
+async function GET_() {
   return NextResponse.json({ owed: owed(coachNow().day) });
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { day?: string; id?: string; action?: string; start?: string; reason?: string } | null;
   const today = coachNow().day;
   const item = owed(today).find((o) => o.day === b?.day && o.id === b?.id);
@@ -46,3 +47,6 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

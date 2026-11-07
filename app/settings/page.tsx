@@ -9,6 +9,15 @@ import { readHeartbeat } from "@/lib/store";
 import { ago } from "@/lib/utils";
 import { LogoutButton } from "./logout";
 import { SkillFromGithub } from "./skill-from-github";
+import { page } from "@/lib/guard";
+import Link from "next/link";
+import { AiKeys } from "@/components/ai-keys";
+import { CalendarConnect } from "@/components/calendar-connect";
+import { ObsidianConnect } from "@/components/obsidian-connect";
+import { DangerZone, PasswordForm, ProfileForm } from "@/components/account-settings";
+import { People } from "@/components/people";
+import { currentTenant } from "@/lib/tenant";
+import { findUser } from "@/lib/users";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +33,50 @@ const CONNECTIONS = [
   { label: "Codex CLI", env: "CODEX_BIN", what: "Codex on the VPS", how: "Installed for the agent user" },
 ];
 
-export default async function SettingsPage() {
+// Everyone but the owner: their profile, their AI keys, their account.
+function AccountSettings() {
+  const t = currentTenant();
+  const u = findUser(t.id);
+  return (
+    <div className="mx-auto max-w-3xl">
+      <PageHeader title="Settings" sub={u?.email} />
+      <Panel className="mb-8 flex flex-wrap items-center justify-between gap-3 !rounded-[14px] px-4 py-3.5">
+        <span className="text-sm text-muted">Connect your AI, calendar and Obsidian step by step.</span>
+        <Link href="/setup" className="flex h-10 items-center rounded-[11px] border border-line px-4 text-sm hover:bg-white/5">
+          Open the setup guide
+        </Link>
+      </Panel>
+      <SectionTitle right="your keys, stored encrypted">AI keys</SectionTitle>
+      <div className="mb-8">
+        <AiKeys />
+      </div>
+      <SectionTitle right="Today and the planner read it">Calendar</SectionTitle>
+      <div className="mb-8">
+        <CalendarConnect />
+      </div>
+      <SectionTitle right="two-way sync with your vault">Obsidian</SectionTitle>
+      <div className="mb-8">
+        <ObsidianConnect />
+      </div>
+      <SectionTitle>Profile</SectionTitle>
+      <div className="mb-8">
+        <ProfileForm name={t.name} tz={t.tz} />
+      </div>
+      <SectionTitle>Password</SectionTitle>
+      <div className="mb-8">
+        <PasswordForm />
+      </div>
+      <SectionTitle>Account</SectionTitle>
+      <div className="mb-8">
+        <DangerZone />
+      </div>
+      <LogoutButton />
+    </div>
+  );
+}
+
+async function SettingsPage() {
+  if (!currentTenant().owner) return AccountSettings(); // called, not rendered later: it reads the user's data now
   const repos = await listRepos().catch(() => []);
   const hb = readHeartbeat();
   const alive = !!hb.at && Date.now() - new Date(hb.at).getTime() < 60_000;
@@ -41,6 +93,11 @@ export default async function SettingsPage() {
         sub="What the OS is connected to, and what agents may touch."
         readout={[/^[0-9a-f]{7,40}$/.test(process.env.COMMIT_SHA ?? "") && `build ${process.env.COMMIT_SHA!.slice(0, 7)}`, `${connected}/${CONNECTIONS.length} connected`, alive ? "runner online" : "runner offline"]}
       />
+
+      <SectionTitle right="invite-only sign-up">People</SectionTitle>
+      <div className="mb-8">
+        <People />
+      </div>
 
       <SectionTitle right="mail + calendar, merged into the Inbox and Today">Email accounts</SectionTitle>
       <div className="mb-8">
@@ -162,3 +219,5 @@ export default async function SettingsPage() {
     </div>
   );
 }
+
+export default page(SettingsPage);

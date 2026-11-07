@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { inboxCount, inboxItems, invalidateInboxCount, markSeen } from "@/lib/inbox";
 import { listRooms } from "@/lib/rooms";
 import { listJobs } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+async function GET_(request: Request) {
   // The shell polls this: the badge count, and which agents are working (the Core lights up for them).
   if (new URL(request.url).searchParams.get("count")) {
     const debating = listRooms()
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
 }
 
 // { seen: [keys] } — sent with sendBeacon when an item is opened or marked done.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const body = (await request.json().catch(() => null)) as { seen?: unknown } | null;
   const keys = Array.isArray(body?.seen) ? body.seen.filter((k): k is string => typeof k === "string").slice(0, 500) : [];
   if (keys.length) {
@@ -27,3 +28,6 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ ok: true });
 }
+
+export const GET = guarded(GET_, { owner: true });
+export const POST = guarded(POST_, { owner: true });

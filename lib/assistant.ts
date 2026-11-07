@@ -2,13 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { keptStreak, mirror, mirrorText, patterns, staleGoals } from "./accountability";
 import { habitsFor } from "./habits";
-import { agenda, calendarConnected } from "./calendar";
+import { agenda, calendarReadable } from "./calendar";
 import { clockNow, coachNow, coachTz, dayProgress, goalProgress } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { readDone, readMail, readPiles } from "./gmail";
 import { groqJSON } from "./groq";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { remainingMin, todosFor } from "./todos";
+import { dataDir } from "./tenant";
 
 // The Day assistant (v5): knows today's plan, tasks, calendar and goals, and helps Lind finish the day.
 // - chat: quick back-and-forth on a fast model (Groq, then Nemotron). Replies may carry actions —
@@ -39,7 +40,7 @@ export type Brief = {
   createdAt: string;
 };
 
-const dir = () => path.join(DATA_DIR, "assistant");
+const dir = () => path.join(dataDir(), "assistant");
 const chatFile = (day: string) => path.join(dir(), `chat-${day}.json`);
 const briefFile = (day: string, slot: BriefSlot) => path.join(dir(), `brief-${day}-${slot}.json`);
 const requestFile = () => path.join(dir(), "brief-request.json");
@@ -119,7 +120,7 @@ export async function dayContext(): Promise<string> {
   const t = todosFor(c.day);
   const goals = goalProgress();
   let events: string[] = [];
-  if (calendarConnected()) {
+  if (calendarReadable()) {
     const a = await agenda(1).catch(() => null);
     events = (a?.events ?? []).filter((e) => !e.planned && !e.allDay).map((e) => `${clockNow(tz, new Date(e.start))}-${clockNow(tz, new Date(e.end))} ${e.title}`);
   }

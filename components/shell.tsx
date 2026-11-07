@@ -38,12 +38,18 @@ export const TOOLS: NavItem[] = [
 // Sections still being built in this release stay out of the nav until they exist.
 const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/mirror", "/goals", "/buddy", "/memory", "/learning", "/website", "/agents", "/settings", "/more"]);
 
+// The coding-agent sections are the owner's alone; other accounts never see them.
+const OWNER_ONLY = new Set(["/", "/inbox", "/room", "/chat", "/agents", "/website"]);
+export type Me = { owner: boolean; name: string; setup?: boolean } | null;
+const visible = (owner: boolean) => (i: NavItem) => LIVE.has(i.href) && (owner || !OWNER_ONLY.has(i.href));
+
 const isActive = (path: string, href: string) => (href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`));
 
 // Badge count + which agents are working, polled once a minute (every 10 s while something runs).
-function useSystem() {
+function useSystem(enabled: boolean) {
   const [s, setS] = useState<{ count: number; working: AgentKey[] }>({ count: 0, working: [] });
   useEffect(() => {
+    if (!enabled) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
@@ -60,11 +66,11 @@ function useSystem() {
       stop = true;
       clearTimeout(timer);
     };
-  }, []);
+  }, [enabled]);
   return s;
 }
 
-function TalkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+function TalkSheet({ open, onClose, owner }: { open: boolean; onClose: () => void; owner: boolean }) {
   const [mode, setMode] = useState<"talk" | "chat">("talk");
   useEffect(() => {
     if (!open) return;
@@ -81,6 +87,7 @@ function TalkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-[-0.02em]">{mode === "talk" ? "Talk to the Core" : "Start a chat"}</h2>
           <div className="flex items-center gap-2">
+            {owner && (
             <div className="flex rounded-[12px] border border-line p-0.5 text-[13px]" role="tablist" aria-label="Talk or start a chat">
               {(
                 [
@@ -93,12 +100,13 @@ function TalkSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
                 </button>
               ))}
             </div>
+            )}
             <button onClick={onClose} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-xl text-muted hover:bg-white/5 hover:text-text">
               <X className="h-5 w-5" />
             </button>
           </div>
         </div>
-        {mode === "talk" ? <VoiceMode onDone={onClose} /> : <Composer onStarted={onClose} />}
+        {mode === "talk" || !owner ? <VoiceMode onDone={onClose} /> : <Composer onStarted={onClose} />}
       </div>
     </div>
   );
@@ -124,31 +132,32 @@ function SideLink({ item, path, count }: { item: NavItem; path: string; count: n
   );
 }
 
-function Brand({ working }: { working: AgentKey[] }) {
+function Brand({ working, me }: { working: AgentKey[]; me: Me }) {
   return (
-    <Link href="/" className="flex items-center gap-3 px-1">
+    <Link href={me?.owner ? "/" : "/calendar"} className="flex items-center gap-3 px-1">
       <span className="relative h-9 w-9 overflow-hidden rounded-[11px] bg-[url(/media/nebula-loop.webp)] bg-cover bg-center shadow-[0_0_0_1px_rgb(214_170_255/0.3)_inset]">
         <Orb state={working.length ? "thinking" : "idle"} className="absolute inset-[-3px]" />
       </span>
       <span className="leading-tight">
         <span className="block text-[16px] font-semibold tracking-[-0.03em]">Agentic OS</span>
-        <span className="hud-label block !text-[9.5px]">Lind · vps</span>
+        <span className="hud-label block !text-[9.5px]">{me?.owner ? "Lind · vps" : (me?.name ?? "")}</span>
       </span>
     </Link>
   );
 }
 
-export function Shell({ children }: { children: React.ReactNode }) {
+export function Shell({ children, me }: { children: React.ReactNode; me: Me }) {
   const path = usePathname();
   const [talk, setTalk] = useState(false);
-  const { count, working } = useSystem();
-  if (path === "/login") return <>{children}</>;
+  const owner = !!me?.owner;
+  const { count, working } = useSystem(owner);
+  if (path === "/login" || path === "/signup" || !me) return <>{children}</>;
 
-  const workspace = WORKSPACE.filter((i) => LIVE.has(i.href));
-  const tools = TOOLS.filter((i) => LIVE.has(i.href));
+  const workspace = WORKSPACE.filter(visible(owner));
+  const tools = TOOLS.filter(visible(owner));
   const crumb =
     [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].find((i) => isActive(path, i.href))?.label ??
-    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : path.startsWith("/agents/g") ? "Room" : path === "/more" ? "More" : path === "/focus" ? "Focus" : "");
+    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : path.startsWith("/agents/g") ? "Room" : path === "/more" ? "More" : path === "/focus" ? "Focus" : path === "/setup" ? "Setup" : "");
 
   return (
     <div className="min-h-dvh lg:pl-[248px]">
@@ -157,7 +166,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       </a>
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[248px] flex-col border-r border-line bg-[#09090c]/80 px-4 py-5 backdrop-blur-xl lg:flex">
-        <Brand working={working} />
+        <Brand working={working} me={me} />
         <p className="hud-label mt-8 mb-2 px-3">Workspace</p>
         <nav className="flex flex-col gap-0.5">
           {workspace.map((i) => (
@@ -200,9 +209,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <div className="mt-auto border-t border-line pt-3">
           <SideLink item={{ href: "/settings", label: "Settings", icon: Settings }} path={path} count={0} />
           <div className="mt-2 flex items-center gap-3 px-3 py-2">
-            <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-[linear-gradient(135deg,var(--color-claude),var(--color-hermes))] text-sm font-semibold text-bg">L</span>
-            <span className="leading-tight">
-              <span className="block text-sm">Lind</span>
+            <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-[linear-gradient(135deg,var(--color-claude),var(--color-hermes))] text-sm font-semibold text-bg">{(me.name || "?").slice(0, 1).toUpperCase()}</span>
+            <span className="min-w-0 leading-tight">
+              <span className="block truncate text-sm">{me.name}</span>
               <span className="block text-[11px] text-faint">Personal workspace</span>
             </span>
           </div>
@@ -212,7 +221,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Top bar */}
       <header className="sticky top-0 z-20 border-b border-line bg-bg/75 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-[1180px] items-center gap-3 px-4 lg:px-8">
-          <Link href="/" className="relative h-8 w-8 overflow-hidden rounded-[10px] bg-[url(/media/nebula-loop.webp)] bg-cover bg-center shadow-[0_0_0_1px_rgb(214_170_255/0.3)_inset] lg:hidden" aria-label="Home">
+          <Link href={owner ? "/" : "/calendar"} className="relative h-8 w-8 overflow-hidden rounded-[10px] bg-[url(/media/nebula-loop.webp)] bg-cover bg-center shadow-[0_0_0_1px_rgb(214_170_255/0.3)_inset] lg:hidden" aria-label="Home">
             <Orb state={working.length ? "thinking" : "idle"} className="absolute inset-[-3px]" />
           </Link>
           <p className="font-mono text-[12px] tracking-[0.06em]">
@@ -231,9 +240,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <span className="hidden sm:inline">Search</span>
               <kbd className="hidden rounded-[6px] bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10.5px] text-faint sm:inline">⌘&nbsp;K</kbd>
             </button>
-            <Link href="/chat" className="hidden h-9 items-center gap-2 rounded-[10px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text md:flex">
-              <MessageSquare className="h-4 w-4" strokeWidth={1.75} /> Chats
-            </Link>
+            {owner && (
+              <Link href="/chat" className="hidden h-9 items-center gap-2 rounded-[10px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text md:flex">
+                <MessageSquare className="h-4 w-4" strokeWidth={1.75} /> Chats
+              </Link>
+            )}
             <button onClick={() => setTalk(true)} className="flex h-9 items-center gap-2 rounded-[10px] px-3 text-sm text-muted hover:bg-white/5 hover:text-text">
               <Mic className="h-4 w-4" strokeWidth={1.75} /> Voice
             </button>
@@ -241,6 +252,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
+      {me.setup && path !== "/setup" && (
+        <Link href="/setup" className="mx-auto mt-3 flex max-w-[1180px] items-center gap-2 px-4 text-sm text-hud lg:px-8">
+          <span className="h-1.5 w-1.5 rounded-full bg-hud shadow-[0_0_8px_var(--color-hud)]" aria-hidden />
+          Finish setting up your dashboard
+          <ChevronRight className="h-4 w-4" aria-hidden />
+        </Link>
+      )}
       <FocusBar />
 
       <main id="main" tabIndex={-1} className="pb-tabbar mx-auto max-w-[1180px] min-w-0 overflow-x-clip px-4 pt-4 outline-none lg:px-8">
@@ -251,11 +269,18 @@ export function Shell({ children }: { children: React.ReactNode }) {
       {/* Phone tab bar */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-[#09090c]/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden" aria-label="Main">
         <div className="mx-auto grid max-w-md grid-cols-7 items-end px-1">
-          {[
-            { href: "/", label: "Home", icon: House },
-            { href: "/inbox", label: "Inbox", icon: Inbox, badge: true },
-            { href: "/calendar", label: "Today", icon: CalendarDays },
-          ].map((i) => (
+          {(owner
+            ? [
+                { href: "/", label: "Home", icon: House },
+                { href: "/inbox", label: "Inbox", icon: Inbox, badge: true },
+                { href: "/calendar", label: "Today", icon: CalendarDays },
+              ]
+            : [
+                { href: "/calendar", label: "Today", icon: CalendarDays },
+                { href: "/goals", label: "Goals", icon: Sparkles },
+                { href: "/buddy", label: "Buddy", icon: HeartHandshake },
+              ]
+          ).map((i) => (
             <TabLink key={i.href} item={i} path={path} count={count} />
           ))}
           <div className="flex justify-center">
@@ -269,7 +294,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
           {[
-            { href: "/room", label: "Room", icon: Swords },
+            owner ? { href: "/room", label: "Room", icon: Swords } : { href: "/memory", label: "Memory", icon: Sparkles },
             { href: "/learning", label: "Learning", icon: GraduationCap },
             { href: "/more", label: "More", icon: LayoutGrid },
           ].map((i) => (
@@ -278,8 +303,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
 
-      <TalkSheet open={talk} onClose={() => setTalk(false)} />
-      <CommandPalette nav={[...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter((i) => LIVE.has(i.href))} onTalk={() => setTalk(true)} />
+      <TalkSheet open={talk} onClose={() => setTalk(false)} owner={owner} />
+      <CommandPalette nav={[...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter(visible(owner))} onTalk={() => setTalk(true)} />
     </div>
   );
 }
@@ -300,10 +325,9 @@ function TabLink({ item, path, count }: { item: NavItem; path: string; count: nu
 }
 
 // "More" page content on the phone: everything that isn't in the tab bar, as thumb-sized tiles.
-export function MoreLinks() {
-  const items = [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter(
-    (i) => LIVE.has(i.href) && !["/", "/inbox", "/calendar", "/room", "/learning"].includes(i.href),
-  );
+export function MoreLinks({ owner }: { owner: boolean }) {
+  const inTabs = owner ? ["/", "/inbox", "/calendar", "/room", "/learning"] : ["/calendar", "/goals", "/buddy", "/memory", "/learning"];
+  const items = [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter((i) => visible(owner)(i) && !inTabs.includes(i.href));
   return (
     <div className="grid grid-cols-2 gap-2">
       {items.map((i) => {

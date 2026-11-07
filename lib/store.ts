@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { GroupKind } from "./agents";
 import { DATA_DIR, repoFromLabel, type AgentKey, type RepoKey } from "./config";
+import { isOwner } from "./tenant";
 
 // One JSON file per job plus an NDJSON log per job. Personal scale — no database needed.
 
@@ -80,6 +81,7 @@ const jobFile = (id: string) => path.join(jobsDir, `${id.replace(/[^A-Za-z0-9-]/
 export const logFile = (id: string) => path.join(logsDir, `${id.replace(/[^A-Za-z0-9-]/g, "")}.ndjson`);
 
 export function readJob(id: string): Job | null {
+  if (!isOwner()) return null; // coding-agent chats are the owner's alone
   try {
     const raw = JSON.parse(fs.readFileSync(jobFile(id), "utf8")) as Partial<Job>;
     // Files may predate the current shape — fill what's missing.
@@ -106,6 +108,7 @@ export function writeJob(job: Job) {
 }
 
 export function listJobs(): Job[] {
+  if (!isOwner()) return [];
   ensureDirs();
   return fs
     .readdirSync(jobsDir)
@@ -121,6 +124,7 @@ export function appendLog(id: string, event: unknown) {
 }
 
 export function readLog(id: string, maxLines = 400): Record<string, unknown>[] {
+  if (!isOwner()) return [];
   try {
     const lines = fs.readFileSync(logFile(id), "utf8").trim().split("\n");
     return lines.slice(-maxLines).flatMap((l) => {
@@ -167,6 +171,7 @@ const inboxDir = path.join(DATA_DIR, "inbox");
 const claimedDir = path.join(inboxDir, "claimed");
 
 export function pushInbox(item: InboxItem) {
+  if (!isOwner()) throw new Error("Coding agents are only available on the owner's account");
   fs.mkdirSync(inboxDir, { recursive: true });
   const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
   fs.writeFileSync(path.join(inboxDir, `${name}.tmp`), JSON.stringify({ ...item, eventId: item.eventId ?? name.slice(0, -5) }));

@@ -1,16 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readProfile } from "./buddy";
-import { DATA_DIR } from "./config";
+
 import { moodWord, recentJournal } from "./journal";
+import { dataDir, vaultDir } from "./tenant";
 
 // Where Lind really is (v5.5, Lind: "it tells me to cold email 100 businesses when 383ks.com isn't even
 // launched"). Two things every planner shares: his stage, in his own words on the Goals page, and
 // lifeContext(), which is that plus the Buddy's notes and what he said this week. The Mentor, the
 // Today planner and the Buddy all read the same picture. data/stage.md, mirrored to the vault.
 
-const file = () => path.join(DATA_DIR, "stage.md");
-const vaultFile = () => path.join(process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain", "100 - Me", "Where I am now.md");
+const file = () => path.join(dataDir(), "stage.md");
+const vaultFile = () => path.join(vaultDir(), "100 - Me", "Where I am now.md");
 const STAGE_MAX = 8000;
 const JOURNAL_MAX = 5000;
 

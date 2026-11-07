@@ -1,18 +1,19 @@
 import { NextResponse } from "next/server";
 import { readSubscriptions, validSubscription, vapidKeys } from "@/lib/notifications";
 import { notify, removeSubscription, saveSubscription } from "@/runner/notify";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Phone push for the Coach. GET → the VAPID public key + whether any device is subscribed.
 // POST { subscription } subscribes this device; DELETE { endpoint } unsubscribes; POST { test: true }
 // sends a test push to every subscribed device.
-export async function GET() {
+async function GET_() {
   const { publicKey } = await vapidKeys();
   return NextResponse.json({ publicKey, devices: readSubscriptions().length });
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { subscription?: unknown; test?: boolean } | null;
   if (b?.test) {
     const n = await notify({
@@ -32,8 +33,12 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true, devices: readSubscriptions().length });
 }
 
-export async function DELETE(request: Request) {
+async function DELETE_(request: Request) {
   const b = (await request.json().catch(() => null)) as { endpoint?: string } | null;
   if (typeof b?.endpoint === "string") removeSubscription(b.endpoint);
   return NextResponse.json({ ok: true, devices: readSubscriptions().length });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);
+export const DELETE = guarded(DELETE_);

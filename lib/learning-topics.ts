@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import { cardKey, inStudy, readReviewRecords, type ReviewRecord } from "./learning";
 import type { LibraryItem } from "./library";
+import { dataDir } from "./tenant";
 
 // Topics (v6): concepts from every source in Study, grouped so a Sunday can touch all of them. Lind
 // blurts a topic in one go; the marks still land term by term. A term the sorter hasn't placed still
@@ -18,7 +19,7 @@ export type TopicView = { id: string; name: string; terms: TopicTerm[]; score: n
 const TOPIC_MAX = 15; // about what one blurt can hold
 const BATCH = 80;
 const DAY = 86_400_000;
-const file = () => path.join(DATA_DIR, "learning", "topics.json");
+const file = () => path.join(dataDir(), "learning", "topics.json");
 
 export function readTopics(): Topic[] {
   try {

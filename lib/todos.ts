@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import { withLock } from "./file-lock";
+import { dataDir, userTz } from "./tenant";
 
 // Dashboard tasks (v5, Lind's pick: tasks live here, not in TickTick). One file, data/todos.json,
 // written only by the web app (the runner just reads it for reminders). TickTick's open tasks are
@@ -30,7 +31,7 @@ export type Todo = {
   ticktick?: { id: string; projectId: string; pending?: boolean }; // pending: completing it in TickTick failed, retry
 };
 
-const file = () => path.join(DATA_DIR, "todos.json");
+const file = () => path.join(dataDir(), "todos.json");
 const newId = () => `t-${Date.now().toString(36)}${crypto.randomBytes(2).toString("hex")}`;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const DUE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/;
@@ -68,7 +69,7 @@ export function listTodos(): Todo[] {
 }
 
 function writeTodos(all: Todo[]) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   // Finished tasks older than 60 days drop off; the plans keep the history.
   const cutoff = new Date(Date.now() - 60 * 86_400_000).toISOString();
   const kept = all.filter((t) => !t.done || (t.doneAt ?? t.updatedAt) > cutoff);
@@ -142,7 +143,7 @@ function setTickTickPendingUnlocked(id: string, pending: boolean) {
 
 // Every TickTick id ever imported, kept apart from the tasks: a task deleted (or pruned) here must
 // not come back on the next import.
-const importedFile = () => path.join(DATA_DIR, "todos-imported.json");
+const importedFile = () => path.join(dataDir(), "todos-imported.json");
 function readImported(): Set<string> {
   try {
     const v = JSON.parse(fs.readFileSync(importedFile(), "utf8"));
@@ -215,7 +216,7 @@ function importEmailTasksUnlocked(actions: { id: string; needsAction: boolean; t
 }
 
 const dueDay = (t: Todo) => t.due?.slice(0, 10);
-const localDay = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" }).format(new Date(iso));
+const localDay = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: userTz() }).format(new Date(iso));
 
 // Today's list: overdue (open, from an earlier day or past its deadline), today, done today, and what's
 // on later days.
@@ -314,7 +315,7 @@ export function applyTaskSync(id: string, expectedUpdatedAt: string, link: NonNu
 // Durable deletion queue: Undo/Delete removes the exported task too, including a create request
 // that succeeded remotely just before the local task was deleted. Completion is never inferred.
 type DeletedTask = { taskId: string; link?: Todo["ticktick"] };
-const deletedFile = () => path.join(DATA_DIR, "task-sync-deleted.json");
+const deletedFile = () => path.join(dataDir(), "task-sync-deleted.json");
 export function deletedTaskLinks(): DeletedTask[] {
   try { return JSON.parse(fs.readFileSync(deletedFile(), "utf8")); } catch { return []; }
 }

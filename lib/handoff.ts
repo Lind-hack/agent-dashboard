@@ -4,14 +4,15 @@ import path from "node:path";
 import { createGunzip } from "node:zlib";
 import { pipeline } from "node:stream/promises";
 import { Transform } from "node:stream";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // Hand-off v2 storage. The PC script uploads a chat's raw transcript (needed verbatim to resume it)
 // and a context bundle (redacted condensed chats, memory notes, CLAUDE.md/rules, skills) in chunks;
 // `finish` verifies and publishes them as handoffs/sessions/<sessionId>/<generation>/, which the
 // runner turns into a job. Nothing the client sends is ever used as a filesystem path.
 
-export const HANDOFF_DIR = () => path.join(DATA_DIR, "handoffs");
+export const HANDOFF_DIR = () => path.join(dataDir(), "handoffs");
 const uploadsDir = () => path.join(HANDOFF_DIR(), "uploads");
 export const sessionsDir = () => path.join(HANDOFF_DIR(), "sessions");
 const reservationsDir = () => path.join(HANDOFF_DIR(), "reservations");

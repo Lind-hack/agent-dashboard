@@ -3,6 +3,7 @@ import { coachNow } from "@/lib/coach";
 import { goalById } from "@/lib/goals";
 import { saveStage } from "@/lib/life";
 import { answerTalk, cancelTalk, cleanPlan, lockTalk, logMetric, readMentorDay, readPlanFor, savePlan, startTalk, writeMentorDay, type GoalPlan } from "@/lib/mentor";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -16,11 +17,11 @@ export const maxDuration = 120;
 // POST { action: "edit", goalId, plan } → save his own changes to a plan.
 // POST { action: "log", goalId, key, value, day? } → log a number (indicators add up; "outcome" is a level).
 // POST { action: "orders" } → today's orders now (the runner does this every morning).
-export async function GET() {
+async function GET_() {
   return NextResponse.json({ day: readMentorDay(coachNow().day) });
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { action?: string; goalId?: string; text?: string; plan?: Partial<GoalPlan>; key?: string; value?: number; day?: string } | null;
   const today = coachNow().day;
   try {
@@ -68,3 +69,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "That didn't work." }, { status: 502 });
   }
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

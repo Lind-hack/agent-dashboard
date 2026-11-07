@@ -3,6 +3,7 @@ import { magpieWav } from "./magpie";
 import { DATA_DIR } from "./config";
 import { piperStatus, piperWav, warmPiper } from "./piper-client";
 import { VOICES, looksAlbanian, type Speaker, type VoiceLang } from "./voices";
+import { apiKey } from "./user-keys";
 
 // Text → speech for one short piece (a sentence), as WAV. Three free engines:
 //   1. Groq Orpheus (canopylabs/orpheus-v1-english) — fast and expressive. Needs the model's terms
@@ -19,7 +20,7 @@ let orpheusOffUntil = 0;
 let orpheusWhy = "";
 
 async function orpheus(text: string, voice: string, mood: string): Promise<Buffer | null> {
-  const key = process.env.GROQ_API_KEY;
+  const key = apiKey("GROQ_API_KEY");
   if (!key || Date.now() < orpheusOffUntil || text.length > 200) return null;
   const input = `[${mood}] ${text}`.slice(0, 200);
   const res = await fetch("https://api.groq.com/openai/v1/audio/speech", {
@@ -122,7 +123,7 @@ export async function speak(text: string, who: Speaker, signal?: AbortSignal, la
 
 export function ttsStatus() {
   return {
-    orpheus: Date.now() < orpheusOffUntil ? `off: ${orpheusWhy}` : process.env.GROQ_API_KEY ? "on" : "no GROQ_API_KEY",
+    orpheus: Date.now() < orpheusOffUntil ? `off: ${orpheusWhy}` : apiKey("GROQ_API_KEY") ? "on" : "no GROQ_API_KEY",
     kokoro: kokoroReady ? "ready" : kokoro ? "loading" : "loads on first use",
     piper: piperStatus(),
   };

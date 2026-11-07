@@ -2,10 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
 import { invalidateMemory, notesDir } from "@/lib/memory";
+import { guarded } from "@/lib/guard";
 
 // Posted by handoff/sync-notes.mjs on the PC (Bearer HANDOFF_TOKEN, checked in proxy.ts):
 // { files: [{ name, text }] } replaces the whole notes folder, so deleted notes disappear too.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const files = (await request.json().catch(() => null))?.files as { name?: string; text?: string }[] | undefined;
   if (!Array.isArray(files)) return NextResponse.json({ error: "files[] is required" }, { status: 400 });
   const clean = files
@@ -23,3 +24,5 @@ export async function POST(request: Request) {
   invalidateMemory();
   return NextResponse.json({ ok: true, count: clean.length });
 }
+
+export const POST = guarded(POST_, { owner: true });

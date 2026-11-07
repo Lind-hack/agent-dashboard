@@ -4,16 +4,17 @@ import { applyAction } from "@/lib/apply-action";
 import { appendThread, buddyReply, readProfile, readThread, type BuddyTurn } from "@/lib/buddy";
 import { coachNow } from "@/lib/coach";
 import { addEntry } from "@/lib/journal";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // The Buddy (v5.1). GET → the conversation (last 80 turns) and when the profile was last updated.
 // POST { message, voice? } → a reply; { apply: action } → carries out one of its proposed actions.
-export async function GET() {
+async function GET_() {
   return NextResponse.json({ thread: readThread().slice(-80), profileAt: readProfile().at ?? null });
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { message?: string; voice?: boolean; apply?: AssistantAction } | null;
   if (b?.apply) {
     const r = await applyAction(coachNow().day, b.apply);
@@ -28,3 +29,6 @@ export async function POST(request: Request) {
   appendThread(reply);
   return NextResponse.json({ turn: reply });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

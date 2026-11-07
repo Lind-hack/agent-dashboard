@@ -6,6 +6,7 @@ import { readDb, readDeploys, readIncidents, readPsi, readSeo, summarize, type P
 import { failedUnits } from "@/lib/ops";
 import { ago, cn } from "@/lib/utils";
 import { siteHealth } from "@/lib/website";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ const tone = (n: number) => (n >= 90 ? "text-ok" : n >= 50 ? "text-warn" : "text
 // 383ks.com, in depth: uptime and latency per endpoint (3-minute probes, 30 days kept), incidents,
 // deploy history, Core Web Vitals (PageSpeed every 6 h), daily SEO checks, GA4 traffic, Supabase health
 // (root timer) and the VPS jobs that publish the news.
-export default async function WebsitePage() {
+async function WebsitePage() {
   const [s, t, failed] = await Promise.all([siteHealth(), traffic().catch(() => null), failedUnits().catch(() => [])]);
   const { probes, overall24h, overall7d } = summarize();
   const incidents = readIncidents();
@@ -394,3 +395,5 @@ function ProbeRow({ p }: { p: ProbeSummary }) {
     </div>
   );
 }
+
+export default page(WebsitePage, { owner: true });

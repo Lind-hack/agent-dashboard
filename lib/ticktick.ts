@@ -1,14 +1,15 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+import { dataDir, userTz } from "./tenant";
+
 
 // TickTick Open API (developer.ticktick.com): Lind's planner app. Connected from the Today page:
 // he pastes his app's client id/secret, approves on ticktick.com, the callback stores the token in
 // data/ticktick.json (mode 600). TickTick issues no refresh token — when it lapses, connect again.
 
 const API = "https://api.ticktick.com/open/v1";
-const file = () => path.join(DATA_DIR, "ticktick.json");
+const file = () => path.join(dataDir(), "ticktick.json");
 
 type Creds = { client_id: string; client_secret: string; access_token?: string; state?: string; redirect?: string };
 
@@ -36,7 +37,7 @@ function read(): Creds | null {
 }
 
 function write(c: Creds) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   fs.writeFileSync(`${file()}.tmp`, JSON.stringify(c), { mode: 0o600 });
   fs.renameSync(`${file()}.tmp`, file());
 }
@@ -72,7 +73,7 @@ export async function finishConnect(code: string, state: string) {
 
 export class TickTickRateLimitError extends Error {
   constructor(public retryAt: number) {
-    super(`TickTick is rate limiting requests. Sync will retry after ${new Date(retryAt).toLocaleTimeString("en-GB", { timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" })}.`);
+    super(`TickTick is rate limiting requests. Sync will retry after ${new Date(retryAt).toLocaleTimeString("en-GB", { timeZone: userTz() })}.`);
   }
 }
 

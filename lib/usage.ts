@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // Plan usage for the two subscriptions, as each CLI last reported it:
 // - Claude Code emits `rate_limit_event` in stream-json; the runner saves it to data/usage.json.
@@ -11,7 +12,7 @@ import { DATA_DIR } from "./config";
 export type Window = { usedPct: number | null; resetsAt: number | null }; // resetsAt = unix seconds
 export type PlanUsage = { fiveHour?: Window; week?: Window; status?: string; at?: string };
 
-const usageFile = () => path.join(DATA_DIR, "usage.json");
+const usageFile = () => path.join(dataDir(), "usage.json");
 
 // The CLI emits camelCase (rateLimitType, resetsAt); the SDK docs show snake_case. Accept both.
 type ClaudeInfo = {
@@ -41,7 +42,7 @@ export function recordClaudeUsage(info: ClaudeInfo) {
   claude.status = info?.status;
   claude.at = new Date().toISOString();
   all.claude = claude;
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   fs.writeFileSync(`${usageFile()}.tmp`, JSON.stringify(all));
   fs.renameSync(`${usageFile()}.tmp`, usageFile());
 }

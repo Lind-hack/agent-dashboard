@@ -34,7 +34,7 @@ async function transcribe(audio: Blob): Promise<string> {
   return String(out?.text ?? "").trim();
 }
 
-export function BuddyView({ initialThread, today, week, focusJournal, profileAt, locked, obsidian }: { initialThread: BuddyTurn[]; today: JournalDay; week: JournalDay[]; focusJournal: boolean; profileAt: string | null; locked?: { score: number; label: string }; obsidian: boolean }) {
+export function BuddyView({ initialThread, today, week, focusJournal, profileAt, locked, obsidian, name = "Lind" }: { name?: string; initialThread: BuddyTurn[]; today: JournalDay; week: JournalDay[]; focusJournal: boolean; profileAt: string | null; locked?: { score: number; label: string }; obsidian: boolean }) {
   const [thread, setThread] = useState(initialThread);
   const [thinking, setThinking] = useState(false);
   const [text, setText] = useState("");
@@ -111,7 +111,7 @@ export function BuddyView({ initialThread, today, week, focusJournal, profileAt,
           </div>
           <div className="min-w-0 flex-1">
             <p className="hud-label">your buddy</p>
-            <h1 className="mt-1 text-[1.9rem] leading-none font-semibold tracking-[-0.04em]">Hey Lind.</h1>
+            <h1 className="mt-1 text-[1.9rem] leading-none font-semibold tracking-[-0.04em]">Hey {name}.</h1>
             {locked && (
               <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-line bg-black/30 px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] uppercase" title="From your last 7 days: blocks done, on time, habits, streak, goals touched">
                 <span className={locked.score >= 80 ? "text-ok" : locked.score >= 60 ? "text-hud" : locked.score >= 35 ? "text-warn" : "text-bad"}>{locked.label}</span>

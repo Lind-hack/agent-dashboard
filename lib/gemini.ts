@@ -1,17 +1,20 @@
+import { apiKey } from "./user-keys";
+import { personalize } from "./tenant";
 // Gemini (Google AI Studio free tier) — the one free vision model that answers reliably (checked
 // 2026-10-30: Groq has no vision model left, NVIDIA's VL models were gone or timing out).
 // https://ai.google.dev/api/generate-content — images go inline as base64.
 
-export const geminiKey = () => process.env.GEMINI_API_KEY ?? process.env.GOOGLE_AI_API_KEY ?? "";
+export const geminiKey = () => apiKey("GEMINI_API_KEY");
 export const geminiReady = () => !!geminiKey();
 const model = () => process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite";
 
 export type InlineImage = { mime: string; data: Buffer };
 
 // One JSON answer about some images (and optional text). Throws with a readable reason.
-export async function geminiJSON<T>(prompt: string, images: InlineImage[]): Promise<Partial<T>> {
+export async function geminiJSON<T>(rawPrompt: string, images: InlineImage[]): Promise<Partial<T>> {
+  const prompt = personalize(rawPrompt, true);
   const key = geminiKey();
-  if (!key) throw new Error("GEMINI_API_KEY isn't set on the VPS");
+  if (!key) throw new Error("No Gemini key yet: add one in Settings → AI keys");
   let last = "";
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt) await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt));

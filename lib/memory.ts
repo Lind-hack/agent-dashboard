@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import { PILES, readMail, readPiles } from "./gmail";
 import { readGoals } from "./goals";
 import { groqJSON } from "./groq";
@@ -8,6 +8,7 @@ import { libraryDir, listItems, readSections, readSourceToggles } from "./librar
 import { recentIssues } from "./linear";
 import { listJobs } from "./store";
 import { formatTimestamp, hasTiming, transcriptWindows, type Transcript } from "./video-transcript";
+import { dataDir, perTenant, userTz, vaultDir, vaultName } from "./tenant";
 
 // Memory: one searchable index over everything Lind's agents and notes know, answered with sources.
 // - chat:     dashboard chats (Claude / Codex / OpenCode / Hermes turns, hand-offs)
@@ -41,10 +42,8 @@ export type GraphNode = { id: string; kind: SourceKind; group: string; title: st
 export type GraphEdge = { from: string; to: string; kind: "transcript" };
 export type GraphEntity = { id: number; label: string; type: "project" | "person" | "topic"; count: number };
 
-const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 // Obsidian knows the vault by its folder name on the PC ("Lind Brain"), not the VPS path.
-const vaultName = () => process.env.MEMORY_VAULT_NAME ?? "Lind Brain";
-export const notesDir = () => path.join(DATA_DIR, "notes");
+export const notesDir = () => path.join(dataDir(), "notes");
 export const memoryInboxDir = () => path.join(vaultDir(), "100 - Me", "memory", "inbox");
 
 const slug = (s: string) =>
@@ -62,7 +61,7 @@ const slug = (s: string) =>
 export function captureMemory(text: string): { ok: true; file: string } | { ok: false; error: string } {
   const body = text.trim();
   if (!body) return { ok: false, error: "Nothing to remember." };
-  const tz = process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
+  const tz = userTz();
   const now = new Date();
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((x) => [x.type, x.value]));
   const stamp = `${p.year}-${p.month}-${p.day}-${p.hour}${p.minute}`;
@@ -251,7 +250,7 @@ function mailDocs(): Doc[] {
 
 function readSource<T>(name: string): T[] {
   try {
-    const v = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "sources", name), "utf8"));
+    const v = JSON.parse(fs.readFileSync(path.join(dataDir(), "sources", name), "utf8"));
     return Array.isArray(v?.items) ? v.items : [];
   } catch {
     return [];
@@ -302,7 +301,7 @@ function calendarDocs(): Doc[] {
       at: e.start.length > 10 ? e.start : `${e.start}T09:00:00Z`,
       text: `${e.title}\n${e.allDay ? e.start : `${e.start.slice(0, 16).replace("T", " ")} – ${e.end.slice(11, 16)}`}${e.location ? `\nWhere: ${e.location}` : ""}${e.description ? `\n\n${e.description}` : ""}`,
     }));
-  const plans = readDir(path.join(DATA_DIR, "plans"), /^\d{4}-\d{2}-\d{2}\.json$/)
+  const plans = readDir(path.join(dataDir(), "plans"), /^\d{4}-\d{2}-\d{2}\.json$/)
     .filter((p) => p.name.slice(0, 10) >= since)
     .map(({ name, json }) => {
       const day = name.slice(0, 10);
@@ -317,7 +316,7 @@ function calendarDocs(): Doc[] {
         text: `Plan for ${day}${json.summary ? ` — ${json.summary}` : ""}\n${blocks.map((b) => `- ${b.start}–${b.end} ${b.title} (${b.status})`).join("\n")}`,
       };
     });
-  const recaps = readDir(path.join(DATA_DIR, "coach"), /^recap-\d{4}-\d{2}-\d{2}\.json$/).map(({ name, json }) => {
+  const recaps = readDir(path.join(dataDir(), "coach"), /^recap-\d{4}-\d{2}-\d{2}\.json$/).map(({ name, json }) => {
     const day = name.slice(6, 16);
     return {
       id: `calendar:recap:${day}`,
@@ -329,7 +328,7 @@ function calendarDocs(): Doc[] {
       text: `Day recap ${day}: score ${json.score}/100, ${json.done}/${json.total} blocks, ${json.focusMin} focus minutes.\n${json.note ?? ""}\nSkipped: ${(Array.isArray(json.skipped) ? json.skipped : []).join("; ")}`,
     };
   });
-  const briefs = readDir(path.join(DATA_DIR, "assistant"), /^brief-\d{4}-\d{2}-\d{2}-\w+\.json$/).map(({ name, json }) => ({
+  const briefs = readDir(path.join(dataDir(), "assistant"), /^brief-\d{4}-\d{2}-\d{2}-\w+\.json$/).map(({ name, json }) => ({
     id: `calendar:brief:${name}`,
     kind: "calendar" as const,
     group: "plans",
@@ -339,7 +338,7 @@ function calendarDocs(): Doc[] {
     text: `${json.headline}\n${(Array.isArray(json.focus) ? json.focus : []).join("; ")}\n\n${json.body ?? ""}`,
   }));
   // The journal (v5.1): Lind's own words about each day.
-  const journal = readDir(path.join(DATA_DIR, "journal"), /^\d{4}-\d{2}-\d{2}\.json$/).map(({ name, json }) => {
+  const journal = readDir(path.join(dataDir(), "journal"), /^\d{4}-\d{2}-\d{2}\.json$/).map(({ name, json }) => {
     const day = name.slice(0, 10);
     // What he told the Buddy is its own record below ("Buddy talk"), in the same group.
     const entries = ((Array.isArray(json.entries) ? json.entries : []) as { text?: string; at?: string; source?: string }[]).filter((e) => e.source !== "buddy");
@@ -356,7 +355,7 @@ function calendarDocs(): Doc[] {
   // The Buddy (v5.4): what Lind told it, one record a day — his words, with the Buddy's replies as context.
   const buddy = new Map<string, { at: string; lines: string[] }>();
   try {
-    const thread = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "buddy", "thread.json"), "utf8")) as { role?: string; text?: string; at?: string }[];
+    const thread = JSON.parse(fs.readFileSync(path.join(dataDir(), "buddy", "thread.json"), "utf8")) as { role?: string; text?: string; at?: string }[];
     for (const t of Array.isArray(thread) ? thread : []) {
       if (!t?.text || !t.at) continue;
       const day = t.at.slice(0, 10);
@@ -407,27 +406,27 @@ const mtime = (p: string) => {
   }
 };
 const changeStamp = () =>
-  [path.join(libraryDir(), "items"), path.join(libraryDir(), "sections.json"), path.join(DATA_DIR, "mail", "messages.json"), path.join(DATA_DIR, "mail", "piles.json"), path.join(DATA_DIR, "sources", "github.json"), path.join(DATA_DIR, "sources", "calendar.json"), path.join(DATA_DIR, "plans"), path.join(DATA_DIR, "journal"), path.join(DATA_DIR, "buddy", "thread.json")].map(mtime).join(":");
-let cache: Index | null = null;
-let building: Promise<Index> | null = null;
+  [path.join(libraryDir(), "items"), path.join(libraryDir(), "sections.json"), path.join(dataDir(), "mail", "messages.json"), path.join(dataDir(), "mail", "piles.json"), path.join(dataDir(), "sources", "github.json"), path.join(dataDir(), "sources", "calendar.json"), path.join(dataDir(), "plans"), path.join(dataDir(), "journal"), path.join(dataDir(), "buddy", "thread.json")].map(mtime).join(":");
+const ixState = perTenant(() => ({ cache: null as Index | null, building: null as Promise<Index> | null }));
 
 async function index(): Promise<Index> {
+  const st = ixState();
   const stamp = changeStamp();
-  if (cache && Date.now() - cache.at < 10 * 60_000 && cache.stamp === stamp) return cache;
-  building ??= (async () => {
+  if (st.cache && Date.now() - st.cache.at < 10 * 60_000 && st.cache.stamp === stamp) return st.cache;
+  st.building ??= (async () => {
     const docs = [...captureDocs(), ...chatDocs(), ...(await linearDocs()), ...vaultDocs(), ...noteDocs(), ...mailDocs(), ...githubDocs(), ...calendarDocs()];
     const chunks = docs.flatMap(chunk);
     const df = new Map<string, number>();
     for (const c of chunks) for (const t of c.tf.keys()) df.set(t, (df.get(t) ?? 0) + 1);
     const avg = chunks.reduce((s, c) => s + c.len, 0) / Math.max(1, chunks.length);
-    cache = { at: Date.now(), stamp, docs, chunks, df, avg };
-    return cache;
-  })().finally(() => (building = null));
-  return building;
+    st.cache = { at: Date.now(), stamp, docs, chunks, df, avg };
+    return st.cache;
+  })().finally(() => (st.building = null));
+  return st.building;
 }
 
 export function invalidateMemory() {
-  cache = null;
+  ixState().cache = null;
 }
 
 export const enabledSources = (): Record<SourceKind, boolean> => {

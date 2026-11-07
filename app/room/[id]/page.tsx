@@ -3,10 +3,11 @@ import { RoomView } from "@/components/room-view";
 import { listRepos } from "@/lib/github";
 import { seats } from "@/lib/council";
 import { readRoom, ROOM_ID_RE } from "@/lib/rooms";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
-export default async function RoomPage({ params }: { params: Promise<{ id: string }> }) {
+async function RoomPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const room = readRoom(id);
   if (!room) {
@@ -21,3 +22,5 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
   const repos = room.repo ? [] : (await listRepos().catch(() => [])).map((r) => r.name);
   return <RoomView initial={room} repos={repos} seats={seats()} />;
 }
+
+export default page(RoomPage, { owner: true });

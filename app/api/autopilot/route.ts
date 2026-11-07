@@ -1,19 +1,20 @@
 import { NextResponse } from "next/server";
 import { autopilotEnabled, readAutopilot, setAutopilotEnabled, undoStep, type Step } from "@/lib/autopilot";
 import { coachNow } from "@/lib/coach";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Autopilot (v5.1). GET → what it did today and whether it's on. POST { undo: step } puts the plan and
 // tasks back as they were before that step; { enabled } turns it on or off.
-export async function GET() {
+async function GET_() {
   const day = coachNow().day;
   return NextResponse.json({ enabled: autopilotEnabled(), ...readAutopilot(day) });
 }
 
 const STEPS: Step[] = ["morning", "midday", "evening"];
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { undo?: Step; enabled?: boolean } | null;
   const day = coachNow().day;
   if (typeof b?.enabled === "boolean") {
@@ -26,3 +27,6 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ error: "bad request" }, { status: 400 });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

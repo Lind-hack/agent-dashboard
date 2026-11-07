@@ -3,13 +3,14 @@ import path from "node:path";
 import { askJSON } from "./ask";
 import { addDays } from "./calendar";
 import { goalProgress } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { readGoals, type Goal } from "./goals";
 import { addEntry } from "./journal";
 import { lifeContext } from "./life";
 import { recallMemory, recallText } from "./memory";
 import { solEnabled, solJSON, solLabel } from "./sol";
 import { addTodo, listTodos, removeTodo } from "./todos";
+import { dataDir } from "./tenant";
 
 // The Mentor (v5.4, Lind: "guide me every day on what to do and how to do it to achieve those goals").
 // Each goal gets a plan: the number it ends at and by when, dated milestones, and the handful of
@@ -45,7 +46,7 @@ export type PlanTalk = { goalId: string; read: string; questions: string[]; said
 
 export const OUTCOME = "outcome"; // the key the goal's end number is logged under
 
-const dir = () => path.join(DATA_DIR, "mentor");
+const dir = () => path.join(dataDir(), "mentor");
 const planFile = (goalId: string) => path.join(dir(), "plans", `${goalId.replace(/[^a-z0-9-]/gi, "")}.json`);
 const talkFile = (goalId: string) => path.join(dir(), "talks", `${goalId.replace(/[^a-z0-9-]/gi, "")}.json`);
 const logFile = () => path.join(dir(), "log.json");

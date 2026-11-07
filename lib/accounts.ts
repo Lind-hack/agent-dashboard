@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import { withLock } from "./file-lock";
+import { dataDir, tenantId } from "./tenant";
 
 // Extra mail accounts (v5.1). The main Google account stays in data/google.json; every other one is a
 // file in data/accounts/ (mode 600, never sent to the browser):
@@ -31,7 +32,7 @@ export type Account = {
 };
 export type PublicAccount = { id: string; provider: Provider; email: string; addedAt: string; calendar: boolean; drafts: boolean };
 
-const dir = () => path.join(DATA_DIR, "accounts");
+const dir = () => path.join(dataDir(), "accounts");
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || crypto.randomBytes(3).toString("hex");
 
 export function listAccounts(): Account[] {
@@ -92,7 +93,7 @@ export function removeAccount(id: string): boolean {
 const tokens = new Map<string, { value: string; until: number }>();
 
 export async function googleToken(a: Account): Promise<string> {
-  const t = tokens.get(a.id);
+  const t = tokens.get(`${tenantId()}:${a.id}`);
   if (t && Date.now() < t.until) return t.value;
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -102,7 +103,7 @@ export async function googleToken(a: Account): Promise<string> {
   });
   const b = (await res.json().catch(() => null)) as { access_token?: string; expires_in?: number; error_description?: string } | null;
   if (!res.ok || !b?.access_token) throw new Error(`${a.email}: Google sign-in expired — run google-auth --add again (${b?.error_description ?? res.status}).`);
-  tokens.set(a.id, { value: b.access_token, until: Date.now() + ((b.expires_in ?? 3600) - 120) * 1000 });
+  tokens.set(`${tenantId()}:${a.id}`, { value: b.access_token, until: Date.now() + ((b.expires_in ?? 3600) - 120) * 1000 });
   return b.access_token;
 }
 
@@ -113,7 +114,7 @@ export const OUTLOOK_SCOPES = "offline_access User.Read Mail.Read";
 const MS = "https://login.microsoftonline.com/common/oauth2/v2.0";
 
 export async function outlookToken(a: Account): Promise<string> {
-  const t = tokens.get(a.id);
+  const t = tokens.get(`${tenantId()}:${a.id}`);
   if (t && Date.now() < t.until) return t.value;
   const res = await fetch(`${MS}/token`, {
     method: "POST",
@@ -124,7 +125,7 @@ export async function outlookToken(a: Account): Promise<string> {
   const b = (await res.json().catch(() => null)) as { access_token?: string; refresh_token?: string; expires_in?: number; error_description?: string } | null;
   if (!res.ok || !b?.access_token) throw new Error(`${a.email}: Microsoft sign-in expired — connect it again (${b?.error_description?.split("\n")[0] ?? res.status}).`);
   if (b.refresh_token && b.refresh_token !== a.refresh_token) saveAccount({ ...a, refresh_token: b.refresh_token });
-  tokens.set(a.id, { value: b.access_token, until: Date.now() + ((b.expires_in ?? 3600) - 120) * 1000 });
+  tokens.set(`${tenantId()}:${a.id}`, { value: b.access_token, until: Date.now() + ((b.expires_in ?? 3600) - 120) * 1000 });
   return b.access_token;
 }
 

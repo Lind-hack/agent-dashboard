@@ -9,6 +9,7 @@ import { HANDOFF_DIR, jobIdFor, readJSON, type HandoffMeta } from "../lib/handof
 import { limited, nemotron, nvidiaModel, nvidiaReady } from "../lib/nvidia";
 import { redact } from "../lib/redact";
 import type { Job } from "../lib/store";
+import { vaultDir } from "../lib/tenant";
 
 // Hand-off v2, VPS side. A published hand-off (handoffs/sessions/<sid>/<gen>/) becomes a job; `prepare`
 // then builds everything the agent needs beside the code in `.handoff/`:
@@ -196,7 +197,7 @@ async function projectSources(job: Job, cwd: string): Promise<Record<string, str
     }
   }
   // Vault pages about this project (file names mentioning the repo), from the Obsidian brain.
-  const vault = process.env.MEMORY_VAULT_DIR;
+  const vault = vaultDir();
   const key = job.repo ? repoShort(job.repo).replace(/^-/, "").toLowerCase() : "";
   if (vault && key) {
     const hits: string[] = [];

@@ -21,6 +21,9 @@ import { listRooms } from "@/lib/rooms";
 import { planUsage } from "@/lib/usage";
 import { ago, cn } from "@/lib/utils";
 import { siteHealth } from "@/lib/website";
+import { isOwner, vaultDir } from "@/lib/tenant";
+import { redirect } from "next/navigation";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +50,8 @@ const More = ({ href, children }: { href: string; children: React.ReactNode }) =
   </Link>
 );
 
-export default async function Home() {
+async function Home() {
+  if (!isOwner()) redirect("/calendar"); // Home is the agents' control room; everyone else starts on Today
   const usage = planUsage();
   const jobs = listJobs();
   const heartbeat = readHeartbeat();
@@ -80,7 +84,7 @@ export default async function Home() {
   const readout = [
     runnerAlive ? "runner online" : "runner offline",
     brain.updatedAt ? `brain ${brainFailing ? `${brainFailing} failing` : "synced"}` : "brain idle",
-    process.env.MEMORY_VAULT_DIR ? "vault connected" : "vault off",
+    vaultDir() ? "vault connected" : "vault off",
     site?.up ? "383 up" : "383 down",
   ];
 
@@ -111,7 +115,7 @@ export default async function Home() {
 
       <MissionStrip now={coachNow()} goals={goalProgress()} />
 
-      {day && <HomeDay day={day} />}
+      {day && HomeDay({ day }) /* called now: it reads data */}
 
       <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.5fr)_minmax(0,0.95fr)] lg:gap-5">
         {/* Centre on the phone comes first: the core and the agents. */}
@@ -279,3 +283,5 @@ function UpNext({ day }: { day: Today }) {
     </>
   );
 }
+
+export default page(Home);

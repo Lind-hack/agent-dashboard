@@ -2,11 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { calendarConnected, replacePlan, type PlanBlock } from "./calendar";
 import { clockNow, coachNow, coachTz, dayProgress } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { withLock } from "./file-lock";
 import { activeBlocks, readPlan, restorePlan, savePlanIf, type DayPlan, type StoredBlock } from "./plan-store";
 import { planDay, writePlanNote } from "./planner";
 import { setTodoDays, todosFor } from "./todos";
+import { dataDir } from "./tenant";
 
 // Autopilot (v5.1, Lind's pick: fully automatic + undo). The runner does three things every day:
 // - morning (07:30): Sol plans the day from tasks, goals and calendar and puts the blocks on Google
@@ -25,7 +26,7 @@ export type StepLog = { at: string; summary: string; blocks?: number; moved?: nu
 export type AutopilotDay = { day: string; steps: Partial<Record<Step, StepLog>> };
 type Snapshot = { plan: DayPlan | null; todos: { id: string; day: string; due?: string }[] };
 
-const dir = () => path.join(DATA_DIR, "autopilot");
+const dir = () => path.join(dataDir(), "autopilot");
 const logFile = (day: string) => path.join(dir(), `${day}.json`);
 const snapFile = (day: string, step: Step) => path.join(dir(), `${day}-${step}.snapshot.json`);
 const settingsFile = () => path.join(dir(), "settings.json");

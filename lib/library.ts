@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import type { LearningDigest } from "./learning";
 import type { Transcript } from "./video-transcript";
+import { dataDir, isOwner, vaultDir } from "./tenant";
 
 // The Library: everything Lind throws at Memory — typed notes, voice, images, videos, files, links.
 // One JSON per item in data/library/items, the media next to it in data/library/media. The runner
@@ -45,7 +46,7 @@ export type Section = { id: string; name: string; description: string; hue: numb
 export const MAX_SECTIONS = 24;
 export const MAX_UPLOAD = 200 * 1024 * 1024;
 
-export const libraryDir = () => path.join(DATA_DIR, "library");
+export const libraryDir = () => path.join(dataDir(), "library");
 const itemsDir = () => path.join(libraryDir(), "items");
 export const mediaDir = () => path.join(libraryDir(), "media");
 export const uploadsDir = () => path.join(libraryDir(), "uploads");
@@ -120,7 +121,7 @@ export function createItem(fields: Partial<LibraryItem> & { kind: ItemKind }): L
 // A text note per item in the vault ("100 - Me/memory/<Section>/…"), so Obsidian and Hermes see it.
 // Rewritten when the item is filed, renamed or moved; removed when it's deleted.
 
-const vault = () => process.env.MEMORY_VAULT_DIR ?? "";
+const vault = () => vaultDir();
 const insideVault = (rel: string) => {
   const root = path.resolve(vault());
   const p = path.resolve(root, rel);
@@ -193,7 +194,10 @@ export function readSections(): Section[] {
     /* first run */
   }
   const now = new Date().toISOString();
-  const seeded = SEED.map(([name, description], i) => ({ id: slugId(name), name, description, hue: hueFor(i), createdAt: now, createdBy: "core" as const }));
+  const seed = isOwner()
+    ? SEED
+    : SEED.map(([n, d]): [string, string] => (n === "Projects" ? [n, "Notes about things you're building or working on"] : n === "Content" ? [n, "Things to make or share: drafts, references, inspiration"] : [n, d]));
+  const seeded = seed.map(([name, description], i) => ({ id: slugId(name), name, description, hue: hueFor(i), createdAt: now, createdBy: "core" as const }));
   writeSections(seeded);
   return seeded;
 }

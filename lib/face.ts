@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // The face behind the mirror and the morning push (v5.2): an image Lind picks and uploads himself,
 // kept in data/coach/face.bin with its type next to it. Private to his dashboard.
-const bin = () => path.join(DATA_DIR, "coach", "face.bin");
-const meta = () => path.join(DATA_DIR, "coach", "face.json");
+const bin = () => path.join(dataDir(), "coach", "face.bin");
+const meta = () => path.join(dataDir(), "coach", "face.json");
 
 export const faceSet = () => fs.existsSync(bin());
 

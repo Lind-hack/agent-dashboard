@@ -2,7 +2,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentKey } from "./agents";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // The skills each agent really has on the VPS, so the "/" picker only offers ones that will run:
 //   Claude — your skills (~/.claude/skills, synced from the PC), account skills synced from claude.ai
@@ -153,7 +154,7 @@ export type SkillsStatus = {
 export function readSkillsStatus(): SkillsStatus {
   const read = (f: string) => {
     try {
-      return JSON.parse(fs.readFileSync(path.join(DATA_DIR, f), "utf8"));
+      return JSON.parse(fs.readFileSync(path.join(dataDir(), f), "utf8"));
     } catch {
       return null;
     }
