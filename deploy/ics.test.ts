@@ -7,7 +7,7 @@ import { test } from "node:test";
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "ics-test-"));
 process.env.SESSION_SECRET = "test-secret-test-secret-test-secret";
 
-const { eventsFromIcs, normalizeFeedUrl, addFeed, listFeeds, icsEvents } = await import("../lib/ics");
+const { eventsFromIcs, normalizeFeedUrl, addFeed, listFeeds, icsEvents, setFeedTransport } = await import("../lib/ics");
 const { createInvite, signUp, tenantOf } = await import("../lib/users");
 const { runAs, ownerTenant } = await import("../lib/tenant");
 const { agenda, calendarReadable, calendarConnected } = await import("../lib/calendar");
@@ -112,19 +112,24 @@ test("only https links to public servers are fetched, redirects included", async
     await assert.rejects(addFeed("https://127.0.0.1/cal.ics"), /public|private|address/i);
     await assert.rejects(addFeed("https://localhost/cal.ics"), /public|private|address/i);
     let hops = 0;
-    globalThis.fetch = (async () => {
+    const pinned: string[] = [];
+    setFeedTransport(async (_u, ip) => {
       hops++;
-      return new Response("", { status: 302, headers: { location: "http://169.254.169.254/latest" } });
-    }) as typeof fetch;
+      pinned.push(ip);
+      return { status: 302, location: "http://169.254.169.254/latest", body: Buffer.alloc(0) };
+    });
     await assert.rejects(addFeed("https://93.184.215.14/cal.ics"), /redirects/);
     assert.equal(hops, 1);
+    assert.deepEqual(pinned, ["93.184.215.14"], "the download goes to the address that was checked");
+    setFeedTransport(async () => ({ status: 302, location: "https://169.254.169.254/latest", body: Buffer.alloc(0) }));
+    await assert.rejects(addFeed("https://93.184.215.14/cal.ics"), /public/, "an https redirect to a private address is refused too");
     assert.equal(listFeeds().length, 0);
   });
 });
 
 test("an account with a calendar link gets its events on Today; the owner's Google sign-in isn't involved", async () => {
   const a = signUp({ email: "cal@example.com", name: "C", password: "long enough pw", invite: createInvite().code, tz: "Europe/Berlin" });
-  globalThis.fetch = (async () => new Response(ICS, { status: 200 })) as typeof fetch;
+  setFeedTransport(async () => ({ status: 200, location: null, body: Buffer.from(ICS) }));
   await runAs(tenantOf(a), async () => {
     assert.equal(calendarReadable(), false);
     const f = await addFeed("https://93.184.215.14/private/basic.ics");

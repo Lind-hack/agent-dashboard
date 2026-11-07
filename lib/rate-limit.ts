@@ -11,5 +11,6 @@ export function limited(key: string, max: number, windowMs: number): boolean {
   return recent.length > max;
 }
 
-// Behind the Cloudflare tunnel the client's address is in CF-Connecting-IP.
-export const clientIp = (req: Request) => req.headers.get("cf-connecting-ip") ?? req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+// Behind the Cloudflare tunnel the client's address is in CF-Connecting-IP (Cloudflare sets it; a client can't).
+// Without it every request shares one bucket: X-Forwarded-For is whatever the client typed, so it isn't trusted.
+export const clientIp = (req: Request) => req.headers.get("cf-connecting-ip")?.trim() || "direct";

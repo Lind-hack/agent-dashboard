@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { withLock } from "./file-lock";
 import { currentTenant, dataDir } from "./tenant";
 
 // AI and service keys. The owner's come from /etc/agent-dashboard.env as before. Everyone else brings
@@ -67,14 +68,17 @@ export const hasKey = (name: KeyName) => !!apiKey(name);
 
 export function setKey(name: KeyName, value: string | null) {
   if (currentTenant().owner) throw new Error("The owner's keys live in /etc/agent-dashboard.env");
-  const all = readSealed();
-  const v = value?.trim();
-  if (v) all[name] = seal(v);
-  else delete all[name];
-  fs.mkdirSync(dataDir(), { recursive: true });
-  const tmp = `${file()}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(all), { mode: 0o600 });
-  fs.renameSync(tmp, file());
+  // Locked: two keys saved at once must both survive.
+  withLock("keys", () => {
+    const all = readSealed();
+    const v = value?.trim();
+    if (v) all[name] = seal(v);
+    else delete all[name];
+    fs.mkdirSync(dataDir(), { recursive: true });
+    const tmp = `${file()}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(all), { mode: 0o600 });
+    fs.renameSync(tmp, file());
+  });
 }
 
 // What the settings page may show: which keys exist and their last four characters, never the key.

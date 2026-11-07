@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import https from "node:https";
+import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import ICAL from "ical.js";
@@ -49,24 +51,65 @@ export function normalizeFeedUrl(raw: string): URL | null {
   }
 }
 
+type Got = { status: number; location: string | null; body: Buffer };
+
+// One GET over TLS to the exact address that was checked (DNS isn't asked twice, so a name can't answer
+// "public" for the check and "private" for the download). The certificate is still checked for the name.
+function pinnedGet(u: URL, ip: string): Promise<Got> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      u,
+      {
+        headers: { Accept: "text/calendar, */*", "User-Agent": "AgenticOS-calendar/1" },
+        servername: net.isIP(u.hostname) ? undefined : u.hostname,
+        lookup: (_host, opts, cb) => {
+          const family = net.isIP(ip);
+          if ((opts as { all?: boolean })?.all) (cb as unknown as (e: null, a: { address: string; family: number }[]) => void)(null, [{ address: ip, family }]);
+          else cb(null, ip, family);
+        },
+        timeout: 20_000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on("data", (c: Buffer) => {
+          size += c.length;
+          if (size > MAX_BYTES) {
+            req.destroy(new Error("That calendar is too big to read (over 5 MB)"));
+            return;
+          }
+          chunks.push(c);
+        });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, location: typeof res.headers.location === "string" ? res.headers.location : null, body: Buffer.concat(chunks) }));
+        res.on("error", reject);
+      },
+    );
+    req.on("timeout", () => req.destroy(new Error("The calendar server took too long")));
+    req.on("error", reject);
+  });
+}
+
+// Swappable in tests only (they have no network).
+let transport: (u: URL, ip: string) => Promise<Got> = pinnedGet;
+export function setFeedTransport(t: ((u: URL, ip: string) => Promise<Got>) | null) {
+  transport = t ?? pinnedGet;
+}
+
 // Only public servers, every redirect checked again: a link can't point the server at itself.
 async function fetchFeed(url: URL): Promise<string> {
   let u = url;
   for (let hop = 0; hop < 4; hop++) {
-    await publicAddress(u.hostname);
-    const res = await fetch(u, { redirect: "manual", headers: { Accept: "text/calendar, */*" }, signal: AbortSignal.timeout(20_000) });
+    const ip = await publicAddress(u.hostname);
+    const res = await transport(u, ip);
     if (res.status >= 300 && res.status < 400) {
-      const next = normalizeFeedUrl(new URL(res.headers.get("location") ?? "", u).toString());
+      const next = normalizeFeedUrl(new URL(res.location ?? "", u).toString());
       if (!next) throw new Error("The calendar link redirects somewhere it can't follow");
       u = next;
       continue;
     }
-    if (!res.ok) throw new Error(res.status === 404 || res.status === 403 ? "The calendar server says this link doesn't exist or isn't shared" : `The calendar server answered ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX_BYTES) throw new Error("That calendar is too big to read (over 5 MB)");
-    const text = buf.toString("utf8");
-    if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error("That link isn't a calendar (.ics) file");
-    return text;
+    // One answer for every failure: the reason a server refused isn't something to probe with.
+    if (res.status !== 200 || !/BEGIN:VCALENDAR/i.test(res.body.toString("utf8", 0, 4096))) throw new Error("Couldn't read a calendar at that link. Check that it's the private iCal/.ics address");
+    return res.body.toString("utf8");
   }
   throw new Error("The calendar link redirects too many times");
 }

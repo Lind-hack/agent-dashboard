@@ -206,3 +206,24 @@ test("Lind's own life is left out of another account's instructions, but their o
   });
   assert.equal(withoutOwnerBio("My notes. I posted a TikTok about the 383 news site."), "My notes. I posted a TikTok about the 383 news site.");
 });
+
+test("Sol (the owner's ChatGPT login) never runs another account's planning; their own key does", async () => {
+  const { solJSON, sol, solLabel } = await import("../lib/sol");
+  process.env.CODEX_BIN = path.join(process.env.DATA_DIR!, "codex-must-not-run");
+  const a = newUser("sol@example.com", "Ola");
+  const seen: string[] = [];
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    seen.push(`${url} ${String(init?.body ?? "")}`);
+    return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"plan":"x","text":"profile"}' }] } }] }), { status: 200 });
+  }) as typeof fetch;
+  await runAs(tenantOf(a), async () => {
+    assert.equal(await solJSON("You plan Lind's day. He's a CS student in Pristina.", "today"), null, "no key: nothing runs, Codex included");
+    setKey("GEMINI_API_KEY", "AIza_ola");
+    assert.deepEqual(await solJSON<{ plan: string }>("You plan Lind's day. He's a CS student in Pristina.", "today"), { plan: "x", text: "profile" });
+    assert.equal(await sol("Write what you know about Lind.", "notes"), "profile");
+    assert.equal(solLabel(), "your AI");
+  });
+  assert.equal(seen.length, 2);
+  assert.ok(seen.every((s) => s.includes("generativelanguage") && s.includes("Ola") && !s.includes("Pristina") && !/\bLind\b/.test(s)));
+  delete process.env.CODEX_BIN;
+});

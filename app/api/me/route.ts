@@ -26,6 +26,7 @@ async function PATCH_(req: Request) {
   const b = (await req.json().catch(() => null)) as { name?: string; tz?: string; setupDone?: boolean; password?: string; current?: string } | null;
   try {
     const u = mine();
+    if (b?.password !== undefined && (String(b.password).length > 200 || String(b.current ?? "").length > 200)) throw new SignupError("That password is too long");
     if (b?.password !== undefined && !logIn(u.email, String(b.current ?? ""))) throw new SignupError("Your current password isn't right");
     const next = updateUser(u.id, { name: b?.name, tz: b?.tz, setupDone: b?.setupDone, password: b?.password });
     const res = NextResponse.json({ ok: true });

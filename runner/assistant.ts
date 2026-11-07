@@ -25,8 +25,7 @@ const PROGRESS_AT = () => (process.env.PROGRESS_AT ?? "16:00,19:00").split(",").
 const fmt = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
 // One copy per account (the runner runs every user's jobs in turn).
-const st = perTenant(() => ({ briefing: false, tries: new Map<string, { n: number; last: number }>() }));
-let events: { at: number; list: CalEvent[] } = { at: 0, list: [] };
+const st = perTenant(() => ({ briefing: false, tries: new Map<string, { n: number; last: number }>(), events: { at: 0, list: [] as CalEvent[] } }));
 
 async function writeBrief(slot: BriefSlot, push: boolean) {
   const day = coachNow().day;
@@ -71,11 +70,12 @@ const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 async function todaysEvents(): Promise<CalEvent[]> {
   if (!calendarReadable()) return [];
-  if (Date.now() - events.at > 5 * 60_000) {
+  const s = st();
+  if (Date.now() - s.events.at > 5 * 60_000) {
     const a = await agenda(1).catch(() => null);
-    if (a) events = { at: Date.now(), list: a.events.filter((e) => !e.allDay && !e.planned) };
+    if (a) s.events = { at: Date.now(), list: a.events.filter((e) => !e.allDay && !e.planned) };
   }
-  return events.list;
+  return s.events.list;
 }
 
 // Called once a minute from the coach tick.

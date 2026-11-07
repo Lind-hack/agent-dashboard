@@ -133,6 +133,7 @@ export function updateUser(id: string, patch: Partial<Pick<User, "name" | "tz" |
       }
       if (patch.password !== undefined) {
         if (patch.password.length < 10) throw new SignupError("Use a password of at least 10 characters");
+        if (patch.password.length > 200) throw new SignupError("That password is too long");
         u.hash = hashPassword(patch.password);
         u.session += 1;
       }
