@@ -1,9 +1,11 @@
 "use client";
 
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ProfileForm } from "@/components/account-settings";
 import { KeyCard, useKeys, type ProviderId } from "@/components/ai-keys";
+import { CalendarConnect } from "@/components/calendar-connect";
+import { ObsidianConnect } from "@/components/obsidian-connect";
 import { PushSwitch } from "@/components/coach";
 import { Panel } from "@/components/kit";
 import { cn } from "@/lib/utils";
@@ -16,6 +18,8 @@ const STEPS: Step[] = [
   { id: "ai", title: "Turn on your AI", lead: "Your dashboard thinks with your own AI key. Google's Gemini is free and takes two minutes." },
   { id: "more", title: "Add more AI (optional)", lead: "Already pay for Claude or ChatGPT? Their API keys plug in here. Groq is free and makes voice typing faster." },
   { id: "you", title: "Your day", lead: "Plans, reminders and the day's start follow your time zone." },
+  { id: "calendar", title: "Your calendar", lead: "Today shows your events and plans your free time around them. Skip this if you don't use a calendar." },
+  { id: "obsidian", title: "Your notes (optional)", lead: "Use Obsidian? Connect your vault: your journal and memory land in it, and your notes feed your coach and planner." },
   { id: "push", title: "Reminders on your phone", lead: "Your coach nudges you when a block starts and checks in at night. Turn on notifications on the device you carry." },
   { id: "done", title: "You're set", lead: "Start with Goals: tell the mentor where you are now and what you want. Today plans around it." },
 ];
@@ -23,7 +27,11 @@ const STEPS: Step[] = [
 const KEY_OF: Record<ProviderId, string> = { gemini: "GEMINI_API_KEY", groq: "GROQ_API_KEY", anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY" };
 
 export function SetupGuide({ name, tz }: { name: string; tz: string }) {
+  // Coming back from Google's sign-in lands on the calendar step again.
   const [i, setI] = useState(0);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("calendar")) setI(STEPS.findIndex((s) => s.id === "calendar"));
+  }, []);
   const { s, reload } = useKeys();
   const step = STEPS[i];
   const hasAny = !!s && (Object.keys(KEY_OF) as ProviderId[]).some((p) => s.keys[KEY_OF[p]]);
@@ -70,6 +78,10 @@ export function SetupGuide({ name, tz }: { name: string; tz: string }) {
           </div>
         ) : step.id === "you" ? (
           <ProfileForm name={name} tz={tz} onSaved={() => setI(i + 1)} />
+        ) : step.id === "calendar" ? (
+          <CalendarConnect />
+        ) : step.id === "obsidian" ? (
+          <ObsidianConnect />
         ) : step.id === "push" ? (
           <Panel className="!rounded-[14px] px-4 py-4">
             <PushSwitch />
@@ -108,7 +120,7 @@ export function SetupGuide({ name, tz }: { name: string; tz: string }) {
           </button>
         ) : (
           <button disabled={blocked} onClick={() => setI(i + 1)} className="flex h-11 items-center gap-2 rounded-[12px] bg-text px-5 text-sm font-medium text-bg disabled:opacity-30">
-            {step.id === "more" || step.id === "push" ? "Next" : "Continue"} <ArrowRight className="h-4 w-4" aria-hidden />
+            {["more", "calendar", "obsidian", "push"].includes(step.id) ? "Next" : "Continue"} <ArrowRight className="h-4 w-4" aria-hidden />
           </button>
         )}
       </div>

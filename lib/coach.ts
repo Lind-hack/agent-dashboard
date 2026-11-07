@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { addDays, dayString } from "./calendar";
+import { addDays, dayString, calendarReadable } from "./calendar";
 
 import { activeGoals, readGoals, type Goal } from "./goals";
 import { activeBlocks, blockMinutes, daysOfWeek, readPlan, type Mood, type StoredBlock } from "./plan-store";
@@ -227,7 +227,7 @@ export function saveRecap(r: Recap) {
 // Today's timed calendar events as busy minutes (so "Plan into today" never lands on a class).
 export async function calendarBusy(): Promise<[number, number][]> {
   const { agenda, calendarConnected } = await import("./calendar");
-  if (!calendarConnected()) return [];
+  if (!calendarReadable()) return [];
   const tz = coachTz();
   const day = dayString(tz);
   const a = await agenda(1).catch(() => null);

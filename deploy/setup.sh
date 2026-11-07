@@ -33,6 +33,9 @@ WIDGET_READ_TOKEN=$(openssl rand -hex 32)
 KEYS_SECRET=$(openssl rand -hex 32)
 # Optional: lets the owner sign in with this email as well as the password alone.
 OWNER_EMAIL=
+# Optional, for other accounts' "Connect Google Calendar" (see deploy/ACCOUNTS.md). Without them they use a calendar link.
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
 EOF
   echo "Wrote $ENV_FILE — fill in the empty keys (sudo nano $ENV_FILE)."
 fi

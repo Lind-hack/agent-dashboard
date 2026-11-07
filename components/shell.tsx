@@ -157,7 +157,7 @@ export function Shell({ children, me }: { children: React.ReactNode; me: Me }) {
   const tools = TOOLS.filter(visible(owner));
   const crumb =
     [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].find((i) => isActive(path, i.href))?.label ??
-    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : path.startsWith("/agents/g") ? "Room" : path === "/more" ? "More" : path === "/focus" ? "Focus" : "");
+    (path.startsWith("/jobs") || path.startsWith("/codex") || path === "/voice" ? "Chats" : path.startsWith("/agents/g") ? "Room" : path === "/more" ? "More" : path === "/focus" ? "Focus" : path === "/setup" ? "Setup" : "");
 
   return (
     <div className="min-h-dvh lg:pl-[248px]">

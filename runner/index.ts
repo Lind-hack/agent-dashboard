@@ -27,6 +27,7 @@ import { ensurePullRequest, ensureWorktree, freeBytes, publishBranch, pushBranch
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
 import { ownerTenant, runAs, type Tenant } from "../lib/tenant";
 import { listUsers, tenantOf } from "../lib/users";
+import { icsTick } from "../lib/ics";
 
 // The runner owns every job file. It polls Linear for `agent:claude` / `agent:codex` issues, takes
 // untracked chats from the dashboard inbox, runs one turn per agent at a time, pushes the branch,
@@ -672,6 +673,7 @@ async function tick() {
         coachTick();
         mentorTick();
         sourcesTick();
+        icsTick();
       } catch (e) {
         log("tenant", t.id, e instanceof Error ? e.message : e);
       }

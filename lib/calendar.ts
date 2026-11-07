@@ -3,7 +3,8 @@ import path from "node:path";
 import { googleToken, listAccounts } from "./accounts";
 
 import { tryFileLease } from "./async-file-lease";
-import { dataDir, perTenant, userTz } from "./tenant";
+import { dataDir, isOwner, perTenant, userTz } from "./tenant";
+import { icsConnected, icsEvents } from "./ics";
 
 // Google Calendar for the day's agenda and add-by-voice (developers.google.com/workspace/calendar/api/v3).
 // The refresh token comes from handoff/google-auth.mjs on Lind's PC, which posts it to
@@ -29,11 +30,16 @@ export type EventDraft = { title: string; date: string; start?: string; end?: st
 const credsFile = () => path.join(dataDir(), "google.json");
 const API = "https://www.googleapis.com/calendar/v3";
 
+export function forgetCreds() {
+  fs.rmSync(credsFile(), { force: true });
+  tokenCache().token = null;
+}
+
 export function saveCreds(c: GoogleCreds) {
   fs.mkdirSync(dataDir(), { recursive: true });
   fs.writeFileSync(`${credsFile()}.tmp`, JSON.stringify(c), { mode: 0o600 });
   fs.renameSync(`${credsFile()}.tmp`, credsFile());
-  token = null;
+  tokenCache().token = null;
 }
 
 function readCreds(): GoogleCreds | null {
@@ -46,13 +52,17 @@ function readCreds(): GoogleCreds | null {
 }
 
 export const calendarConnected = () => readCreds() !== null;
+// Events can be read (Google, or a calendar's private .ics link); only Google can be written to.
+export const calendarReadable = () => calendarConnected() || icsConnected();
 // Gmail needs its own scope; older sign-ins only granted Calendar.
 export const gmailConnected = () => !!readCreds()?.scopes?.some((s) => s.includes("gmail"));
 
-let token: { value: string; until: number } | null = null;
+// One access token per account: never hand one account's Google token to another.
+const tokenCache = perTenant(() => ({ token: null as { value: string; until: number } | null }));
 
 export async function accessToken(): Promise<string> {
-  if (token && Date.now() < token.until) return token.value;
+  const cached = tokenCache().token;
+  if (cached && Date.now() < cached.until) return cached.value;
   const c = readCreds();
   if (!c) throw new Error("Google Calendar isn't connected yet.");
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -62,9 +72,9 @@ export async function accessToken(): Promise<string> {
     signal: AbortSignal.timeout(15_000),
   });
   const body = (await res.json().catch(() => null)) as { access_token?: string; expires_in?: number; error_description?: string } | null;
-  if (!res.ok || !body?.access_token) throw new Error(`Google sign-in expired — run google-auth again (${body?.error_description ?? res.status}).`);
-  token = { value: body.access_token, until: Date.now() + ((body.expires_in ?? 3600) - 120) * 1000 };
-  return token.value;
+  if (!res.ok || !body?.access_token) throw new Error(`Google sign-in expired — ${isOwner() ? "run google-auth again" : "connect Google Calendar again in Settings"} (${body?.error_description ?? res.status}).`);
+  tokenCache().token = { value: body.access_token, until: Date.now() + ((body.expires_in ?? 3600) - 120) * 1000 };
+  return body.access_token;
 }
 
 export async function gcal<T>(url: string, init?: RequestInit): Promise<T> {
@@ -122,6 +132,10 @@ export async function agenda(days = 2): Promise<{ tz: string; today: string; eve
   const from = `${today}T00:00:00${offset(tz, new Date(`${today}T12:00:00Z`))}`;
   const last = addDays(today, days);
   const to = `${last}T00:00:00${offset(tz, new Date(`${last}T12:00:00Z`))}`;
+  if (!calendarConnected()) {
+    const events = icsEvents(Date.parse(from), Date.parse(to), tz).sort((a, b) => (a.allDay === b.allDay ? Date.parse(a.start) - Date.parse(b.start) : a.allDay ? -1 : 1));
+    return { tz, today, events };
+  }
   const list = await gcal<{ items?: { id: string; summary?: string; summaryOverride?: string; backgroundColor?: string; selected?: boolean; primary?: boolean }[] }>(
     "/users/me/calendarList?minAccessRole=reader",
   );

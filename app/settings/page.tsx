@@ -12,6 +12,8 @@ import { SkillFromGithub } from "./skill-from-github";
 import { page } from "@/lib/guard";
 import Link from "next/link";
 import { AiKeys } from "@/components/ai-keys";
+import { CalendarConnect } from "@/components/calendar-connect";
+import { ObsidianConnect } from "@/components/obsidian-connect";
 import { DangerZone, PasswordForm, ProfileForm } from "@/components/account-settings";
 import { People } from "@/components/people";
 import { currentTenant } from "@/lib/tenant";
@@ -47,6 +49,14 @@ function AccountSettings() {
       <SectionTitle right="your keys, stored encrypted">AI keys</SectionTitle>
       <div className="mb-8">
         <AiKeys />
+      </div>
+      <SectionTitle right="Today and the planner read it">Calendar</SectionTitle>
+      <div className="mb-8">
+        <CalendarConnect />
+      </div>
+      <SectionTitle right="two-way sync with your vault">Obsidian</SectionTitle>
+      <div className="mb-8">
+        <ObsidianConnect />
       </div>
       <SectionTitle>Profile</SectionTitle>
       <div className="mb-8">

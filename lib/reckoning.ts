@@ -116,6 +116,8 @@ export function reckoningDue(at = new Date()): Reckoning | null {
   const y = addDays(today, -1);
   if (y >= first && !readReckoning(y)?.answeredAt) return snapshot(y, Number.MAX_SAFE_INTEGER);
   if (readReckoning(today)?.answeredAt) return null;
+  // The first day on the dashboard is for setting it up: no one answers for a day they never planned.
+  if (today === first) return null;
   const now = clockNow(coachTz(), at);
   const m = mirror(today, at.getTime());
   if (now >= RECKON_AT() || (now >= "19:00" && m.over)) return snapshot(today, at.getTime());

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { keptStreak, mirror, mirrorText, patterns, staleGoals } from "./accountability";
 import { habitsFor } from "./habits";
-import { agenda, calendarConnected } from "./calendar";
+import { agenda, calendarReadable } from "./calendar";
 import { clockNow, coachNow, coachTz, dayProgress, goalProgress } from "./coach";
 
 import { readDone, readMail, readPiles } from "./gmail";
@@ -120,7 +120,7 @@ export async function dayContext(): Promise<string> {
   const t = todosFor(c.day);
   const goals = goalProgress();
   let events: string[] = [];
-  if (calendarConnected()) {
+  if (calendarReadable()) {
     const a = await agenda(1).catch(() => null);
     events = (a?.events ?? []).filter((e) => !e.planned && !e.allDay).map((e) => `${clockNow(tz, new Date(e.start))}-${clockNow(tz, new Date(e.end))} ${e.title}`);
   }

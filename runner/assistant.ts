@@ -1,5 +1,5 @@
 import { BRIEF_PROMPT, BRIEF_SYSTEM, dayContext, finishBriefRequest, latestBrief, parseBrief, readBrief, saveBrief, takeBriefRequest, type BriefSlot } from "../lib/assistant";
-import { agenda, calendarConnected, type CalEvent } from "../lib/calendar";
+import { agenda, type CalEvent, calendarReadable } from "../lib/calendar";
 import { clockNow, coachNow, coachTz, dayProgress, zonedMs } from "../lib/coach";
 import { solJSON, solLabel } from "../lib/sol";
 import { todosFor, remainingMin } from "../lib/todos";
@@ -70,7 +70,7 @@ function startBrief(slot: BriefSlot, push: boolean, claimed = false) {
 const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
 
 async function todaysEvents(): Promise<CalEvent[]> {
-  if (!calendarConnected()) return [];
+  if (!calendarReadable()) return [];
   if (Date.now() - events.at > 5 * 60_000) {
     const a = await agenda(1).catch(() => null);
     if (a) events = { at: Date.now(), list: a.events.filter((e) => !e.allDay && !e.planned) };

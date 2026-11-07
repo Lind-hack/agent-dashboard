@@ -1,0 +1,207 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import ICAL from "ical.js";
+import type { CalEvent } from "./calendar";
+import { publicAddress } from "./net-guard";
+import { dataDir, perTenant } from "./tenant";
+
+// Calendars by private link (iCal / .ics), for accounts without Google sign-in: Google, Apple iCloud and
+// Outlook all publish one. Read-only: events show on Today and the planner works around them, but plan
+// blocks can't be written back. Each feed is fetched at most every 15 minutes and kept on disk, so a
+// slow calendar server never holds up a page. Recurring events, their moved/cancelled instances and the
+// file's own time zones are expanded with ical.js.
+
+export type IcsFeed = { id: string; url: string; name: string; addedAt: string; error?: string; okAt?: string };
+
+const file = () => path.join(dataDir(), "calendar-ics.json");
+const cacheFile = (id: string) => path.join(dataDir(), "sources", `ics-${id}.ics`);
+const REFRESH_MS = 15 * 60_000;
+const MAX_BYTES = 5 * 1024 * 1024;
+
+export function listFeeds(): IcsFeed[] {
+  try {
+    const v = JSON.parse(fs.readFileSync(file(), "utf8"));
+    return Array.isArray(v) ? v.filter((f) => f && typeof f.url === "string" && typeof f.id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFeeds(feeds: IcsFeed[]) {
+  fs.mkdirSync(dataDir(), { recursive: true });
+  const tmp = `${file()}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(feeds, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, file());
+}
+
+export const icsConnected = () => listFeeds().length > 0;
+
+// webcal:// is how calendar apps hand these out; it's plain https underneath.
+export function normalizeFeedUrl(raw: string): URL | null {
+  try {
+    const u = new URL(raw.trim().replace(/^webcals?:\/\//i, "https://"));
+    if (u.protocol !== "https:" || u.username || u.password) return null;
+    if (u.port && u.port !== "443") return null;
+    return u;
+  } catch {
+    return null;
+  }
+}
+
+// Only public servers, every redirect checked again: a link can't point the server at itself.
+async function fetchFeed(url: URL): Promise<string> {
+  let u = url;
+  for (let hop = 0; hop < 4; hop++) {
+    await publicAddress(u.hostname);
+    const res = await fetch(u, { redirect: "manual", headers: { Accept: "text/calendar, */*" }, signal: AbortSignal.timeout(20_000) });
+    if (res.status >= 300 && res.status < 400) {
+      const next = normalizeFeedUrl(new URL(res.headers.get("location") ?? "", u).toString());
+      if (!next) throw new Error("The calendar link redirects somewhere it can't follow");
+      u = next;
+      continue;
+    }
+    if (!res.ok) throw new Error(res.status === 404 || res.status === 403 ? "The calendar server says this link doesn't exist or isn't shared" : `The calendar server answered ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > MAX_BYTES) throw new Error("That calendar is too big to read (over 5 MB)");
+    const text = buf.toString("utf8");
+    if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error("That link isn't a calendar (.ics) file");
+    return text;
+  }
+  throw new Error("The calendar link redirects too many times");
+}
+
+export async function addFeed(raw: string, name?: string): Promise<IcsFeed> {
+  const u = normalizeFeedUrl(raw);
+  if (!u) throw new Error("Paste the calendar's https or webcal link");
+  const text = await fetchFeed(u);
+  const parsed = new ICAL.Component(ICAL.parse(text));
+  const calName = String(parsed.getFirstPropertyValue("x-wr-calname") ?? "").trim();
+  const feeds = listFeeds();
+  const id = crypto.createHash("sha256").update(u.toString()).digest("hex").slice(0, 12);
+  const feed: IcsFeed = { id, url: u.toString(), name: (name?.trim() || calName || u.hostname).slice(0, 60), addedAt: new Date().toISOString(), okAt: new Date().toISOString() };
+  fs.mkdirSync(path.dirname(cacheFile(id)), { recursive: true });
+  fs.writeFileSync(cacheFile(id), text);
+  saveFeeds([...feeds.filter((f) => f.id !== id), feed]);
+  return feed;
+}
+
+export function removeFeed(id: string) {
+  saveFeeds(listFeeds().filter((f) => f.id !== id));
+  fs.rmSync(cacheFile(id), { force: true });
+}
+
+// The runner (and a stale page read) refreshes feeds; a failure keeps the last good copy and is shown.
+export async function refreshFeeds(force = false) {
+  const feeds = listFeeds();
+  let changed = false;
+  for (const f of feeds) {
+    let age = Infinity;
+    try {
+      age = Date.now() - fs.statSync(cacheFile(f.id)).mtimeMs;
+    } catch {
+      /* never fetched */
+    }
+    if (!force && age < REFRESH_MS) continue;
+    const u = normalizeFeedUrl(f.url);
+    if (!u) continue;
+    try {
+      const text = await fetchFeed(u);
+      fs.mkdirSync(path.dirname(cacheFile(f.id)), { recursive: true });
+      fs.writeFileSync(cacheFile(f.id), text);
+      f.okAt = new Date().toISOString();
+      delete f.error;
+    } catch (e) {
+      f.error = e instanceof Error ? e.message : String(e);
+    }
+    changed = true;
+  }
+  if (changed) {
+    // Merge into what's on disk now: a feed removed meanwhile stays removed.
+    const now = listFeeds();
+    saveFeeds(now.map((x) => feeds.find((f) => f.id === x.id) ?? x));
+  }
+}
+
+// Wall-clock time in a zone → the real instant. Used for floating times and zones the file didn't define.
+function zonedInstant(y: number, mo: number, d: number, h: number, mi: number, s: number, tz: string): Date {
+  const guess = Date.UTC(y, mo - 1, d, h, mi, s);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(guess));
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  const asLocal = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+  return new Date(guess - (asLocal - guess));
+}
+
+function toIso(t: ICAL.Time, tz: string): string {
+  if (t.isDate) return `${String(t.year).padStart(4, "0")}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}`;
+  const zone = t.zone?.tzid;
+  if (!zone || zone === "floating" || (zone !== "UTC" && zone !== "Z" && !t.zone?.component && !ICAL.TimezoneService.has(zone))) {
+    // No usable zone: Outlook's Windows zone names, or a floating time. Read it as the user's local time.
+    return zonedInstant(t.year, t.month, t.day, t.hour, t.minute, t.second, tz).toISOString();
+  }
+  return t.toJSDate().toISOString();
+}
+
+export function eventsFromIcs(text: string, fromMs: number, toMs: number, tz: string, calendar: string, prefix: string): CalEvent[] {
+  const root = new ICAL.Component(ICAL.parse(text));
+  const vevents = root.getAllSubcomponents("vevent");
+  const masters = new Map<string, ICAL.Event>();
+  const exceptions: ICAL.Event[] = [];
+  for (const c of vevents) {
+    const e = new ICAL.Event(c, { strictExceptions: false });
+    if (e.isRecurrenceException()) exceptions.push(e);
+    else masters.set(e.uid, e);
+  }
+  for (const x of exceptions) {
+    const m = masters.get(x.uid);
+    if (m && m.isRecurring()) m.relateException(x);
+  }
+  const out: CalEvent[] = [];
+  const push = (id: string, s: ICAL.Time, e: ICAL.Time, item: ICAL.Event) => {
+    if (String(item.component.getFirstPropertyValue("status") ?? "").toUpperCase() === "CANCELLED") return;
+    const start = toIso(s, tz);
+    const end = toIso(e, tz);
+    const startMs = s.isDate ? Date.parse(`${start}T00:00:00Z`) : Date.parse(start);
+    const endMs = e.isDate ? Date.parse(`${end}T00:00:00Z`) : Date.parse(end);
+    if (endMs <= fromMs || startMs >= toMs) return;
+    out.push({ id: `${prefix}:${id}`, title: item.summary || "(busy)", start, end, allDay: s.isDate, location: item.location || undefined, calendar });
+  };
+  for (const m of masters.values()) {
+    if (!m.startDate) continue;
+    const end = m.endDate ?? m.startDate;
+    if (!m.isRecurring()) {
+      push(m.uid, m.startDate, end, m);
+      continue;
+    }
+    const it = m.iterator();
+    for (let n = 0, next = it.next(); next && n < 20_000; n++, next = it.next()) {
+      const at = next.toJSDate().getTime();
+      if (at >= toMs + 86_400_000) break;
+      const d = m.getOccurrenceDetails(next);
+      push(`${m.uid}:${next.toString()}`, d.startDate, d.endDate, d.item);
+    }
+  }
+  return out;
+}
+
+// Every feed's events between two instants, from the copies on disk.
+export function icsEvents(fromMs: number, toMs: number, tz: string): CalEvent[] {
+  return listFeeds().flatMap((f) => {
+    try {
+      return eventsFromIcs(fs.readFileSync(cacheFile(f.id), "utf8"), fromMs, toMs, tz, f.name, `ics-${f.id}`);
+    } catch {
+      return [];
+    }
+  });
+}
+
+// Runner: keep every account's calendar links fresh (each feed is only fetched once it's 15 minutes old).
+const refreshing = perTenant(() => ({ busy: false }));
+export function icsTick() {
+  const s = refreshing();
+  if (s.busy || !icsConnected()) return;
+  s.busy = true;
+  void refreshFeeds()
+    .catch(() => {})
+    .finally(() => (s.busy = false));
+}

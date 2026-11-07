@@ -17,4 +17,7 @@ export const BEARER_ROUTES = [
   "/api/skills/sync",
 ] as const;
 
+// The Obsidian plugin's routes take the account's own sync code (checked in lib/guard.ts), not the cookie.
+export const isVaultSyncRoute = (pathname: string) => pathname === "/api/vault/manifest" || pathname === "/api/vault/file";
+
 export const isBearerRoute = (pathname: string) => (BEARER_ROUTES as readonly string[]).includes(pathname);

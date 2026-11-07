@@ -6,6 +6,8 @@ import { readSession, SESSION_COOKIE } from "./auth";
 import { isBearerRoute } from "./bearer-routes";
 import { currentTenant, runAs, type Tenant } from "./tenant";
 import { findUser, tenantById } from "./users";
+import { isVaultSyncRoute } from "./bearer-routes";
+import { tenantFromSyncCode } from "./vault-sync";
 import { isWidgetRoute } from "./widget/auth";
 
 // Every route handler and page runs inside the signed-in user's tenant (lib/tenant.ts). Inside the Next server
@@ -38,6 +40,8 @@ export async function requestTenant(req?: Request): Promise<Tenant | null> {
     if (isBearerRoute(pathname) && handoff && same(bearer, handoff)) return tenantById("owner");
     const widget = process.env.WIDGET_READ_TOKEN;
     if (isWidgetRoute(pathname) && widget && widget.length >= 32 && same(bearer, widget)) return tenantById("owner");
+    // The Obsidian plugin: its sync code opens only the sync routes of its own account.
+    if (isVaultSyncRoute(pathname)) return tenantFromSyncCode(bearer);
   }
   if (req) return tenantFromCookie(cookieFrom(req.headers.get("cookie")));
   return tenantFromCookie((await cookies()).get(SESSION_COOKIE)?.value);

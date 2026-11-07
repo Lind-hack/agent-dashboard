@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/auth";
-import { isBearerRoute } from "@/lib/bearer-routes";
+import { isBearerRoute, isVaultSyncRoute } from "@/lib/bearer-routes";
 import { isWidgetRoute, widgetAccess, WIDGET_HEADERS } from "@/lib/widget/auth";
 
 export async function proxy(request: NextRequest) {
@@ -14,6 +14,10 @@ export async function proxy(request: NextRequest) {
     handoff &&
     request.headers.get("authorization") === `Bearer ${handoff}`
   ) {
+    return NextResponse.next();
+  }
+  // The Obsidian plugin: the route itself checks the sync code against that account.
+  if (isVaultSyncRoute(request.nextUrl.pathname) && /^Bearer adv_/.test(request.headers.get("authorization") ?? "")) {
     return NextResponse.next();
   }
   if (await verifySession(request.cookies.get(SESSION_COOKIE)?.value)) {
