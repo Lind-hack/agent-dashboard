@@ -4,12 +4,13 @@ import { learningOverview } from "@/lib/learning";
 import { currentSession } from "@/lib/learning-sunday";
 import { studiedTerms, topicsView } from "@/lib/learning-topics";
 import { listItems } from "@/lib/library";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 const TABS: LearningTab[] = ["sunday", "review", "sources", "topics", "practice"];
 
-export default async function LearningPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+async function LearningPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const items = listItems();
   const asked = (await searchParams)?.tab as LearningTab;
   return (
@@ -19,3 +20,5 @@ export default async function LearningPage({ searchParams }: { searchParams: Pro
     </div>
   );
 }
+
+export default page(LearningPage);

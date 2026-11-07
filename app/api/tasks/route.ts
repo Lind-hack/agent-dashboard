@@ -5,6 +5,7 @@ import { listRepos } from "@/lib/github";
 import { createAgentIssue } from "@/lib/linear";
 import { validSkills } from "@/lib/skills";
 import { pushInbox } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 const TASK_AGENTS: TaskAgent[] = [...VPS_AGENTS, "codex-cloud"];
 const newId = (prefix: string) => `${prefix}-${Date.now().toString(36).toUpperCase()}`;
@@ -13,7 +14,7 @@ const newId = (prefix: string) => `${prefix}-${Date.now().toString(36).toUpperCa
 // - mode "single": one chat on the VPS, or a Linear issue (always for Codex cloud)
 // - mode "ask":    the same prompt to several VPS agents at once, answers side by side
 // - mode "relay":  plan → build → review across agents on one branch
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   try {
     const form = await request.formData();
     const audio = form.get("audio");
@@ -112,3 +113,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
+
+export const POST = guarded(POST_, { owner: true });

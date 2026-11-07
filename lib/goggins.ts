@@ -3,7 +3,7 @@ import path from "node:path";
 import { keptStreak, mirror, mirrorText, patterns, staleGoals } from "./accountability";
 import { addDays } from "./calendar";
 import { goalProgress } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { groqJSON } from "./groq";
 import { readProfile } from "./buddy";
 import { readReckoning, VERDICT_WORDS, type Reckoning } from "./reckoning";
@@ -11,6 +11,7 @@ import { habitsFor } from "./habits";
 import { recallMemory, recallText } from "./memory";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { activeBlocks, readPlan } from "./plan-store";
+import { dataDir } from "./tenant";
 
 // The morning push (v5.2, Lind's pick): a long, hard-edged message in the spirit of David Goggins,
 // written fresh each morning from Lind's own record — yesterday's mirror, the streak, his patterns, the
@@ -20,7 +21,7 @@ import { activeBlocks, readPlan } from "./plan-store";
 
 export type Push = { day: string; title: string; text: string; model: string; createdAt: string };
 
-const file = (day: string) => path.join(DATA_DIR, "coach", `goggins-${day}.json`);
+const file = (day: string) => path.join(dataDir(), "coach", `goggins-${day}.json`);
 
 export function readPush(day: string): Push | null {
   try {

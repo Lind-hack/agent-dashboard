@@ -14,12 +14,12 @@ import { completeInTickTick } from "./todo-actions";
 import { gmailLink, readMail } from "./gmail";
 import { readActions } from "./mail-actions";
 import { importEmailTasks, importTickTick, listTodos, remainingMin, todosFor, type Todo } from "./todos";
+import { vaultDir } from "./tenant";
 
 // "Plan my day": fixed calendar events + open dashboard tasks + the vault's Daily Agenda priorities +
 // whatever Lind says → time blocks in the free gaps. Nothing is written until he applies the plan
 // (Google Calendar blocks + a plan note in the Obsidian vault).
 
-const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 const DAY_START = () => process.env.PLAN_DAY_START ?? "08:00";
 const DAY_END = () => process.env.PLAN_DAY_END ?? "23:00";
 

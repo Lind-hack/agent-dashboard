@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { AGENT_LABELS, type AgentKey } from "./agents";
 import { isSeat, SEAT_PREFIX, seatByKey, seatKey } from "./council";
-import { claudeModel, codexModel, DATA_DIR } from "./config";
+import { claudeModel, codexModel } from "./config";
 import { solLabel } from "./sol";
+import { dataDir } from "./tenant";
 
 // Roast rooms (PLAN-v2 stage 2): several agents debate one task until a neutral judge finds consensus.
 // One JSON file per room under data/rooms/, written only by the runner (runner/room.ts); the web app
@@ -82,7 +83,7 @@ export type Room = {
 export const debaters = (r: Pick<Room, "agents" | "seats">): string[] => [...(r.agents ?? []), ...(r.seats ?? []).map((k) => `${SEAT_PREFIX}${k}`)];
 export const debaterLabel = (d: string) => (isSeat(d) ? (seatByKey(seatKey(d))?.name ?? seatKey(d)) : (AGENT_LABELS[d as AgentKey] ?? d));
 
-export const ROOMS_DIR = () => path.join(DATA_DIR, "rooms");
+export const ROOMS_DIR = () => path.join(dataDir(), "rooms");
 export const MAX_ROUNDS = 3;
 export const ROOMS_PER_DAY = 5;
 export const ROOM_ID_RE = /^R-[A-Z0-9]{6,16}$/;

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { saveAccount } from "@/lib/accounts";
 import { saveCreds } from "@/lib/calendar";
+import { guarded } from "@/lib/guard";
 
 // Posted by handoff/google-auth.mjs on Lind's PC (Bearer HANDOFF_TOKEN, checked in proxy.ts).
 // { add: true } is another Gmail account (v5.1): it's saved under data/accounts, named by its address.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { client_id?: string; client_secret?: string; refresh_token?: string; scopes?: string[]; add?: boolean } | null;
   if (!b?.client_id || !b.client_secret || !b.refresh_token) {
     return NextResponse.json({ error: "client_id, client_secret and refresh_token are required" }, { status: 400 });
@@ -28,3 +29,5 @@ export async function POST(request: Request) {
   const a = saveAccount({ provider: "google", email: profile.emailAddress, client_id: b.client_id, client_secret: b.client_secret, refresh_token: b.refresh_token, scopes: b.scopes });
   return NextResponse.json({ ok: true, email: a.email });
 }
+
+export const POST = guarded(POST_, { owner: true });

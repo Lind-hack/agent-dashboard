@@ -1,12 +1,13 @@
 import { widgetAccess, widgetError } from "@/lib/widget/auth";
 import { readWidgetData } from "@/lib/widget/data";
 import { renderWidget, WIDGET_SIZES, type WidgetSize, type WidgetView } from "@/lib/widget/image";
+import { ownerTenant, runAs } from "@/lib/tenant";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET(request: Request) {
+async function GET_(request: Request) {
   const denied = widgetAccess(request);
   if (denied) return denied;
   const params = new URL(request.url).searchParams;
@@ -28,3 +29,6 @@ export async function GET(request: Request) {
 // Avoid Next's automatic HEAD rendering or framework-generated method responses without our headers.
 const unsupported = (request: Request) => widgetAccess(request) ?? widgetError(405, "Method not allowed");
 export { unsupported as HEAD, unsupported as POST, unsupported as PUT, unsupported as PATCH, unsupported as DELETE, unsupported as OPTIONS };
+
+// The widget has its own token (checked first in GET_) and only ever shows the owner's day.
+export const GET = (request: Request) => runAs(ownerTenant(), () => GET_(request));

@@ -3,8 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { gunzipSync } from "node:zlib";
-import { DATA_DIR } from "../lib/config";
 import { redact } from "../lib/redact";
+import { dataDir } from "../lib/tenant";
 
 // Installs the skill folders the PC collector uploads (PLAN-v2 R21) into the VPS agents' skill dirs:
 // Claude → ~/.claude/skills, Codex → $CODEX_HOME/skills.
@@ -19,9 +19,9 @@ import { redact } from "../lib/redact";
 //     when the PC sent its complete inventory.
 // Hooks, plugins and MCP servers arrive as a manifest only — nothing is installed from it.
 
-const INBOX = () => path.join(DATA_DIR, "skills-inbox");
-const STATUS = () => path.join(DATA_DIR, "skills-status.json");
-const MANIFEST = () => path.join(DATA_DIR, "pc-manifest.json");
+const INBOX = () => path.join(dataDir(), "skills-inbox");
+const STATUS = () => path.join(dataDir(), "skills-status.json");
+const MANIFEST = () => path.join(dataDir(), "pc-manifest.json");
 const MARKER = ".synced-from-pc";
 const GITHUB_MARKER = ".synced-from-github"; // from the SKILLS/ mirror on GitHub — a PC sync always wins over it
 const NAME = /^[A-Za-z0-9][\w.-]{0,79}$/;

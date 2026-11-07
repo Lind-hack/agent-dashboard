@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // One owner across runner and web processes. Never hold the synchronous file lock over a request.
 // A dead process's lock can be recovered; live processes (including a slow request) keep ownership.
 export function tryFileLease(name: string): (() => void) | null {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  const lock = path.join(DATA_DIR, `${name.replace(/[^a-zA-Z0-9.-]/g, "_")}.lock`);
+  fs.mkdirSync(dataDir(), { recursive: true });
+  const lock = path.join(dataDir(), `${name.replace(/[^a-zA-Z0-9.-]/g, "_")}.lock`);
   const token = `${process.pid}:${crypto.randomUUID()}`;
   const mine = `${lock}.${token.replace(":", "-")}`;
   fs.writeFileSync(mine, token);

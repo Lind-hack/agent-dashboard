@@ -5,17 +5,18 @@ import { calendarBusy, coachNow, nextFreeSlot } from "@/lib/coach";
 import { addBlock } from "@/lib/plan-store";
 import { readRoom } from "@/lib/rooms";
 import { pushInbox } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const room = readRoom((await ctx.params).id);
   return room ? NextResponse.json({ room }) : NextResponse.json({ error: "not found" }, { status: 404 });
 }
 
 // { action: "cancel" } stops a room; { action: "run", agent } hands the verdict to one agent as a normal chat
 // (on its own branch, like any chat) — the only way a debate turns into changes, and it needs Lind's tap.
-export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function POST_(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const room = readRoom((await ctx.params).id);
   if (!room) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = (await request.json().catch(() => null)) as { action?: string; agent?: string; repo?: string; title?: string } | null;
@@ -60,3 +61,6 @@ Carry out the recommendation. It's a recommendation from a debate between models
 
   return NextResponse.json({ error: "bad request" }, { status: 400 });
 }
+
+export const GET = guarded(GET_, { owner: true });
+export const POST = guarded(POST_, { owner: true });

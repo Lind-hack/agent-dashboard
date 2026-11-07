@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "../config";
+
 import { addDays, dayString, type CalEvent } from "../calendar";
 import { coachNow, coachTz, dayProgress, goalProgress, zonedMs } from "../coach";
 import { activeBlocks, readPlan } from "../plan-store";
 import { habitsFor } from "../habits";
 import { readJob, type Job } from "../store";
 import { todosFor } from "../todos";
+import { dataDir } from "../tenant";
 
 // Reads only: no planner generation, task imports, sync, goal mirrors, or calendar writes.
 // Calendar uses the same real primary-calendar snapshot the runner syncs hourly for Memory.
@@ -15,7 +16,7 @@ export async function readWidgetData(at = new Date()) {
   const day = dayString(tz, at);
   let calendar: { at: string; items: CalEvent[] } | null = null;
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "sources", "calendar.json"), "utf8"));
+    const raw = JSON.parse(fs.readFileSync(path.join(dataDir(), "sources", "calendar.json"), "utf8"));
     if (Array.isArray(raw.items) && Number.isFinite(Date.parse(raw.at))) calendar = raw;
   } catch { /* An unavailable source is labelled, never replaced with demo data. */ }
   const dayStart = zonedMs(day, "00:00", tz);
@@ -26,7 +27,7 @@ export async function readWidgetData(at = new Date()) {
     return Date.parse(e.start) < dayEnd && Date.parse(e.end) > dayStart;
   }).sort((a, b) => a.start.localeCompare(b.start));
   // Read actual runner records without listJobs(), which creates directories on read.
-  const jobsDir = path.join(DATA_DIR, "jobs");
+  const jobsDir = path.join(dataDir(), "jobs");
   const jobs = fs.existsSync(jobsDir) ? fs.readdirSync(jobsDir)
     .filter((file) => file.endsWith(".json"))
     .map((file) => readJob(file.slice(0, -5)))

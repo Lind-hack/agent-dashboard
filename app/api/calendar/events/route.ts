@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createEvent, type EventDraft } from "@/lib/calendar";
+import { guarded } from "@/lib/guard";
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const d = (await request.json().catch(() => null))?.draft as Partial<EventDraft> | undefined;
   if (!d?.title?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(d.date ?? "")) {
     return NextResponse.json({ error: "The event needs a title and a date." }, { status: 400 });
@@ -24,3 +25,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msg + hint }, { status: 500 });
   }
 }
+
+export const POST = guarded(POST_);

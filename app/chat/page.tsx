@@ -9,6 +9,7 @@ import { repoShort } from "@/lib/config";
 import { agentIssues } from "@/lib/linear";
 import { listJobs } from "@/lib/store";
 import { ago } from "@/lib/utils";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,7 @@ function pill(status: string) {
   return { tone: "neutral" as const, label: status };
 }
 
-export default async function ChatsPage({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
+async function ChatsPage({ searchParams }: { searchParams: Promise<{ f?: string }> }) {
   const raw = (await searchParams)?.f ?? "open";
   const f: Filter = (["open", "turn", "claude", "codex", "cloud", "archived"] as const).includes(raw as Filter) ? (raw as Filter) : "open";
   const jobs = listJobs();
@@ -115,3 +116,5 @@ export default async function ChatsPage({ searchParams }: { searchParams: Promis
     </div>
   );
 }
+
+export default page(ChatsPage, { owner: true });

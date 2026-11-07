@@ -3,10 +3,11 @@ import path from "node:path";
 import { keptStreak, mirror, type Mirror } from "./accountability";
 import { addDays } from "./calendar";
 import { clockNow, coachNow, coachTz } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { tally } from "./day-tally";
 import { habitProgress } from "./habits";
 import { VERDICT_WORDS, type DayVerdict } from "./verdict";
+import { dataDir } from "./tenant";
 
 export { VERDICT_WORDS, type DayVerdict };
 
@@ -38,7 +39,7 @@ export type Reckoning = {
   reply?: string;
 };
 
-const dir = () => path.join(DATA_DIR, "coach", "reckoning");
+const dir = () => path.join(dataDir(), "coach", "reckoning");
 const file = (day: string) => path.join(dir(), `${day}.json`);
 // The first day the reckoning ran: days before it are never asked about.
 const sinceFile = () => path.join(dir(), "since");

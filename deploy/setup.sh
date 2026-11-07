@@ -29,6 +29,10 @@ AGENT_REPOS=Lind-hack/383lajme,Lind-hack/agent-dashboard,Lind-hack/learning-lab
 DASHBOARD_PASSWORD=$(openssl rand -base64 18)
 SESSION_SECRET=$(openssl rand -hex 32)
 WIDGET_READ_TOKEN=$(openssl rand -hex 32)
+# Other accounts' AI keys are encrypted with this (falls back to SESSION_SECRET). Changing it means they re-enter their keys.
+KEYS_SECRET=$(openssl rand -hex 32)
+# Optional: lets the owner sign in with this email as well as the password alone.
+OWNER_EMAIL=
 EOF
   echo "Wrote $ENV_FILE — fill in the empty keys (sudo nano $ENV_FILE)."
 fi

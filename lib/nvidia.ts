@@ -1,14 +1,18 @@
+import { apiKey } from "./user-keys";
+import { personalize } from "./tenant";
 // NVIDIA NIM (build.nvidia.com), OpenAI-compatible, free tier (~40 requests/min). Used for the bulk
 // reading work — hand-off dossiers now, the brain later. Model: Nemotron 3 Ultra.
 
 export const nvidiaModel = () => process.env.NVIDIA_MODEL ?? "nvidia/nemotron-3-ultra-550b-a55b";
-export const nvidiaReady = () => !!process.env.NVIDIA_API_KEY;
+export const nvidiaReady = () => !!apiKey("NVIDIA_API_KEY");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // One completion with retries on rate limits / server errors. Reasoning text is stripped.
-export async function nemotron(system: string, user: string, opts: { maxTokens?: number; temperature?: number } = {}): Promise<string> {
-  const key = process.env.NVIDIA_API_KEY;
+export async function nemotron(rawSystem: string, rawUser: string, opts: { maxTokens?: number; temperature?: number } = {}): Promise<string> {
+  const system = personalize(rawSystem, true);
+  const user = personalize(rawUser);
+  const key = apiKey("NVIDIA_API_KEY");
   if (!key) throw new Error("NVIDIA_API_KEY is not set on the VPS");
   let lastErr = "";
   for (let attempt = 0; attempt < 4; attempt++) {

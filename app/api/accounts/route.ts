@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { outlookClientId, outlookPoll, outlookStart, publicAccounts, removeAccount, saveAccount } from "@/lib/accounts";
 import { testImap } from "@/lib/mail-sources";
 import { IMAP_PORTS } from "@/lib/net-guard";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 //   { action: "outlook-poll", deviceCode } → pending | done | failed
 //   { action: "imap", email, host, port, user, password } → tested, then saved
 // DELETE ?id= → removes one. Gmail accounts are added from the PC: node handoff/google-auth.mjs --add
-export async function GET() {
+async function GET_() {
   return NextResponse.json({ accounts: publicAccounts(), outlookReady: !!outlookClientId() });
 }
 
@@ -25,7 +26,7 @@ const IMAP_HOSTS: Record<string, string> = {
   "proton.me": "127.0.0.1",
 };
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { action?: string; deviceCode?: string; email?: string; host?: string; port?: number; user?: string; password?: string } | null;
   try {
     if (b?.action === "outlook-start") return NextResponse.json(await outlookStart());
@@ -51,7 +52,11 @@ export async function POST(request: Request) {
   return NextResponse.json({ error: "bad request" }, { status: 400 });
 }
 
-export async function DELETE(request: Request) {
+async function DELETE_(request: Request) {
   const id = new URL(request.url).searchParams.get("id") ?? "";
   return removeAccount(id) ? NextResponse.json({ ok: true, accounts: publicAccounts() }) : NextResponse.json({ error: "not found" }, { status: 404 });
 }
+
+export const GET = guarded(GET_, { owner: true });
+export const POST = guarded(POST_, { owner: true });
+export const DELETE = guarded(DELETE_, { owner: true });

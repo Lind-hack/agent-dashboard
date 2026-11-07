@@ -2,12 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { mediaDir, mimeForFile, readItem } from "@/lib/library";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // The file behind a Library item (?poster=1 for a video's still). Range requests work, so videos
 // seek and Safari plays them.
-export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const it = readItem(id);
   const poster = new URL(request.url).searchParams.has("poster");
@@ -41,3 +42,5 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
   }
   return new Response(Readable.toWeb(fs.createReadStream(file)) as ReadableStream, { headers: { ...headers, "Content-Length": String(size) } });
 }
+
+export const GET = guarded(GET_);

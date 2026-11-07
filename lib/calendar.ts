@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { googleToken, listAccounts } from "./accounts";
-import { DATA_DIR } from "./config";
+
 import { tryFileLease } from "./async-file-lease";
+import { dataDir, perTenant, userTz } from "./tenant";
 
 // Google Calendar for the day's agenda and add-by-voice (developers.google.com/workspace/calendar/api/v3).
 // The refresh token comes from handoff/google-auth.mjs on Lind's PC, which posts it to
@@ -25,11 +26,11 @@ export type CalEvent = {
 
 export type EventDraft = { title: string; date: string; start?: string; end?: string; allDay: boolean; location?: string; notes?: string };
 
-const credsFile = () => path.join(DATA_DIR, "google.json");
+const credsFile = () => path.join(dataDir(), "google.json");
 const API = "https://www.googleapis.com/calendar/v3";
 
 export function saveCreds(c: GoogleCreds) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   fs.writeFileSync(`${credsFile()}.tmp`, JSON.stringify(c), { mode: 0o600 });
   fs.renameSync(`${credsFile()}.tmp`, credsFile());
   token = null;
@@ -79,10 +80,12 @@ export async function gcal<T>(url: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-let tzCache: string | null = null;
+const tzCache = perTenant(() => ({ tz: null as string | null }));
 export async function timeZone(): Promise<string> {
-  tzCache ??= (await gcal<{ timeZone?: string }>("/calendars/primary").catch(() => null))?.timeZone ?? "Europe/Belgrade";
-  return tzCache;
+  const c = tzCache();
+  if (!calendarConnected()) return userTz();
+  c.tz ??= (await gcal<{ timeZone?: string }>("/calendars/primary").catch(() => null))?.timeZone ?? userTz();
+  return c.tz;
 }
 
 // Offset like "+01:00" for a zone at a moment, so day bounds are midnight in Lind's zone, not the VPS's.

@@ -3,6 +3,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { createItem, listItems, mediaDir, newId, readSections, slimItem } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,11 +13,11 @@ export const dynamic = "force-dynamic";
 const LONG_PASTE = 20_000;
 const MAX_PASTE = 5_000_000;
 
-export async function GET() {
+async function GET_() {
   return NextResponse.json({ items: listItems().map(slimItem), sections: readSections() });
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { text?: string; url?: string } | null;
   const text = (b?.text ?? "").toString().trim().slice(0, MAX_PASTE);
   const url = (b?.url ?? "").toString().trim();
@@ -49,3 +50,6 @@ export async function POST(request: Request) {
   invalidateMemory();
   return NextResponse.json({ item: it });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

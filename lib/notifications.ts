@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { PushSubscription } from "web-push";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // The notification center (PLAN-v2 R22). The in-app record is the source of truth: everything the OS
 // wants Lind to see (the 07:00 plan, check-in questions, the evening review, failures) is a notice in
@@ -22,8 +23,8 @@ export type Notice = {
   pushedAt?: string;
 };
 
-export const NOTICES_DIR = () => path.join(DATA_DIR, "notifications");
-const PUSH_DIR = () => path.join(DATA_DIR, "push");
+export const NOTICES_DIR = () => path.join(dataDir(), "notifications");
+const PUSH_DIR = () => path.join(dataDir(), "push");
 export const VAPID_FILE = () => path.join(PUSH_DIR(), "vapid.json");
 export const SUBS_FILE = () => path.join(PUSH_DIR(), "subscriptions.json");
 export const PUSH_SUBJECT = "https://agents.383ks.com";

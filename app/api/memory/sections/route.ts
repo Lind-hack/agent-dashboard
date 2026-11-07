@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { addSection, listItems, mirrorItem, readSections, saveItem, slugId, writeSections } from "@/lib/library";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // POST { name, description? } adds a section; PATCH { id, name } renames one.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { name?: string; description?: string } | null;
   const s = addSection((b?.name ?? "").toString(), (b?.description ?? "").toString(), "lind");
   if (!s) return NextResponse.json({ error: "Give it a name (there's a 24-section limit)." }, { status: 400 });
   return NextResponse.json({ section: s, sections: readSections() });
 }
 
-export async function PATCH(request: Request) {
+async function PATCH_(request: Request) {
   const b = (await request.json().catch(() => null)) as { id?: string; name?: string } | null;
   const name = (b?.name ?? "").toString().replace(/\s+/g, " ").trim().slice(0, 40);
   const all = readSections();
@@ -28,3 +29,6 @@ export async function PATCH(request: Request) {
   }
   return NextResponse.json({ sections: all });
 }
+
+export const POST = guarded(POST_);
+export const PATCH = guarded(PATCH_);

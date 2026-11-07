@@ -1,17 +1,18 @@
 import { NextResponse } from "next/server";
 import { deleteItem, listItems, mirrorItem, readItem, readSections, saveItem } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // GET: the whole item (the list sends long texts cut short).
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const it = readItem((await ctx.params).id);
   return it ? NextResponse.json({ item: it }) : NextResponse.json({ error: "not found" }, { status: 404 });
 }
 
 // PATCH { title?, section?, retry? } — rename, move to another section, or run the automation again.
-export async function PATCH(request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function PATCH_(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const it = readItem(id);
   if (!it) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -35,9 +36,13 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   return NextResponse.json({ item: it });
 }
 
-export async function DELETE(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function DELETE_(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   if (!deleteItem(id)) return NextResponse.json({ error: "not found" }, { status: 404 });
   invalidateMemory();
   return NextResponse.json({ ok: true });
 }
+
+export const GET = guarded(GET_);
+export const PATCH = guarded(PATCH_);
+export const DELETE = guarded(DELETE_);

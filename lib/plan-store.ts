@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { addDays, type PlanBlock } from "./calendar";
-import { DATA_DIR } from "./config";
+
 import { withLock } from "./file-lock";
 import { linkPlanTasks } from "./plan-tasks";
+import { dataDir } from "./tenant";
 
 // The authoritative record of what Lind planned and what actually happened, one JSON file per day.
 // The vault note and the Google Calendar events are mirrors: replanning rewrites those, so ticks and
@@ -57,7 +58,7 @@ export type PlanStats = {
   todayTotal: number;
 };
 
-const plansDir = () => path.join(DATA_DIR, "plans");
+const plansDir = () => path.join(dataDir(), "plans");
 const dayFile = (day: string) => path.join(plansDir(), `${day}.json`);
 const active = (b: StoredBlock) => b.status !== "dropped" && b.status !== "moved";
 

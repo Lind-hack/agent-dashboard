@@ -5,12 +5,13 @@ import { transcribe } from "@/lib/groq";
 import { seatByKey } from "@/lib/council";
 import { listRooms, newRoomId } from "@/lib/rooms";
 import { pushInbox } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Start a Roast room: a task (typed and/or a voice note), 2–4 agents, an optional repo for the evidence.
 // The runner owns the room file; this only queues the request (PLAN-v2 R14).
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   try {
     const form = await request.formData();
     let task = String(form.get("text") ?? "").trim();
@@ -36,10 +37,13 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
+async function GET_() {
   return NextResponse.json({
     rooms: listRooms()
       .slice(0, 30)
       .map((r) => ({ id: r.id, task: r.task.split("\n")[0].slice(0, 140), agents: r.agents, seats: r.seats ?? [], status: r.status, outcome: r.verdict?.outcome, decision: r.verdict?.decision, createdAt: r.createdAt })),
   });
 }
+
+export const POST = guarded(POST_, { owner: true });
+export const GET = guarded(GET_, { owner: true });

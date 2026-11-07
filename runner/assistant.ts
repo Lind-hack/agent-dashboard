@@ -5,6 +5,7 @@ import { solJSON, solLabel } from "../lib/sol";
 import { todosFor, remainingMin } from "../lib/todos";
 import { stepSettled } from "./autopilot";
 import { notify } from "./notify";
+import { perTenant } from "../lib/tenant";
 
 // The Day assistant, runner side (v5):
 // - Sol briefings: morning 07:30, midday 13:00, evening 21:25 (the 21:30 recap reads it) — plus any
@@ -23,7 +24,8 @@ const DUE_DEFAULT = () => process.env.TASK_DUE_DEFAULT ?? "18:00";
 const PROGRESS_AT = () => (process.env.PROGRESS_AT ?? "16:00,19:00").split(",").map((s) => s.trim());
 const fmt = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
-let briefing = false;
+// One copy per account (the runner runs every user's jobs in turn).
+const st = perTenant(() => ({ briefing: false, tries: new Map<string, { n: number; last: number }>() }));
 let events: { at: number; list: CalEvent[] } = { at: 0, list: [] };
 
 async function writeBrief(slot: BriefSlot, push: boolean) {
@@ -52,15 +54,14 @@ async function writeBrief(slot: BriefSlot, push: boolean) {
 
 // Scheduled briefings that didn't land (runner restart, Sol busy or failing) are retried for 3 hours
 // after their time, at most 3 tries a day, 15 minutes apart.
-const tries = new Map<string, { n: number; last: number }>();
 
 function startBrief(slot: BriefSlot, push: boolean, claimed = false) {
-  if (briefing) return false;
-  briefing = true;
+  if (st().briefing) return false;
+  st().briefing = true;
   void writeBrief(slot, push)
     .catch((e) => log(slot, e instanceof Error ? e.message : e))
     .finally(() => {
-      briefing = false;
+      st().briefing = false;
       if (claimed) finishBriefRequest();
     });
   return true;
@@ -85,17 +86,17 @@ export async function assistantTick(minute: string) {
   // Briefings: the scheduled ones, else an "Ask Sol" from the page.
   for (const slot of ["morning", "midday", "evening"] as BriefSlot[]) {
     const late = toMin(minute) - toMin(AT[slot]());
-    if (late < 0 || late > 180 || briefing || readBrief(day, slot)) continue;
+    if (late < 0 || late > 180 || st().briefing || readBrief(day, slot)) continue;
     // Autopilot plans first (morning/midday) or rolls tasks over (evening); the briefing reads the result.
     if (!stepSettled(day, slot)) continue;
     const key = `${day}:${slot}`;
-    const t = tries.get(key) ?? { n: 0, last: 0 };
+    const t = st().tries.get(key) ?? { n: 0, last: 0 };
     if (t.n >= 3 || Date.now() - t.last < 15 * 60_000) continue;
-    tries.set(key, { n: t.n + 1, last: Date.now() });
+    st().tries.set(key, { n: t.n + 1, last: Date.now() });
     // The evening review rides on the 21:30 recap push when there's a plan; without one it pushes itself.
     startBrief(slot, slot !== "evening" || !coachNow().planned);
   }
-  if (!briefing) {
+  if (!st().briefing) {
     const req = takeBriefRequest();
     if (req) startBrief(req.slot, false, true);
   }

@@ -10,6 +10,7 @@ import { readPush } from "@/lib/goggins";
 import { readReckoning, snapshot, wall } from "@/lib/reckoning";
 import { fmtMin, VERDICT_TONE, VERDICT_WORDS, type DayVerdict } from "@/lib/verdict";
 import { cn } from "@/lib/utils";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export const dynamic = "force-dynamic";
 const CELL: Record<DayVerdict, string> = { enough: "bg-ok", "not-enough": "bg-warn", soft: "bg-bad", "no-plan": "bg-bad/45", pending: "bg-white/[0.05]" };
 const label = (d: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...o }).format(new Date(`${d}T12:00:00Z`));
 
-export default async function MirrorPage({ searchParams }: { searchParams: Promise<{ day?: string }> }) {
+async function MirrorPage({ searchParams }: { searchParams: Promise<{ day?: string }> }) {
   const today = coachNow().day;
   const asked = (await searchParams)?.day;
   const pick = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked <= today ? asked : addDays(today, -1);
@@ -32,7 +33,7 @@ export default async function MirrorPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="mx-auto max-w-3xl">
-      <MirrorHero day={today} action={<FaceUpload set={face} />} />
+      {MirrorHero({ day: today, action: <FaceUpload set={face} /> }) /* called now: it reads this user's data */}
 
       <PushCard push={readPush(today)} face={face} />
 
@@ -112,3 +113,5 @@ export default async function MirrorPage({ searchParams }: { searchParams: Promi
     </div>
   );
 }
+
+export default page(MirrorPage);

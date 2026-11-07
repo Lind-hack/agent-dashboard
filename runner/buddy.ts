@@ -2,6 +2,7 @@ import { readProfile, refreshProfile } from "../lib/buddy";
 import { coachNow } from "../lib/coach";
 import { journalWritten, mirrorAll } from "../lib/journal";
 import { notify } from "./notify";
+import { perTenant } from "../lib/tenant";
 
 // The Buddy, runner side (v5.1):
 // - 21:00 every day: "How was your day?" — a push that opens the journal (text or voice). If nothing
@@ -12,7 +13,8 @@ const log = (...a: unknown[]) => console.log(new Date().toISOString(), "buddy:",
 const JOURNAL_AT = () => process.env.JOURNAL_AT ?? "21:00";
 const JOURNAL_NUDGE_AT = () => process.env.JOURNAL_NUDGE_AT ?? "22:30";
 const PROFILE_AT = () => process.env.BUDDY_PROFILE_AT ?? "03:30";
-let profiling = false;
+// One copy per account (the runner runs every user's jobs in turn).
+const st = perTenant(() => ({ profiling: false }));
 
 export async function buddyTick(minute: string) {
   const day = coachNow().day;
@@ -43,15 +45,15 @@ export async function buddyTick(minute: string) {
     });
 
   // Nightly profile, once a night.
-  if (minute === PROFILE_AT() && !profiling) {
+  if (minute === PROFILE_AT() && !st().profiling) {
     mirrorAll(); // days the vault missed
     // Every night (one Sol call): the journal, the conversations and the scores all feed it.
     const last = readProfile().at ?? "";
     if (last && Date.now() - Date.parse(last) < 20 * 3600_000) return;
-    profiling = true;
+    st().profiling = true;
     void refreshProfile(day)
       .then((ok) => log(ok ? "profile updated" : "profile: no model answered"))
       .catch((e) => log("profile", e instanceof Error ? e.message : e))
-      .finally(() => (profiling = false));
+      .finally(() => (st().profiling = false));
   }
 }

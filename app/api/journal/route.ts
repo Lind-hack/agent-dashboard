@@ -3,17 +3,18 @@ import { forgetTurn } from "@/lib/buddy";
 import { coachNow } from "@/lib/coach";
 import { addEntry, readJournal, recentJournal, removeEntry } from "@/lib/journal";
 import { invalidateMemory } from "@/lib/memory";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // The journal (v5.1). GET → today + the last week; POST { text, source, mood, day? } → one entry;
 // DELETE ?day=&id= → removes one. Voice is transcribed first by /api/transcribe on the page.
-export async function GET() {
+async function GET_() {
   const day = coachNow().day;
   return NextResponse.json({ day, today: readJournal(day), week: recentJournal(day, 7) });
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { text?: string; source?: string; mood?: number; day?: string } | null;
   const day = typeof b?.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(b.day) ? b.day : coachNow().day;
   try {
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function DELETE_(request: Request) {
   const u = new URL(request.url);
   const day = u.searchParams.get("day") ?? "";
   const id = u.searchParams.get("id") ?? "";
@@ -35,3 +36,7 @@ export async function DELETE(request: Request) {
   invalidateMemory();
   return NextResponse.json({ ok: true });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);
+export const DELETE = guarded(DELETE_);

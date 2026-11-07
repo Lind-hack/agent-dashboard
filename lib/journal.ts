@@ -2,7 +2,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { addDays } from "./calendar";
-import { DATA_DIR } from "./config";
+import { dataDir, userTz, vaultDir } from "./tenant";
+
 
 // The journal (v5.1): Lind's day in his own words, typed or spoken. One file per day in
 // data/journal/<day>.json (the web app writes it), mirrored to the vault's "100 - Me/journal/<day>.md"
@@ -14,9 +15,8 @@ export type Mood = 1 | 2 | 3 | 4 | 5;
 export type JournalEntry = { id: string; at: string; text: string; source: "text" | "voice" | "buddy"; mood?: Mood };
 export type JournalDay = { day: string; entries: JournalEntry[] };
 
-const dir = () => path.join(DATA_DIR, "journal");
+const dir = () => path.join(dataDir(), "journal");
 const file = (day: string) => path.join(dir(), `${day}.json`);
-const vaultDir = () => process.env.MEMORY_VAULT_DIR ?? "/home/ubuntu/.hermes/syncthing-sync/lind-brain";
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 export function readJournal(day: string): JournalDay {
@@ -106,7 +106,7 @@ function mirror(j: JournalDay) {
   try {
     const d = vaultJournal();
     fs.mkdirSync(d, { recursive: true });
-    const time = (e: JournalEntry) => new Date(e.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: process.env.DASHBOARD_TZ ?? "Europe/Belgrade" });
+    const time = (e: JournalEntry) => new Date(e.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: userTz() });
     const told = j.entries.filter((e) => e.source === "buddy");
     const md = [
       "---",

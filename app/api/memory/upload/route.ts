@@ -3,6 +3,7 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { createItem, extFor, kindForMime, MAX_UPLOAD, mediaDir, mimeForFile, newId, readItem, uploadsDir } from "@/lib/library";
 import { invalidateMemory } from "@/lib/memory";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,7 @@ function sweepStale() {
   }
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const declared = Number(request.headers.get("content-length") ?? 0);
   if (declared > CHUNK_MAX) return NextResponse.json({ error: "chunk too large" }, { status: 413 });
   return serial(request.headers.get("x-upload") ?? "", () => handle(request));
@@ -121,3 +122,5 @@ async function handle(request: Request) {
   invalidateMemory();
   return NextResponse.json({ ok: true, item: it });
 }
+
+export const POST = guarded(POST_);

@@ -2,9 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { googleToken, listAccounts } from "./accounts";
 import { accessToken, gmailConnected } from "./calendar";
-import { DATA_DIR } from "./config";
+
 import { readMail, readPiles, type Mail } from "./gmail";
 import { groqJSON } from "./groq";
+import { dataDir } from "./tenant";
 
 // Email → action (v5.1).
 // - The runner reads mail that was sorted into a pile that usually needs Lind (reply, leads, sponsors,
@@ -14,7 +15,7 @@ import { groqJSON } from "./groq";
 
 export type MailAction = { id: string; needsAction: boolean; title?: string; due?: string; estimateMin?: number; priority?: 0 | 1 | 2 | 3; at: string };
 
-const file = () => path.join(DATA_DIR, "mail", "actions.json");
+const file = () => path.join(dataDir(), "mail", "actions.json");
 export const readActions = (): Record<string, MailAction> => {
   try {
     return JSON.parse(fs.readFileSync(file(), "utf8")) ?? {};

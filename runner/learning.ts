@@ -8,6 +8,7 @@ import { listItems, mediaDir, mirrorItem, readItem, saveItem, type LibraryItem }
 import { formatTimestamp } from "../lib/video-transcript";
 import { askJSON } from "./dump";
 import { readLink, still } from "./library";
+import { perTenant } from "../lib/tenant";
 
 // The Learning pass (v6, Lind: "way more detailed"): a source in Study is read start to finish, one part
 // at a time. A video's part is its transcript and frames from that stretch, a PDF's part is its pages,
@@ -25,7 +26,8 @@ const WAIT_MAX = 6 * 3600_000;
 const GIVE_UP = 6; // a first read shows as failed after this many tries at one part
 
 let busy = false;
-let migrated = false;
+// One copy per account (the runner runs every user's jobs in turn).
+const st = perTenant(() => ({ migrated: false }));
 
 // What to read next: anything mid-read or waiting first, then old shallow reads, one at a time.
 export function nextToRead(items: LibraryItem[], now = Date.now()): LibraryItem | undefined {
@@ -43,9 +45,9 @@ export function nextToRead(items: LibraryItem[], now = Date.now()): LibraryItem 
 export function learningTick() {
   if (busy) return;
   const items = listItems();
-  if (!migrated) {
+  if (!st().migrated) {
     migrateReviewKeys(items);
-    migrated = true;
+    st().migrated = true;
   }
   const next = nextToRead(items);
   if (!next) return;
@@ -83,7 +85,7 @@ async function partsOf(it: LibraryItem): Promise<ReadPart[]> {
 
 // ---- reading one part ----------------------------------------------------------------------------
 
-const SYSTEM = `You write detailed study notes for Lind, a CS student, on one part of something he is learning. He will be tested on every idea in it, weeks and months from now, so these notes have to teach, not summarise.
+const SYSTEM = `You write detailed study notes for Lind on one part of something he is learning. He will be tested on every idea in it, weeks and months from now, so these notes have to teach, not summarise.
 Return JSON: {"title": string, "summary": string, "concepts": [{"term": string, "explanation": string, "example": string|null, "at": number|null, "page": number|null}], "key_points": [string], "questions": [{"q": string, "a": string, "at": number|null, "page": number|null, "kind": "recall"|"explain"|"apply"|"code"|"interview"}]}
 - title: what this part is about, ≤ 10 words. summary: 3–6 sentences on what it teaches and how it builds.
 - concepts: EVERY idea, term, method, formula and named thing taught here, not only the main ones, usually 5–12. term ≤ 8 words. explanation: 3–6 sentences: what it is, how it works, why it matters, and how it connects to the rest. example: a concrete example from the material, or null if it gives none.

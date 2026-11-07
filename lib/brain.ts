@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // The brain: everything Lind does with agents, crystallized into the Obsidian vault. The PC collector
 // (handoff/brain-collect.mjs) uploads condensed, redacted chats here; the runner (runner/brain.ts) turns
 // them into wiki pages with Nemotron, adds GitHub commits and dashboard chats nightly, and runs the
 // weekly Luna synthesis. This file is the shared storage both sides use.
 
-export const BRAIN_DIR = () => path.join(DATA_DIR, "brain");
+export const BRAIN_DIR = () => path.join(dataDir(), "brain");
 export const brainInbox = () => path.join(BRAIN_DIR(), "inbox");
 
 export type BrainItem = {

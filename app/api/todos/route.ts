@@ -2,16 +2,17 @@ import { NextResponse } from "next/server";
 import { coachNow } from "@/lib/coach";
 import { deferTodoBlocks, finishTodo, scheduleTodo } from "@/lib/todo-actions";
 import { addTodo, removeTodo, todosFor, updateTodo, type TodoPatch } from "@/lib/todos";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Dashboard tasks (v5). GET → today's lists; POST → add; PATCH → edit / tick / subtasks; DELETE → remove.
 
-export async function GET() {
+async function GET_() {
   return NextResponse.json(todosFor(coachNow().day));
 }
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const title = String(b?.title ?? "").trim();
   if (!title) return NextResponse.json({ error: "What's the task?" }, { status: 400 });
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function PATCH_(request: Request) {
   const b = (await request.json().catch(() => null)) as (TodoPatch & { id?: string; schedule?: { start?: string; length?: number } }) | null;
   if (!b?.id) return NextResponse.json({ error: "Which task?" }, { status: 400 });
   const { id, done, schedule, ...patch } = b;
@@ -50,7 +51,12 @@ export async function PATCH(request: Request) {
   return NextResponse.json({ todo, warning });
 }
 
-export async function DELETE(request: Request) {
+async function DELETE_(request: Request) {
   const id = new URL(request.url).searchParams.get("id") ?? "";
   return removeTodo(id) ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Task not found" }, { status: 404 });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);
+export const PATCH = guarded(PATCH_);
+export const DELETE = guarded(DELETE_);

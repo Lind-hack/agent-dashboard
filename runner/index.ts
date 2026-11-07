@@ -25,6 +25,8 @@ import { installSkillsFromGithub } from "./skills-github";
 import { applySkills, skillDisplay } from "../lib/skills";
 import { ensurePullRequest, ensureWorktree, freeBytes, publishBranch, pushBranch, removeWorktree, sweepWorktrees } from "./git";
 import { handoffPreamble, jobFromHandoff, prepareHandoff, writeExport, type ExportManifest } from "./handoff";
+import { ownerTenant, runAs, type Tenant } from "../lib/tenant";
+import { listUsers, tenantOf } from "../lib/users";
 
 // The runner owns every job file. It polls Linear for `agent:claude` / `agent:codex` issues, takes
 // untracked chats from the dashboard inbox, runs one turn per agent at a time, pushes the branch,
@@ -619,6 +621,11 @@ async function runTurn(job: Job) {
   }
 }
 
+let turn = 0;
+function activeTenants(): Tenant[] {
+  return [ownerTenant(), ...listUsers().filter((u) => !u.disabled).map(tenantOf)];
+}
+
 async function tick() {
   writeHeartbeat({ active: [...active.values()].map((a) => a.id) });
   await handleInbox();
@@ -645,17 +652,30 @@ async function tick() {
   });
   // Memory captures and mail sorting run beside the agents, never in their slots.
   try {
-    libraryTick();
-    learningTick();
-    learningSundayTick();
     mailTick();
-    coachTick();
-    mentorTick();
     taskSyncTick();
     monitorTick();
-    sourcesTick();
   } catch (e) {
     log("library", e instanceof Error ? e.message : e);
+  }
+  // Every account's own day: captures, learning, the coach, the mentor, calendar. Each runs inside that
+  // account's tenant, so it reads and writes only that account's folder and keys. The start rotates so a
+  // long capture backlog in one account can't keep the shared capture slot from the others.
+  const tenants = activeTenants();
+  turn = (turn + 1) % Math.max(1, tenants.length);
+  for (const t of [...tenants.slice(turn), ...tenants.slice(0, turn)]) {
+    runAs(t, () => {
+      try {
+        libraryTick();
+        learningTick();
+        learningSundayTick();
+        coachTick();
+        mentorTick();
+        sourcesTick();
+      } catch (e) {
+        log("tenant", t.id, e instanceof Error ? e.message : e);
+      }
+    });
   }
   if (Date.now() - lastSweep > SWEEP_MS) {
     lastSweep = Date.now();
@@ -695,7 +715,7 @@ setInterval(async () => {
   if (ticking) return;
   ticking = true;
   try {
-    await tick();
+    await runAs(ownerTenant(), tick);
   } finally {
     ticking = false;
   }

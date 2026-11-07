@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ const FILES: Record<string, string> = {
   "transcript.ts": "lib/transcript.ts",
 };
 
-export async function GET() {
+async function GET_() {
   const files: Record<string, string> = {};
   for (const [name, rel] of Object.entries(FILES)) {
     try {
@@ -29,3 +30,5 @@ export async function GET() {
   if (!files["brain-collect.mjs"]) return NextResponse.json({ error: "collector not found in this build" }, { status: 500 });
   return NextResponse.json({ build: process.env.COMMIT_SHA ?? null, files });
 }
+
+export const GET = guarded(GET_, { owner: true });

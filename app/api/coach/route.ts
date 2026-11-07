@@ -5,6 +5,7 @@ import { goalById } from "@/lib/goals";
 import { groqJSON } from "@/lib/groq";
 import { addBlock, addCheckin, setBlockStatus, shrinkBlock, type BlockAction, type Mood } from "@/lib/plan-store";
 import { finishTodo } from "@/lib/todo-actions";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 //   focus { goalId, minutes }         → a block on that goal starting now, running
 //   plan  { goalId, minutes }         → a block on that goal in today's next free slot
 //   breakdown                         → three tiny first steps for a block Lind is stuck on
-export async function GET() {
+async function GET_() {
   const now = coachNow();
   return NextResponse.json({ ...now, progress: goalProgress().map((p) => ({ id: p.goal.id, title: p.goal.title, weekMin: p.weekMin, targetMin: p.targetMin, todayDoneMin: p.todayDoneMin })) });
 }
@@ -23,7 +24,7 @@ export async function GET() {
 const STATUS: BlockAction[] = ["start", "done", "blocked", "move", "planned"];
 const MOODS: Mood[] = ["on-track", "stuck", "distracted"];
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { action?: string; id?: string; mood?: string; note?: string; goalId?: string; minutes?: number; completeTask?: boolean } | null;
   const tz = coachTz();
   const { day } = coachNow();
@@ -67,3 +68,6 @@ export async function POST(request: Request) {
   }
   return NextResponse.json({ error: "Unknown action." }, { status: 400 });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

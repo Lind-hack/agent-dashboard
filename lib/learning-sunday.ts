@@ -3,11 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { askJSON } from "./ask";
 import { addDays } from "./calendar";
-import { DATA_DIR } from "./config";
+
 import { cardKey, inStudy, nextReview, readReviewRecords, saveReviewRecords, type ReviewGrade, type ReviewRecord } from "./learning";
 import { studiedTerms, topicsView } from "./learning-topics";
 import { listItems, type LibraryItem } from "./library";
 import { listTodos, updateTodo } from "./todos";
+import { dataDir } from "./tenant";
 
 // The Sunday blurt (v6, Lind: "revise everything from start to finish, so terms from months back aren't
 // left out and forgotten"). Every Sunday: each source added this week whole, then every older topic.
@@ -37,7 +38,7 @@ export type SessionReport = { recalled: number; partial: number; missed: number;
 export type LearningRun = { id: string; day: string; createdAt: string; state: "open" | "done"; rounds: Round[]; doneAt?: string; report?: SessionReport };
 
 const ROUND_MAX = 15;
-const dir = () => path.join(DATA_DIR, "learning", "sessions");
+const dir = () => path.join(dataDir(), "learning", "sessions");
 const file = (id: string) => path.join(dir(), `${id.replace(/[^a-z0-9-]/gi, "")}.json`);
 const save = (s: LearningRun) => {
   fs.mkdirSync(dir(), { recursive: true });

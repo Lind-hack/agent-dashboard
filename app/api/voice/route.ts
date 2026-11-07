@@ -4,11 +4,12 @@ import { fastCoreSpeech, speak, warmAlbanian, warmKokoro } from "@/lib/tts";
 import { voiceLang } from "@/lib/voices";
 import { magpieReady } from "@/lib/magpie";
 import { voiceAnswer, warmVoiceContext, type VoiceTurn } from "@/lib/voice-brain";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Authenticated prewarm: keep model loading and remote context off the post-speech path.
-export async function GET() {
+async function GET_() {
   void warmVoiceContext().catch(() => {});
   warmAlbanian();
   if (!magpieReady()) warmKokoro();
@@ -17,7 +18,7 @@ export async function GET() {
 
 // One spoken exchange with the Core: audio (or text) in → what you said + what the Core answers
 // (+ an action for the client to confirm). The client then speaks the answer via /api/tts.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   try {
     const start = performance.now();
     let sttMs = 0;
@@ -70,3 +71,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

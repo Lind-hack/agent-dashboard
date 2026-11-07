@@ -4,7 +4,7 @@ import { mirror, mirrorText, patterns } from "./accountability";
 import { ACTIONS_SPEC, cleanActions, dayContext, type AssistantAction } from "./assistant";
 import { addDays } from "./calendar";
 import { coachNow, readRecap } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { discipline } from "./discipline";
 import { groqJSON } from "./groq";
 import { moodWord, recentJournal } from "./journal";
@@ -12,6 +12,7 @@ import { readStage } from "./life";
 import { recallMemory, recallText } from "./memory";
 import { nemotron, nvidiaReady } from "./nvidia";
 import { sol } from "./sol";
+import { dataDir } from "./tenant";
 
 // The Buddy (v5.1): one long conversation with someone who knows Lind — his goals, his days, his
 // journal, how he works — and helps him reach what he's going for. Replies come from a fast model
@@ -20,7 +21,7 @@ import { sol } from "./sol";
 
 export type BuddyTurn = { role: "lind" | "buddy"; text: string; at: string; voice?: boolean; actions?: (AssistantAction & { label: string })[] };
 
-const dir = () => path.join(DATA_DIR, "buddy");
+const dir = () => path.join(dataDir(), "buddy");
 const threadFile = () => path.join(dir(), "thread.json");
 export const profileFile = () => path.join(dir(), "profile.md");
 

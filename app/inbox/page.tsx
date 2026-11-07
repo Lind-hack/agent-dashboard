@@ -8,6 +8,8 @@ import { mailConnected, PILES, readDone, readMail, readPiles, readSortStats } fr
 import { inboxItems, type InboxItem } from "@/lib/inbox";
 import { PILE_HUE } from "@/lib/piles";
 import { cn } from "@/lib/utils";
+import { userTz } from "@/lib/tenant";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +23,7 @@ const GROUPS = {
 } as const satisfies Record<string, { label: string; kinds: readonly InboxItem["kind"][] | null; icon: unknown }>;
 type Group = keyof typeof GROUPS;
 
-export default async function InboxPage({ searchParams }: { searchParams: Promise<{ k?: string }> }) {
+async function InboxPage({ searchParams }: { searchParams: Promise<{ k?: string }> }) {
   const raw = (await searchParams)?.k ?? "all";
   const items = await inboxItems().catch(() => [] as InboxItem[]);
   const connected = mailConnected();
@@ -39,7 +41,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   const shownMail = pile ? messages.filter((m) => pileOf(m.id) === pile) : messages.filter((m) => pileOf(m.id) !== "spam");
   const shown = inGroup(group);
 
-  const tz = process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
+  const tz = userTz();
   const dayStart = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
   dayStart.setHours(0, 0, 0, 0);
   const offset = new Date().getTime() - new Date(new Date().toLocaleString("en-US", { timeZone: tz })).getTime();
@@ -120,3 +122,5 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
     </div>
   );
 }
+
+export default page(InboxPage, { owner: true });

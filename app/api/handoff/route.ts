@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { listRepos } from "@/lib/github";
 import { pushInbox } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 // Called by the /handoff skill on Lind's PC (Bearer HANDOFF_TOKEN, checked in proxy.ts):
 // { repo, branch, title, summary, agent? } → a VPS chat that continues that branch.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     repo?: string;
     branch?: string;
@@ -36,3 +37,5 @@ export async function POST(request: Request) {
   const origin = request.headers.get("x-forwarded-host") ? `https://${request.headers.get("x-forwarded-host")}` : new URL(request.url).origin;
   return NextResponse.json({ id, url: `${origin}/jobs/${id}` });
 }
+
+export const POST = guarded(POST_, { owner: true });

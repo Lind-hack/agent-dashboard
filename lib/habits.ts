@@ -2,8 +2,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { addDays } from "./calendar";
-import { DATA_DIR } from "./config";
+
 import { withLock } from "./file-lock";
+import { dataDir } from "./tenant";
 
 // Habits (v5.3, Lind's reference: a habit tracker where every row fills up as you go). A habit repeats
 // on chosen weekdays and has a daily target — "2 litres", "3 meals", or just once ("Gym"). Tapping +
@@ -25,7 +26,7 @@ export type Habit = {
 };
 export type HabitDay = { habit: Habit; value: number; done: boolean; streak: number };
 
-const dir = () => path.join(DATA_DIR, "habits");
+const dir = () => path.join(dataDir(), "habits");
 const habitsFile = () => path.join(dir(), "habits.json");
 const dayFile = (day: string) => path.join(dir(), "days", `${day}.json`);
 const DAY = /^\d{4}-\d{2}-\d{2}$/;

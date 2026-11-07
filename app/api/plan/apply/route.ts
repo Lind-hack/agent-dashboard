@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { calendarConnected, replacePlan, type PlanBlock } from "@/lib/calendar";
 import { activeBlocks, blockId, savePlan } from "@/lib/plan-store";
 import { writePlanNote } from "@/lib/planner";
+import { guarded } from "@/lib/guard";
 
 // { day, blocks, summary, note } → time blocks on Google Calendar (replacing today's earlier plan)
 // and the plan note in the vault.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { day?: string; tz?: string; blocks?: PlanBlock[]; summary?: string; note?: string } | null;
   const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/;
   const blocks = (b?.blocks ?? []).filter((x) => hhmm.test(x?.start ?? "") && hhmm.test(x?.end ?? "") && x?.title?.trim() && ["task", "focus", "break", "routine"].includes(x.kind)).slice(0, 30);
@@ -32,3 +33,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
+export const POST = guarded(POST_);

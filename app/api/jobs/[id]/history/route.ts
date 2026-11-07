@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { handoffDir } from "@/lib/handoff";
 import { readJob } from "@/lib/store";
 import { parseTranscript, type Item } from "@/lib/transcript";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 // ?before=<index> pages backwards; items are numbered oldest = 0.
 const cache = new Map<string, { mtime: number; items: Item[] }>();
 
-export async function GET(request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const job = readJob(id);
   const dir = job?.imported ? handoffDir(job.imported.sessionId, job.imported.generation) : null;
@@ -40,3 +41,5 @@ export async function GET(request: Request, ctx: { params: Promise<{ id: string 
     items: items.slice(start, before).map((it, i) => ({ ...it, n: start + i, text: it.text.length > 6000 ? `${it.text.slice(0, 6000)}…` : it.text })),
   });
 }
+
+export const GET = guarded(GET_, { owner: true });

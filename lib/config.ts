@@ -41,6 +41,8 @@ export const repoShort = (repo: RepoKey) => repo.split("/").pop() ?? repo;
 
 export { AGENT_LABELS, type AgentKey, type TaskAgent } from "./agents";
 import type { AgentKey, TaskAgent } from "./agents";
+import { apiKey } from "./user-keys";
+import { isOwner } from "./tenant";
 
 export const LABELS = {
   agent: (a: TaskAgent) => `agent:${a}`,
@@ -52,11 +54,19 @@ export const BOT_MARK = "🤖";
 // A Linear comment that starts with "@claude" / "@codex" continues the VPS session for that issue.
 export const replyPrefix = (a: AgentKey) => `@${a}`;
 
-export const linearKey = () => env("LINEAR_API_KEY");
+export const linearKey = () => (ownerOnly(), env("LINEAR_API_KEY"));
 export const linearTeamKey = () => process.env.LINEAR_TEAM_KEY ?? "";
-export const groqKey = () => env("GROQ_API_KEY");
+export const groqKey = () => {
+  const k = apiKey("GROQ_API_KEY");
+  if (!k) throw new Error("No Groq key yet: add one in Settings → AI keys");
+  return k;
+};
 export const groqModel = () => process.env.GROQ_MODEL ?? "openai/gpt-oss-120b";
-export const githubToken = () => env("GITHUB_TOKEN");
+export const githubToken = () => (ownerOnly(), env("GITHUB_TOKEN"));
+// Linear, GitHub and the coding agents run on the owner's accounts; no one else may reach them.
+function ownerOnly() {
+  if (!isOwner()) throw new Error("Not available on this account");
+}
 export const sessionSecret = () => env("SESSION_SECRET");
 export const dashboardPassword = () => env("DASHBOARD_PASSWORD");
 export const handoffToken = () => process.env.HANDOFF_TOKEN ?? "";

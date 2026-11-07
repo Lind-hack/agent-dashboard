@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // A cross-process lock for read-modify-write on a JSON file (v5.1): the web app and the runner both
 // change plans and tasks now (Autopilot runs in the runner). The lock is a file created with O_EXCL that
@@ -37,7 +38,7 @@ function stealIfStale(file: string) {
 }
 
 export function withLock<T>(name: string, fn: () => T): T {
-  const dir = path.join(DATA_DIR, "locks");
+  const dir = path.join(dataDir(), "locks");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${name.replace(/[^\w.-]/g, "_")}.lock`);
   const token = `${process.pid}:${crypto.randomBytes(6).toString("hex")}`;

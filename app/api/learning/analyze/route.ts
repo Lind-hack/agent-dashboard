@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { listItems, readItem, saveItem } from "@/lib/library";
 import { emptyDigest, isStudyMaterial, learningOverview } from "@/lib/learning";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // POST { id } queues one item for the runner's Learning pass; POST {} queues every study item that
 // has never been analysed. Re-analysing an item replaces its digest.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { id?: string } | null;
   const items = listItems();
   const targets = b?.id ? items.filter((i) => i.id === b.id) : items.filter((i) => isStudyMaterial(i) && !i.learning);
@@ -23,3 +24,5 @@ export async function POST(request: Request) {
   if (b?.id && !targets.length) return NextResponse.json({ error: "That item can't be studied yet." }, { status: 400 });
   return NextResponse.json({ ok: true, queued, ...learningOverview(listItems()) });
 }
+
+export const POST = guarded(POST_);

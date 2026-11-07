@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import { withLock } from "./file-lock";
+import { dataDir } from "./tenant";
 
 // Extra mail accounts (v5.1). The main Google account stays in data/google.json; every other one is a
 // file in data/accounts/ (mode 600, never sent to the browser):
@@ -31,7 +32,7 @@ export type Account = {
 };
 export type PublicAccount = { id: string; provider: Provider; email: string; addedAt: string; calendar: boolean; drafts: boolean };
 
-const dir = () => path.join(DATA_DIR, "accounts");
+const dir = () => path.join(dataDir(), "accounts");
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || crypto.randomBytes(3).toString("hex");
 
 export function listAccounts(): Account[] {

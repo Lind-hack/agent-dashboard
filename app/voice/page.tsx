@@ -1,7 +1,8 @@
 import { Composer } from "@/components/composer";
 import { PageHeader } from "@/components/kit";
+import { page } from "@/lib/guard";
 
-export default function NewChatPage() {
+function NewChatPage() {
   return (
     <div className="mx-auto max-w-lg">
       <PageHeader title="New chat" sub="Pick an agent and a repo, then talk or type." />
@@ -9,3 +10,5 @@ export default function NewChatPage() {
     </div>
   );
 }
+
+export default page(NewChatPage, { owner: true });

@@ -11,6 +11,7 @@ import { emptyDigest, inStudy, isStudyMaterial } from "../lib/learning";
 import { splitStep, startSplitIfDump, unsplitDump } from "./dump";
 import { addSection, listItems, mediaDir, mirrorItem, readItem, readSections, removeMirror, saveItem, type LibraryItem, type Section } from "../lib/library";
 import { isPlainTranscriptName, isSubtitleFile, parseTranscript, shouldPairTranscript, transcriptText, type Transcript } from "../lib/video-transcript";
+import { apiKey } from "../lib/user-keys";
 
 // The Library automation (plan v3 §3): every queued capture is read — voice transcribed, images and
 // video frames described, links fetched — then the organiser files it into a section (making a new
@@ -336,7 +337,7 @@ export function platformTranscript(content: Cue[], language?: string): Transcrip
 }
 
 export async function videoTranscript(u: URL, waitMs = 5000): Promise<Transcript | null> {
-  const key = process.env.SUPADATA_API_KEY;
+  const key = apiKey("SUPADATA_API_KEY");
   if (!key) return null;
   const headers = { "x-api-key": key };
   const q = new URLSearchParams({ url: u.toString(), text: "false", mode: "native" });
@@ -356,7 +357,7 @@ export async function videoTranscript(u: URL, waitMs = 5000): Promise<Transcript
 
 // Articles: the page's main content as markdown (Firecrawl), so Memory can search the whole text.
 async function articleText(u: URL): Promise<{ title?: string; markdown: string }> {
-  const key = process.env.FIRECRAWL_API_KEY;
+  const key = apiKey("FIRECRAWL_API_KEY");
   if (!key) return { markdown: "" };
   const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
     method: "POST",

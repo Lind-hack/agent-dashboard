@@ -11,6 +11,7 @@ import { assistantTick, eveningNote } from "./assistant";
 import { autopilotTick, stepSettled } from "./autopilot";
 import { buddyTick } from "./buddy";
 import { notify, sweepNotices } from "./notify";
+import { perTenant } from "../lib/tenant";
 
 // The Coach, runner side (Lind chose "Coach", 2026-10-31): a push when a block starts, a nudge when
 // it hasn't been started 10 minutes in, a halfway check-in on long blocks, "done?" at the end, a
@@ -26,22 +27,21 @@ const log = (...a: unknown[]) => console.log(new Date().toISOString(), "coach:",
 const PLAN_REMINDER = () => process.env.COACH_PLAN_AT ?? "08:15";
 const RECAP_AT = () => process.env.COACH_RECAP_AT ?? "21:30";
 const PUSH_AT = () => process.env.GOGGINS_AT ?? "07:40";
-const pushTried = new Map<string, number>(); // day → tries
-let lastMinute = "";
-let busy = false;
+// One copy per account (the runner runs every user's jobs in turn).
+const st = perTenant(() => ({ pushTried: new Map<string, number>(), lastMinute: "", busy: false }));
 
 const fmtMin = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
 
 export function coachTick() {
-  if (busy || process.env.COACH_ENABLED === "0") return;
+  if (st().busy || process.env.COACH_ENABLED === "0") return;
   const tz = coachTz();
   const minute = clockNow(tz);
-  if (minute === lastMinute) return;
-  lastMinute = minute;
-  busy = true;
+  if (minute === st().lastMinute) return;
+  st().lastMinute = minute;
+  st().busy = true;
   void run(tz, minute)
     .catch((e) => log(e instanceof Error ? e.message : e))
-    .finally(() => (busy = false));
+    .finally(() => (st().busy = false));
 }
 
 async function run(tz: string, minute: string) {
@@ -104,9 +104,9 @@ async function run(tz: string, minute: string) {
 
   // The morning push, once Autopilot's morning step has settled (or by 09:00 regardless).
   if (minute >= PUSH_AT() && minute < "12:00" && !readPush(day) && (stepSettled(day, "morning") || minute >= "09:00")) {
-    const tries = pushTried.get(day) ?? 0;
+    const tries = st().pushTried.get(day) ?? 0;
     if (tries < 3 && (tries === 0 || minute.endsWith("0"))) {
-      pushTried.set(day, tries + 1);
+      st().pushTried.set(day, tries + 1);
       try {
         const p = await writePush(day);
         await notify({

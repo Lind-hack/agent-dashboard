@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Shell } from "@/components/shell";
+import { requestTenant } from "@/lib/guard";
+import { findUser } from "@/lib/users";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin", "latin-ext"], variable: "--font-geist", display: "swap" });
@@ -8,7 +10,7 @@ const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono"
 
 export const metadata: Metadata = {
   title: "Agentic OS",
-  description: "Lind's agents, projects and day — from the phone.",
+  description: "Your day, goals, memory and learning, from the phone.",
   appleWebApp: { capable: true, title: "Agentic OS", statusBarStyle: "black-translucent" },
 };
 
@@ -24,12 +26,13 @@ FORM: brief-pinned (Lind's Agentic OS / Jarvis / router references), evolved fro
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
 -->`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const t = await requestTenant().catch(() => null);
   return (
     <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
       <body className="min-h-dvh font-sans">
         <div hidden dangerouslySetInnerHTML={{ __html: CONTRACT }} />
-        <Shell>{children}</Shell>
+        <Shell me={t ? { owner: t.owner, name: t.name, setup: !t.owner && !findUser(t.id)?.setupDone } : null}>{children}</Shell>
       </body>
     </html>
   );

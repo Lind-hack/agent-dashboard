@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { coachNow } from "@/lib/coach";
 import { readGoals } from "@/lib/goals";
 import { applySay, cleanItems, parseSay, SAY_MAX, undoSay, type Undo } from "@/lib/say";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 // (nothing saved; repeats of open tasks and vague ones flagged). POST { items } → the ones he kept,
 // checked again and carried out, each with an undo. DELETE { undo } takes one back. Voice is
 // transcribed first by /api/transcribe (mode=say) on the page.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const body = (await request.json().catch(() => null)) as { text?: unknown; items?: unknown; from?: unknown } | null;
   try {
     if (Array.isArray(body?.items)) {
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function DELETE_(request: Request) {
   const u = ((await request.json().catch(() => null)) as { undo?: Undo } | null)?.undo;
   if (!u || !["task", "block", "event", "goal", "habit"].includes(u.kind) || typeof u.id !== "string") return NextResponse.json({ error: "Nothing to undo." }, { status: 400 });
   try {
@@ -36,3 +37,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 502 });
   }
 }
+
+export const POST = guarded(POST_);
+export const DELETE = guarded(DELETE_);

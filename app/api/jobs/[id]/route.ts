@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { validSkills } from "@/lib/skills";
 import { pushInbox, readJob, readLog } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const job = readJob(id);
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -12,7 +13,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
 }
 
 // { action: "reply", prompt } continues the Claude session; { action: "cancel" } stops it.
-export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function POST_(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const job = readJob(id);
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });
@@ -32,3 +33,6 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
   }
   return NextResponse.json({ error: "bad request" }, { status: 400 });
 }
+
+export const GET = guarded(GET_, { owner: true });
+export const POST = guarded(POST_, { owner: true });

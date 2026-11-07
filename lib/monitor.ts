@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+import { dataDir } from "./tenant";
+
 
 // Website monitoring (v4) for 383ks.com: the runner probes key URLs every 3 minutes and keeps 30 days
 // of results, records each deploy, opens/closes incidents, runs PageSpeed Insights every 6 hours and an
@@ -39,7 +40,7 @@ export type DbStats = {
   backup_unit: string;
 };
 
-export const monitorDir = () => path.join(DATA_DIR, "monitor");
+export const monitorDir = () => path.join(dataDir(), "monitor");
 const day = (iso: string) => iso.slice(0, 10);
 const probeFile = (d: string) => path.join(monitorDir(), `probes-${d}.ndjson`);
 

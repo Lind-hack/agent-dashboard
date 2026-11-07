@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { accessToken } from "./calendar";
-import { DATA_DIR } from "./config";
+import { dataDir, userTz } from "./tenant";
+
 
 // 383's traffic from Google Analytics 4 (Data API, read-only: analytics.readonly from
 // handoff/google-auth.mjs). The property is GA4_PROPERTY_ID (the number, not the G- measurement id).
@@ -21,7 +22,7 @@ export type Traffic = {
 const property = () => process.env.GA4_PROPERTY_ID?.replace(/^properties\//, "").trim() ?? "";
 const gaScope = () => {
   try {
-    const c = JSON.parse(fs.readFileSync(path.join(DATA_DIR, "google.json"), "utf8"));
+    const c = JSON.parse(fs.readFileSync(path.join(dataDir(), "google.json"), "utf8"));
     return Array.isArray(c?.scopes) && c.scopes.some((s: string) => s.includes("analytics"));
   } catch {
     return false;
@@ -61,7 +62,7 @@ export async function traffic(): Promise<Traffic | null> {
     ]);
     // GA4 leaves out days with no traffic: place rows on explicit dates and fill gaps with zero.
     const rows = new Map(days.map((r) => [`${dim(r).slice(0, 4)}-${dim(r).slice(4, 6)}-${dim(r).slice(6, 8)}`, { users: num(r), views: num(r, 1) }]));
-    const tz = process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
+    const tz = userTz();
     const iso = (n: number) => new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(Date.now() - n * 86_400_000));
     const byDay = Array.from({ length: 7 }, (_, i) => iso(6 - i)).map((day) => ({ day, ...(rows.get(day) ?? { users: 0, views: 0 }) }));
     const t = byDay.at(-1);

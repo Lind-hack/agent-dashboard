@@ -2,19 +2,20 @@ import fs from "node:fs";
 import path from "node:path";
 import { calendarConnected, dayString, replacePlan } from "./calendar";
 import { zonedMs } from "./coach";
-import { DATA_DIR } from "./config";
+
 import { tryFileLease } from "./async-file-lease";
 import { activeBlocks, readPlan } from "./plan-store";
 import { acknowledgeTaskDeletion, deletedTaskLinks, applyTaskSync, importTickTick, listTodos, type Todo } from "./todos";
 import { TickTickRateLimitError, completeTask, deleteTask, getTask, putTask, syncTasks, ticktickConnected, type RawTask } from "./ticktick";
+import { dataDir, userTz } from "./tenant";
 
 // Tasks are durable work, calendar blocks are reservations of time. Only explicit task completion
 // changes `done`. A finished/elapsed/moved/deleted calendar block never completes a task.
 export type TaskFields = { title: string; notes: string; due: string; priority: number; done: boolean; steps: { title: string; done: boolean }[] };
 type Snapshot = { local: TaskFields; remote: TaskFields; projectId: string; remoteId: string; schedule: string; details?: string };
 type SyncState = { at?: string; retryAt?: number; errors: Record<string, string>; tasks: Record<string, Snapshot> };
-const file = () => path.join(DATA_DIR, "task-sync.json");
-const tz = () => process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
+const file = () => path.join(dataDir(), "task-sync.json");
+const tz = () => userTz();
 const fields = ["title", "notes", "due", "priority", "done", "steps"] as const;
 const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const localFields = (t: Todo): TaskFields => ({ title: t.title, notes: t.notes ?? "", due: t.due ?? t.day, priority: t.priority, done: t.done, steps: t.subtasks.map((s) => ({ title: s.title, done: s.done })) });
@@ -46,7 +47,7 @@ export function taskSyncStatus(): SyncState {
   catch { return { errors: {}, tasks: {} }; }
 }
 function save(state: SyncState) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.mkdirSync(dataDir(), { recursive: true });
   fs.writeFileSync(`${file()}.tmp`, JSON.stringify(state, null, 2));
   fs.renameSync(`${file()}.tmp`, file());
 }
@@ -81,7 +82,7 @@ export async function syncDashboardTasks(): Promise<{ connected: boolean; busy?:
   try {
     if (calendarConnected()) {
       const today = dayString(tz());
-      const dir = path.join(DATA_DIR, "plans");
+      const dir = path.join(dataDir(), "plans");
       for (const f of fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^\d{4}-\d{2}-\d{2}\.json$/.test(f) && f.slice(0, 10) >= today) : []) {
         const day = f.slice(0, 10);
         try { await replacePlan(day, activeBlocks(readPlan(day)).map((b) => ({ ...b, blockId: b.id }))); }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { speak, ttsStatus, warmAlbanian, warmKokoro } from "@/lib/tts";
 import { isSpeaker } from "@/lib/voices";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -8,7 +9,7 @@ export const runtime = "nodejs";
 // POST { text, who, lang }: one short piece (a sentence) as WAV, in that agent's voice. The client
 // splits replies into sentences and plays each while the next renders. `lang` is "sq" for Albanian,
 // "en" to force English, or omitted/"auto" to detect it from the text.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const body = (await request.json().catch(() => null)) as { text?: unknown; who?: unknown; lang?: unknown } | null;
   const text = typeof body?.text === "string" ? body.text.trim() : "";
   if (!text || text.length > 1000) return NextResponse.json({ error: "Send 1–1000 characters" }, { status: 400 });
@@ -24,8 +25,11 @@ export async function POST(request: Request) {
 
 // GET: which engines are up — and starts loading the one the caller is about to use, so the first
 // reply isn't slow. `?lang=sq` warms the Albanian voice; anything else warms Kokoro.
-export async function GET(request: Request) {
+async function GET_(request: Request) {
   if (new URL(request.url).searchParams.get("lang") === "sq") warmAlbanian();
   else warmKokoro();
   return NextResponse.json(ttsStatus());
 }
+
+export const POST = guarded(POST_);
+export const GET = guarded(GET_);

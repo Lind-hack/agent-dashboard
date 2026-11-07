@@ -10,12 +10,13 @@ import { agentModels } from "@/lib/rooms";
 import { listJobs, readLog } from "@/lib/store";
 import { planUsage } from "@/lib/usage";
 import { ago, cn } from "@/lib/utils";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // The crew: one card per agent with what it's doing this minute (its own step plan, live), the model
 // it runs on, how much of its plan is used, and its week in numbers.
-export default async function AgentsPage() {
+async function AgentsPage() {
   const statuses = await agentStatuses();
   const models = agentModels();
   const usage = planUsage();
@@ -155,3 +156,5 @@ function Mini({ icon: Icon, label, value, suffix = "", fallback = "—" }: { ico
     </div>
   );
 }
+
+export default page(AgentsPage, { owner: true });

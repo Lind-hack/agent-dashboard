@@ -10,12 +10,13 @@ import { readGoals } from "@/lib/goals";
 import { readStage } from "@/lib/life";
 import { readLog, readMentorDay, readPlanFor, readTalk, scorecard } from "@/lib/mentor";
 import { listTodos } from "@/lib/todos";
+import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Goals: the Mentor's orders and each goal's plan first (v5.4), then what Lind is chasing, how much real focus each got this week, and one tap to put time on it.
 // The vault file (100 - Me/Goals.md) stays the source; the editor below writes it.
-export default async function GoalsPage({ searchParams }: { searchParams: Promise<{ recap?: string }> }) {
+async function GoalsPage({ searchParams }: { searchParams: Promise<{ recap?: string }> }) {
   const goals = readGoals();
   const progress = goalProgress();
   const today = dayString(coachTz());
@@ -61,3 +62,5 @@ export default async function GoalsPage({ searchParams }: { searchParams: Promis
     </div>
   );
 }
+
+export default page(GoalsPage);

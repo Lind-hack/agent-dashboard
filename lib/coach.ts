@@ -1,15 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { addDays, dayString } from "./calendar";
-import { DATA_DIR } from "./config";
+
 import { activeGoals, readGoals, type Goal } from "./goals";
 import { activeBlocks, blockMinutes, daysOfWeek, readPlan, type Mood, type StoredBlock } from "./plan-store";
 import { listTodos } from "./todos";
+import { dataDir, userTz } from "./tenant";
 
 // The Coach (v4): what Lind should be doing this minute, how each goal is moving this week, and how
 // the day went. Shared by the web app (focus bar, /focus, /goals) and the runner (pushes, recap).
 
-export const coachTz = () => process.env.DASHBOARD_TZ ?? "Europe/Belgrade";
+export const coachTz = () => userTz();
 export const DAY_START = () => process.env.PLAN_DAY_START ?? "08:00";
 export const DAY_END = () => process.env.PLAN_DAY_END ?? "23:00";
 
@@ -182,7 +183,7 @@ export type Recap = {
   createdAt: string;
 };
 
-const recapFile = (day: string) => path.join(DATA_DIR, "coach", `recap-${day}.json`);
+const recapFile = (day: string) => path.join(dataDir(), "coach", `recap-${day}.json`);
 
 export function readRecap(day: string): Recap | null {
   try {

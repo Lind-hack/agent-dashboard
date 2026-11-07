@@ -1,11 +1,12 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./config";
+
 import { askJSON } from "./ask";
 import { readItem, saveItem, type LibraryItem } from "./library";
 import { formatTimestamp, transcriptText, type Transcript } from "./video-transcript";
 import { isVideoUrl } from "./video-links";
+import { dataDir } from "./tenant";
 
 // Learning lives on top of the Library: video transcripts and long captures are read once into a
 // digest (core concepts, key points, recall questions), then reviewed with spaced repetition or
@@ -67,7 +68,7 @@ export type LearningOverview = {
 
 export const emptyDigest = (): LearningDigest => ({ state: "queued", concepts: [], keyPoints: [], questions: [] });
 
-const learningDir = () => path.join(DATA_DIR, "learning");
+const learningDir = () => path.join(dataDir(), "learning");
 const reviewFile = () => path.join(learningDir(), "review.json");
 
 const atomic = (file: string, data: string) => {

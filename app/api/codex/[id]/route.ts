@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { repoFromLabel } from "@/lib/config";
 import { askCodex, codexConversation, getIssue } from "@/lib/linear";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // Codex cloud chat, carried over Linear: GET the conversation, POST { text } to send a message.
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   try {
     const issue = await getIssue(id);
@@ -16,7 +17,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   }
 }
 
-export async function POST(request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function POST_(request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const body = (await request.json().catch(() => null)) as { text?: string } | null;
   if (!body?.text?.trim()) return NextResponse.json({ error: "empty message" }, { status: 400 });
@@ -31,3 +32,6 @@ export async function POST(request: Request, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
+
+export const GET = guarded(GET_, { owner: true });
+export const POST = guarded(POST_, { owner: true });

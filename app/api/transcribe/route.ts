@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { transcribe, transcribeDetailed } from "@/lib/groq";
 import { sayVocabulary } from "@/lib/say";
+import { guarded } from "@/lib/guard";
 
 // Voice replies inside a chat: audio in, text out (the reply box shows it before sending).
 // mode=say (v5.4): "Say it" — the accurate Whisper model, primed with his goals, tasks and names.
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   try {
     const form = await request.formData();
     const audio = form.get("audio");
@@ -16,3 +17,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
   }
 }
+
+export const POST = guarded(POST_);

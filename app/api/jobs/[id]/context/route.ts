@@ -3,11 +3,12 @@ import path from "node:path";
 import { NextResponse } from "next/server";
 import { readJSON } from "@/lib/handoff";
 import { readJob } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // What a handed-off chat carries: the dossier and the list of sources in its .handoff/ folder.
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const job = readJob(id);
   if (!job?.imported) return NextResponse.json({ error: "not a hand-off" }, { status: 404 });
@@ -21,3 +22,5 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
   }
   return NextResponse.json({ imported: job.imported, branch: job.branch, repo: job.repo, sources, dossier });
 }
+
+export const GET = guarded(GET_, { owner: true });

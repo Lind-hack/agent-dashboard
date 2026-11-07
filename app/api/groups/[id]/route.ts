@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { listJobs, readLog } from "@/lib/store";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
 // One ask-all or relay group: each member's status and latest answer.
-export async function GET(_request: Request, ctx: { params: Promise<{ id: string }> }) {
+async function GET_(_request: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
   const members = listJobs()
     .filter((j) => j.group?.id === id)
@@ -32,3 +33,5 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     }),
   });
 }
+
+export const GET = guarded(GET_, { owner: true });

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { briefPending, chatReply, readBrief, readChat, requestBrief, writeChat, type AssistantAction, type BriefSlot, type ChatTurn } from "@/lib/assistant";
 import { applyAction } from "@/lib/apply-action";
 import { coachNow, dayProgress } from "@/lib/coach";
+import { guarded } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 // POST { message } → a reply (fast model); { apply: action } → carries out one proposed action;
 // { brief: "morning" | "midday" | "evening" } → asks the runner for a fresh Sol briefing.
 
-export async function GET() {
+async function GET_() {
   const day = coachNow().day;
   return NextResponse.json({
     day,
@@ -22,7 +23,7 @@ export async function GET() {
 
 const SLOTS: BriefSlot[] = ["morning", "midday", "evening"];
 
-export async function POST(request: Request) {
+async function POST_(request: Request) {
   const b = (await request.json().catch(() => null)) as { message?: string; apply?: AssistantAction; brief?: BriefSlot } | null;
   const day = coachNow().day;
 
@@ -45,3 +46,6 @@ export async function POST(request: Request) {
   writeChat(day, [...readChat(day), reply]);
   return NextResponse.json({ turn: reply });
 }
+
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);
