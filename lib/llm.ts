@@ -25,6 +25,8 @@ export const DEFAULT_MODELS: Record<Provider, string> = {
   openrouter: "openrouter/auto",
 };
 
+export const PROVIDER_LABEL: Record<Provider, string> = { gemini: "Gemini", groq: "Groq", anthropic: "Claude", openai: "ChatGPT", openrouter: "OpenRouter" };
+
 export type AiPrefs = { first?: Provider; models?: Partial<Record<Provider, string>> };
 const prefsFile = () => path.join(dataDir(), "ai.json");
 
@@ -48,7 +50,7 @@ export function saveAiPrefs(p: AiPrefs) {
   fs.writeFileSync(prefsFile(), JSON.stringify({ first: PROVIDERS.includes(p.first as Provider) ? p.first : undefined, models }, null, 2));
 }
 
-const modelFor = (p: Provider) => aiPrefs().models?.[p] || DEFAULT_MODELS[p];
+export const modelFor = (p: Provider) => aiPrefs().models?.[p] || DEFAULT_MODELS[p];
 
 // Providers with a key, the user's chosen one first.
 export function providerOrder(): Provider[] {

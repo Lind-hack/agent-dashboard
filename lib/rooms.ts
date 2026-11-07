@@ -4,8 +4,12 @@ import path from "node:path";
 import { AGENT_LABELS, type AgentKey } from "./agents";
 import { isSeat, SEAT_PREFIX, seatByKey, seatKey } from "./council";
 import { claudeModel, codexModel } from "./config";
+import { DEFAULT_MODELS, modelFor, PROVIDER_LABEL, PROVIDERS, providerOrder, type Provider } from "./llm";
+
+// Gemini calls go through lib/gemini.ts, which uses the server's Gemini model, not a per-account pick.
+const calledModel = (p: Provider) => (p === "gemini" ? DEFAULT_MODELS.gemini : modelFor(p));
 import { solLabel } from "./sol";
-import { dataDir } from "./tenant";
+import { dataDir, isOwner } from "./tenant";
 
 // Roast rooms (PLAN-v2 stage 2): several agents debate one task until a neutral judge finds consensus.
 // One JSON file per room under data/rooms/, written only by the runner (runner/room.ts); the web app
@@ -66,6 +70,8 @@ export type Room = {
   repo?: string;
   agents: AgentKey[];
   seats?: string[]; // council seat keys debating alongside (or instead of) the agents
+  providers?: Provider[]; // accounts other than the owner: one debater per AI key they brought ("ai:<provider>")
+  context?: string; // notes pasted with the task, the evidence when there's no repo
   models: Partial<Record<string, string>>;
   judgeModel: string;
   status: "queued" | "evidence" | "debating" | "judging" | "done" | "cancelled" | "refused";
@@ -79,9 +85,17 @@ export type Room = {
   updatedAt: string;
 };
 
-// Everyone at the table: agents by key, council seats as "seat:<key>".
-export const debaters = (r: Pick<Room, "agents" | "seats">): string[] => [...(r.agents ?? []), ...(r.seats ?? []).map((k) => `${SEAT_PREFIX}${k}`)];
-export const debaterLabel = (d: string) => (isSeat(d) ? (seatByKey(seatKey(d))?.name ?? seatKey(d)) : (AGENT_LABELS[d as AgentKey] ?? d));
+// Everyone at the table: agents by key, AI providers as "ai:<provider>", council seats as "seat:<key>".
+export const AI_PREFIX = "ai:";
+export const isAi = (d: string) => d.startsWith(AI_PREFIX);
+export const aiProvider = (d: string) => d.slice(AI_PREFIX.length) as Provider;
+export const debaters = (r: Pick<Room, "agents" | "seats" | "providers">): string[] => [
+  ...(r.agents ?? []),
+  ...(r.providers ?? []).map((p) => `${AI_PREFIX}${p}`),
+  ...(r.seats ?? []).map((k) => `${SEAT_PREFIX}${k}`),
+];
+export const debaterLabel = (d: string) =>
+  isSeat(d) ? (seatByKey(seatKey(d))?.name ?? seatKey(d)) : isAi(d) ? (PROVIDER_LABEL[aiProvider(d)] ?? aiProvider(d)) : (AGENT_LABELS[d as AgentKey] ?? d);
 
 export const ROOMS_DIR = () => path.join(dataDir(), "rooms");
 export const MAX_ROUNDS = 3;
@@ -95,7 +109,15 @@ export function readRoom(id: string): Room | null {
   if (!ROOM_ID_RE.test(id)) return null;
   try {
     const r = JSON.parse(fs.readFileSync(path.join(ROOMS_DIR(), `${id}.json`), "utf8")) as Room;
-    return { ...r, rounds: r?.rounds ?? [], agents: r?.agents ?? [], seats: Array.isArray(r?.seats) ? r.seats : [], models: r?.models ?? {}, budget: r?.budget ?? { calls: 0, used: 0 } };
+    return {
+      ...r,
+      rounds: r?.rounds ?? [],
+      agents: r?.agents ?? [],
+      seats: Array.isArray(r?.seats) ? r.seats : [],
+      providers: Array.isArray(r?.providers) ? r.providers.filter((p) => PROVIDERS.includes(p)) : [],
+      models: r?.models ?? {},
+      budget: r?.budget ?? { calls: 0, used: 0 },
+    };
   } catch {
     return null;
   }
@@ -150,7 +172,62 @@ export function agentModels(): Record<AgentKey, string> {
   };
 }
 
-export const judgeModelName = () => `${solLabel()} (fallback: Nemotron, Groq)`;
+export const judgeModelName = () => {
+  if (isOwner()) return `${solLabel()} (fallback: Nemotron, Groq)`;
+  const order = providerOrder();
+  return order.length ? `${PROVIDER_LABEL[order[0]]} ${calledModel(order[0])}${order.length > 1 ? ` (fallback: ${order.slice(1).map((p) => PROVIDER_LABEL[p]).join(", ")})` : ""}` : "your AI";
+};
+
+export type RoomSpec = { id: string; task: string; repo?: string; agents: AgentKey[]; seats?: string[]; providers?: Provider[]; context?: string };
+
+// A new room as the runner (owner, through the inbox) or the web app (other accounts) first writes it.
+export function newRoom(spec: RoomSpec): Room {
+  const owner = isOwner();
+  const models = owner ? agentModels() : null;
+  const now = new Date().toISOString();
+  const seatKeys = (spec.seats ?? []).filter((k) => !!seatByKey(k)).slice(0, 6);
+  const providers = owner ? [] : [...new Set(spec.providers ?? [])].filter((p) => providerOrder().includes(p));
+  const agents = owner ? spec.agents : [];
+  const k = agents.length + providers.length + seatKeys.length;
+  const seatModel = models ? `${models.hermes.split("/").pop()} · persona + brain` : `${judgeModelName().split(" (")[0]} · persona + brain`;
+  return {
+    id: spec.id,
+    task: spec.task,
+    repo: owner ? spec.repo : undefined,
+    agents,
+    seats: seatKeys,
+    providers,
+    context: spec.context?.trim().slice(0, 30_000) || undefined,
+    models: {
+      ...Object.fromEntries(agents.map((a) => [a, a === "hermes" ? `${models!.hermes} · no tools in debates` : models![a]])),
+      ...Object.fromEntries(providers.map((p) => [`${AI_PREFIX}${p}`, calledModel(p)])),
+      ...Object.fromEntries(seatKeys.map((s) => [`${SEAT_PREFIX}${s}`, seatModel])),
+    },
+    judgeModel: judgeModelName(),
+    status: "queued",
+    rounds: [],
+    // R43: every debater call, one JSON repair per answer, up to three judge providers per round and for the verdict.
+    budget: { calls: k * MAX_ROUNDS * 2 + MAX_ROUNDS * 3 + 3, used: 0 },
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+// Stopping a room the web app can't reach through the runner inbox (other accounts): a marker the runner reads.
+const cancelFile = (id: string) => path.join(ROOMS_DIR(), `${id}.cancel`);
+export function requestCancel(id: string) {
+  if (!ROOM_ID_RE.test(id)) return;
+  fs.mkdirSync(ROOMS_DIR(), { recursive: true });
+  fs.writeFileSync(cancelFile(id), "");
+}
+export function takeCancelRequest(id: string): boolean {
+  try {
+    fs.rmSync(cancelFile(id));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function roomsStartedToday(rooms: Room[]): number {
   const day = new Date().toISOString().slice(0, 10);

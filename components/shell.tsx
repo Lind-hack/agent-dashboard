@@ -39,7 +39,7 @@ export const TOOLS: NavItem[] = [
 const LIVE = new Set(["/", "/inbox", "/room", "/chat", "/calendar", "/mirror", "/goals", "/buddy", "/memory", "/learning", "/website", "/agents", "/settings", "/more"]);
 
 // The coding-agent sections are the owner's alone; other accounts never see them.
-const OWNER_ONLY = new Set(["/", "/inbox", "/room", "/chat", "/agents", "/website"]);
+const OWNER_ONLY = new Set(["/", "/inbox", "/chat", "/agents", "/website"]);
 export type Me = { owner: boolean; name: string; setup?: boolean } | null;
 const visible = (owner: boolean) => (i: NavItem) => LIVE.has(i.href) && (owner || !OWNER_ONLY.has(i.href));
 

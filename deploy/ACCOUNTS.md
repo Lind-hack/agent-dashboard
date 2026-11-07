@@ -10,8 +10,12 @@ background jobs) and resume it.
 
 ## What they get
 
-Today, Goals, Buddy, Mirror, Memory and Learning, with their own data, under
+Today, Goals, Buddy, Mirror, Memory, Learning and the Roast room, with their own data, under
 `$DATA_DIR/tenants/<id>/`. Your data stays where it always was.
+
+In their Roast room the debaters are the AI keys they added (one per provider) plus any council seats,
+and the judge is their first AI. Instead of a repo, they can paste notes for the debaters to argue from.
+A verdict can go onto their day plan but never to a coding agent. Each account gets 5 rooms a day.
 
 They don't get the coding agents, Linear, GitHub, mail, TickTick or the website monitor. Those use your
 accounts.

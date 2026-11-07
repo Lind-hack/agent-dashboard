@@ -47,7 +47,7 @@ function AccountSettings() {
         </Link>
       </Panel>
       <SectionTitle right="your keys, stored encrypted">AI keys</SectionTitle>
-      <div className="mb-8">
+      <div id="ai" className="mb-8 scroll-mt-20">
         <AiKeys />
       </div>
       <SectionTitle right="Today and the planner read it">Calendar</SectionTitle>
