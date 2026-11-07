@@ -674,6 +674,8 @@ async function tick() {
         mentorTick();
         sourcesTick();
         icsTick();
+        // Other accounts' Roast rooms: debaters on their own keys, never an agent slot.
+        if (!t.owner) roomTick({ take: () => false, release: () => {} });
       } catch (e) {
         log("tenant", t.id, e instanceof Error ? e.message : e);
       }

@@ -10,9 +10,9 @@ import { groqJSON } from "../lib/groq";
 import { solEnabled, solJSON, solLabel } from "../lib/sol";
 import { nemotron, nvidiaModel, nvidiaReady } from "../lib/nvidia";
 import { redact, secretPath } from "../lib/redact";
+import { anyJSON, providerJSON, PROVIDER_LABEL, providerOrder } from "../lib/llm";
+import { isOwner, perTenant } from "../lib/tenant";
 import {
-  agentModels,
-  judgeModelName,
   listRooms,
   MAX_ROUNDS,
   readRoom,
@@ -20,6 +20,11 @@ import {
   ROOMS_PER_DAY,
   roomsStartedToday,
   writeRoom,
+  newRoom,
+  takeCancelRequest,
+  isAi,
+  aiProvider,
+  type RoomSpec,
   type DebaterJSON,
   type JudgeRound,
   type Room,
@@ -47,12 +52,19 @@ const log = (...a: unknown[]) => console.log(new Date().toISOString(), "room:", 
 
 export type Slots = { take: (a: AgentKey, id: string) => boolean; release: (a: AgentKey, id: string) => void };
 
-const rooms = new Map<string, Room>();
-const children = new Map<string, ChildProcess>(); // `${roomId}:${agent}`
-let judging = false;
+// Each account's rooms run on their own: one active room per account, its own judge and seat queue.
+const st = perTenant(() => ({
+  rooms: new Map<string, Room>(),
+  children: new Map<string, ChildProcess>(), // `${roomId}:${agent}`
+  judging: false,
+  seatsBusy: new Set<string>(),
+  scannedAt: 0,
+  all: [] as Room[],
+  recovered: false,
+}));
 
 const save = (r: Room) => {
-  rooms.set(r.id, r);
+  st().rooms.set(r.id, r);
   writeRoom(r);
 };
 const evidenceFile = (id: string) => path.join(ROOMS_DIR(), `${id}.evidence.md`);
@@ -65,16 +77,19 @@ function spend(room: Room, n = 1): boolean {
   return true;
 }
 
-// A restart mid-room: turns that were running are marked failed (R8); prior rounds stay.
-for (const r of listRooms()) {
-  if (!["queued", "evidence", "debating", "judging"].includes(r.status)) continue;
-  for (const round of r.rounds) {
-    for (const a of Object.values(round.answers)) {
-      if (a?.status === "running") Object.assign(a, { status: "failed", error: "Interrupted by a runner restart", endedAt: new Date().toISOString() });
+// A restart mid-room: turns that were running are marked failed (R8); prior rounds stay. Runs once per
+// account, on its first tick.
+function recover() {
+  for (const r of listRooms()) {
+    if (!["queued", "evidence", "debating", "judging"].includes(r.status)) continue;
+    for (const round of r.rounds) {
+      for (const a of Object.values(round.answers)) {
+        if (a?.status === "running") Object.assign(a, { status: "failed", error: "Interrupted by a runner restart", endedAt: new Date().toISOString() });
+      }
     }
+    if (r.status === "evidence") Object.assign(r, { status: "queued", startedAt: undefined });
+    save(r);
   }
-  if (r.status === "evidence") Object.assign(r, { status: "queued", startedAt: undefined });
-  save(r);
 }
 
 // ---------- evidence pack (R44) ----------
@@ -82,6 +97,7 @@ for (const r of listRooms()) {
 const STOP = new Set("about above after again also and any are because been before being both but can could does doing down during each from have having here into just like make more most need only other over same should some such than that their them then there these they this those through under very what when where which while will with would your the for how why fix add use".split(" "));
 
 async function buildEvidence(room: Room): Promise<{ text: string; files: string[]; note?: string }> {
+  if (room.context) return { text: redact(`## Notes given with the task\n\n${room.context}`).text, files: [], note: "Arguing from the notes given with the task." };
   if (!room.repo) return { text: "", files: [], note: "No repo: the agents argue from the task alone." };
   const base = await repoBase(room.repo);
   const tree = await repoTree(room.repo, base);
@@ -266,6 +282,15 @@ Return ONLY a JSON object, no prose.`, user, { maxTokens }).catch(() => "");
       return null;
     }
   };
+  // Other accounts: their own keys, their chosen provider first, each try reserved against the budget.
+  if (!isOwner()) {
+    for (const p of providerOrder().slice(0, 3)) {
+      if (cancelled(room) || !spend(room)) return null;
+      const v = await providerJSON<T>(p, `${system}\n${UNTRUSTED}`, user, { maxTokens, temperature: 0.2, timeoutMs: 120_000 }).catch(() => null);
+      if (v) return { value: v, model: PROVIDER_LABEL[p] };
+    }
+    return null;
+  }
   return (await viaSol()) ?? (await viaNemotron()) ?? (await viaGroq());
 }
 
@@ -403,11 +428,23 @@ const RESERVE = 6;
 async function runDebater(room: Room, agent: string, n: number, slots: Slots) {
   const ans = room.rounds[n - 1].answers[agent]!;
   const cwd = path.join(WORK_DIR, "rooms", room.id, agent);
-  fs.mkdirSync(cwd, { recursive: true }); // empty folder: nothing for the agent to touch
   try {
     const prompt = debaterPrompt(room, agent, n, readEvidence(room.id));
     let result: { ok: boolean; result: string };
-    if (isSeat(agent)) {
+    let parsed: DebaterJSON | null = null;
+    if (isAi(agent) || (isSeat(agent) && !isOwner())) {
+      // Other accounts' debaters speak through their own keys, in JSON mode: the argument and the stance together.
+      const system = isSeat(agent) ? seatSystem(seatKey(agent)) : `You are ${debaterLabel(agent)}, debating as yourself.`;
+      if (!system) result = { ok: false, result: "That council seat isn't installed on the server (council/ folder)." };
+      else {
+        const ask = `${prompt}\n\nReturn ONLY one JSON object: {"argument": "<your full answer, in markdown>", "position": ..., "confidence": ..., "agrees_with": [...], "weakest_claims": [...], "evidence": [...]}, the fields as described above.`;
+        const o = { maxTokens: 3000, temperature: 0.5, timeoutMs: 180_000 };
+        const raw = isAi(agent) ? await providerJSON<Record<string, unknown>>(aiProvider(agent), system, ask, o) : await anyJSON<Record<string, unknown>>(system, ask, o);
+        const argument = typeof raw?.argument === "string" ? raw.argument.trim() : "";
+        parsed = raw ? sanitizeDebater(room, JSON.parse(redact(JSON.stringify(raw)).text)) : null;
+        result = argument ? { ok: true, result: argument } : { ok: false, result: "The model gave no answer. Check that key in Settings → AI." };
+      }
+    } else if (isSeat(agent)) {
       const system = seatSystem(seatKey(agent));
       result = system
         ? await nemotron(system, prompt, { maxTokens: 2500, temperature: 0.5 })
@@ -419,6 +456,7 @@ async function runDebater(room: Room, agent: string, n: number, slots: Slots) {
         .then((t) => ({ ok: true, result: t }))
         .catch((e) => ({ ok: false, result: e instanceof Error ? e.message : String(e) }));
     } else {
+      fs.mkdirSync(cwd, { recursive: true }); // empty folder: nothing for the agent to touch
       result = await runAgent({
         agent: agent as AgentKey,
         cwd,
@@ -426,21 +464,21 @@ async function runDebater(room: Room, agent: string, n: number, slots: Slots) {
         readonly: true,
         timeoutMs: TURN_MS,
         onEvent: (e) => e.kind === "usage" && recordClaudeUsage(e.info as never),
-        onChild: (c) => children.set(`${room.id}:${agent}`, c),
+        onChild: (c) => st().children.set(`${room.id}:${agent}`, c),
       });
     }
     if (cancelled(room)) return;
     if (!result.ok) throw new Error(result.result.slice(0, 400));
     const text = redact(result.result).text.slice(0, 200_000); // R37: stored output cap
-    let json = parseDebater(room, text);
+    let json = parsed ?? parseDebater(room, text);
     if (!json) json = await repairJSON(room, text);
     if (cancelled(room)) return;
     Object.assign(ans, { status: "done", text, json, endedAt: new Date().toISOString() });
   } catch (e) {
     Object.assign(ans, { status: "failed", error: (e instanceof Error ? e.message : String(e)).slice(0, 400), endedAt: new Date().toISOString() });
   } finally {
-    children.delete(`${room.id}:${agent}`);
-    if (isSeat(agent)) seatsBusy.delete(`${room.id}:${agent}`);
+    st().children.delete(`${room.id}:${agent}`);
+    if (isSeat(agent) || isAi(agent)) st().seatsBusy.delete(`${room.id}:${agent}`);
     else slots.release(agent as AgentKey, room.id);
     if (!cancelled(room)) {
       if (room.rounds.length === n && Object.values(room.rounds[n - 1].answers).every((a) => a?.status === "done" || a?.status === "failed")) room.status = "judging";
@@ -449,58 +487,42 @@ async function runDebater(room: Room, agent: string, n: number, slots: Slots) {
   }
 }
 
-// Seats run on the NVIDIA free tier (~40 requests/min): two at a time is plenty.
-const seatsBusy = new Set<string>();
+// Seats run on the NVIDIA free tier (~40 requests/min): two at a time is plenty. Same for a user's keys.
 const SEAT_CONCURRENCY = 2;
 
 export function cancelRoom(id: string) {
-  const room = rooms.get(id) ?? readRoom(id);
+  const room = st().rooms.get(id) ?? readRoom(id);
   if (!room || ["done", "cancelled", "refused"].includes(room.status)) return;
   room.status = "cancelled";
   room.reason = "Stopped from the dashboard";
-  for (const a of debaters(room)) killTree(children.get(`${id}:${a}`));
+  for (const a of debaters(room)) killTree(st().children.get(`${id}:${a}`));
   save(room);
 }
 
-// New rooms come through the runner inbox; the folder is rescanned then and every 30 s.
-let scannedAt = 0;
-let all: Room[] = [];
-
-export function createRoom(spec: { id: string; task: string; repo?: string; agents: AgentKey[]; seats?: string[] }) {
+// New rooms come through the runner inbox (owner) or are written by the web app (other accounts); the
+// folder is rescanned then and every 30 s (10 s for other accounts, who have no inbox to wake the runner).
+export function createRoom(spec: RoomSpec) {
   if (readRoom(spec.id)) return;
-  const models = agentModels();
-  const now = new Date().toISOString();
-  const seatKeys = (spec.seats ?? []).filter((k) => !!seatByKey(k)).slice(0, 6);
-  const k = spec.agents.length + seatKeys.length;
-  save({
-    id: spec.id,
-    task: spec.task,
-    repo: spec.repo,
-    agents: spec.agents,
-    seats: seatKeys,
-    models: {
-      ...Object.fromEntries(spec.agents.map((a) => [a, a === "hermes" ? `${models.hermes} · no tools in debates` : models[a]])),
-      ...Object.fromEntries(seatKeys.map((s) => [`seat:${s}`, `${models.hermes.split("/").pop()} · persona + brain`])),
-    },
-    judgeModel: judgeModelName(),
-    status: "queued",
-    rounds: [],
-    // R43: every debater call, one JSON repair per answer, up to three judge providers per round and for the verdict.
-    budget: { calls: k * MAX_ROUNDS * 2 + MAX_ROUNDS * 3 + 3, used: 0 },
-    createdAt: now,
-    updatedAt: now,
-  });
-  scannedAt = 0;
+  save(newRoom(spec));
+  st().scannedAt = 0;
 }
 
 // Called every runner tick.
 export function roomTick(slots: Slots) {
-  if (Date.now() - scannedAt > 30_000) {
-    all = listRooms().map((r) => rooms.get(r.id) ?? r);
-    scannedAt = Date.now();
-  } else {
-    all = all.map((r) => rooms.get(r.id) ?? r);
+  const s = st();
+  if (!s.recovered) {
+    s.recovered = true;
+    recover();
   }
+  const { rooms } = s;
+  if (Date.now() - s.scannedAt > (isOwner() ? 30_000 : 10_000)) {
+    s.all = listRooms().map((r) => rooms.get(r.id) ?? r);
+    s.scannedAt = Date.now();
+  } else {
+    s.all = s.all.map((r) => rooms.get(r.id) ?? r);
+  }
+  for (const r of s.all) if (["queued", "evidence", "debating", "judging"].includes(r.status) && takeCancelRequest(r.id)) cancelRoom(r.id);
+  const all = (s.all = s.all.map((r) => rooms.get(r.id) ?? r));
   const active = all.find((r) => ["evidence", "debating", "judging"].includes(r.status));
 
   if (!active) {
@@ -541,9 +563,9 @@ export function roomTick(slots: Slots) {
         Object.assign(ans, { status: "failed", error: "Room budget used up" });
         continue;
       }
-      if (isSeat(a)) {
-        if (seatsBusy.size >= SEAT_CONCURRENCY) continue;
-        seatsBusy.add(`${active.id}:${a}`);
+      if (isSeat(a) || isAi(a)) {
+        if (s.seatsBusy.size >= SEAT_CONCURRENCY) continue;
+        s.seatsBusy.add(`${active.id}:${a}`);
       } else if (!slots.take(a as AgentKey, active.id)) continue; // that agent is busy with a chat — wait
       spend(active); // reserved before the call starts
       Object.assign(ans, { status: "running", startedAt: new Date().toISOString() });
@@ -557,8 +579,8 @@ export function roomTick(slots: Slots) {
     return;
   }
 
-  if (active.status === "judging" && !judging) {
-    judging = true;
+  if (active.status === "judging" && !s.judging) {
+    s.judging = true;
     void (async () => {
       const n = active.rounds.length;
       const round = active.rounds[n - 1];
@@ -594,7 +616,7 @@ export function roomTick(slots: Slots) {
         save(active);
       })
       .finally(() => {
-        judging = false;
+        s.judging = false;
       });
   }
 }

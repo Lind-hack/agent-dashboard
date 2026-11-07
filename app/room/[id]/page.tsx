@@ -4,6 +4,7 @@ import { listRepos } from "@/lib/github";
 import { seats } from "@/lib/council";
 import { readRoom, ROOM_ID_RE } from "@/lib/rooms";
 import { page } from "@/lib/guard";
+import { isOwner } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +15,13 @@ async function RoomPage({ params }: { params: Promise<{ id: string }> }) {
     // A room asked for a moment ago may not be written by the runner yet.
     if (ROOM_ID_RE.test(id)) {
       const now = new Date().toISOString();
-      const repos = (await listRepos().catch(() => [])).map((r) => r.name);
+      const repos = isOwner() ? (await listRepos().catch(() => [])).map((r) => r.name) : [];
       return <RoomView repos={repos} seats={seats()} initial={{ id, task: "Starting the room…", agents: [], models: {}, judgeModel: "", status: "queued", rounds: [], budget: { calls: 0, used: 0 }, createdAt: now, updatedAt: now }} />;
     }
     notFound();
   }
-  const repos = room.repo ? [] : (await listRepos().catch(() => [])).map((r) => r.name);
+  const repos = room.repo || !isOwner() ? [] : (await listRepos().catch(() => [])).map((r) => r.name);
   return <RoomView initial={room} repos={repos} seats={seats()} />;
 }
 
-export default page(RoomPage, { owner: true });
+export default page(RoomPage);

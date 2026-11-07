@@ -3,9 +3,10 @@ import { AGENT_LABELS, AGENT_META, VPS_AGENTS, type AgentKey } from "@/lib/agent
 import { listRepos } from "@/lib/github";
 import { calendarBusy, coachNow, nextFreeSlot } from "@/lib/coach";
 import { addBlock } from "@/lib/plan-store";
-import { readRoom } from "@/lib/rooms";
+import { readRoom, requestCancel } from "@/lib/rooms";
 import { pushInbox } from "@/lib/store";
 import { guarded } from "@/lib/guard";
+import { isOwner } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +33,13 @@ async function POST_(request: Request, ctx: { params: Promise<{ id: string }> })
   }
 
   if (body?.action === "cancel") {
-    pushInbox({ kind: "room-cancel", roomId: room.id });
+    if (isOwner()) pushInbox({ kind: "room-cancel", roomId: room.id });
+    else if (["queued", "evidence", "debating", "judging"].includes(room.status)) requestCancel(room.id);
     return NextResponse.json({ ok: true });
   }
 
   if (body?.action === "run") {
+    if (!isOwner()) return NextResponse.json({ error: "Coding agents are only on the owner's account" }, { status: 403 });
     const agent = VPS_AGENTS.find((a) => a === body.agent) as AgentKey | undefined;
     if (!agent) return NextResponse.json({ error: "Pick an agent" }, { status: 400 });
     if (!room.verdict || room.verdict.outcome === "no-verdict") return NextResponse.json({ error: "This room has no verdict to run" }, { status: 409 });
@@ -62,5 +65,5 @@ Carry out the recommendation. It's a recommendation from a debate between models
   return NextResponse.json({ error: "bad request" }, { status: 400 });
 }
 
-export const GET = guarded(GET_, { owner: true });
-export const POST = guarded(POST_, { owner: true });
+export const GET = guarded(GET_);
+export const POST = guarded(POST_);

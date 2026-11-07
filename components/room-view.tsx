@@ -12,6 +12,8 @@ import type { JudgeRound, Room, RoomAnswer, Verdict } from "@/lib/rooms";
 import { cn } from "@/lib/utils";
 import { CountUp } from "./motion";
 import { SeatBadge } from "./seat-badge";
+import { ProviderMark } from "./user-room-launcher";
+import { PROVIDER_META } from "@/lib/provider-meta";
 
 // A Roast room, live: who's at the table (agents and council seats), each round's answers, the judge's
 // agreement and rubric scores, and the decision memo — decision, why, the strongest objection and its
@@ -20,12 +22,15 @@ import { SeatBadge } from "./seat-badge";
 const ACTIVE = new Set(["queued", "evidence", "debating", "judging"]);
 const stripJSON = (t: string) => t.replace(/```json[\s\S]*?```\s*$/, "").trim();
 const isSeatKey = (d: string) => d.startsWith("seat:");
+const isAiKey = (d: string) => d.startsWith("ai:");
 const isAgent = (a: string): a is AgentKey => a in AGENT_META && a !== "codex-cloud";
 
 type Roster = Record<string, Seat>;
-const everyone = (r: Room) => [...r.agents, ...(r.seats ?? []).map((k) => `seat:${k}`)];
-const nameOf = (d: string, roster: Roster) => (isSeatKey(d) ? (roster[d.slice(5)]?.name ?? d.slice(5)) : (AGENT_LABELS[d as AgentKey] ?? d));
-const colorOf = (d: string, roster: Roster) => (isSeatKey(d) ? (roster[d.slice(5)]?.color ?? "#b392f0") : (AGENT_META[d as AgentKey]?.color ?? "#b392f0"));
+const everyone = (r: Room) => [...r.agents, ...(r.providers ?? []).map((p) => `ai:${p}`), ...(r.seats ?? []).map((k) => `seat:${k}`)];
+const nameOf = (d: string, roster: Roster) =>
+  isSeatKey(d) ? (roster[d.slice(5)]?.name ?? d.slice(5)) : isAiKey(d) ? (PROVIDER_META[d.slice(3)]?.label ?? d.slice(3)) : (AGENT_LABELS[d as AgentKey] ?? d);
+const colorOf = (d: string, roster: Roster) =>
+  isSeatKey(d) ? (roster[d.slice(5)]?.color ?? "#b392f0") : isAiKey(d) ? (PROVIDER_META[d.slice(3)]?.color ?? "#b392f0") : (AGENT_META[d as AgentKey]?.color ?? "#b392f0");
 
 function Mark({ d, roster, size = "md", state }: { d: string; roster: Roster; size?: "xs" | "sm" | "md" | "lg"; state?: "working" | "off" | "ready" | "idle" }) {
   if (isSeatKey(d)) {
@@ -33,6 +38,7 @@ function Mark({ d, roster, size = "md", state }: { d: string; roster: Roster; si
     if (!s) return <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-white/5 font-mono text-[10px]">?</span>;
     return <SeatBadge seat={s} size={size === "lg" ? "lg" : size === "md" ? "md" : "sm"} active={state === "working"} className={state === "working" ? "animate-pulse motion-reduce:animate-none" : undefined} />;
   }
+  if (isAiKey(d)) return <ProviderMark p={d.slice(3)} size={size === "lg" ? "lg" : size === "md" ? "md" : "sm"} active={state === "working"} />;
   return isAgent(d) ? <AgentLogo agent={d} size={size} state={state} /> : null;
 }
 
@@ -218,7 +224,8 @@ function MemoCard({ room, roster, repos, onRun, onPlan, busy }: { room: Room; ro
   const runner: AgentKey | undefined = (v.best_agent && isAgent(v.best_agent) ? v.best_agent : undefined) ?? room.agents.find((a) => a !== "hermes") ?? "claude";
   const board = v.scoreboard ?? [];
   const top = Math.max(1, ...board.map((b) => b.score));
-  const needsRepo = !room.repo && AGENT_META[runner]?.repo;
+  const canRun = room.agents.length > 0;
+  const needsRepo = canRun && !room.repo && AGENT_META[runner]?.repo;
   const actions = v.actions?.length ? v.actions : v.next_step ? [{ title: v.next_step, who: "agent" as const }] : [];
 
   return (
@@ -302,19 +309,21 @@ function MemoCard({ room, roster, repos, onRun, onPlan, busy }: { room: Room; ro
                 <span className="tnum grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white/[0.06] font-mono text-xs">{i + 1}</span>
                 <span className="min-w-0 flex-1 text-[14px] leading-snug">{a.title}</span>
                 <span className="flex shrink-0 gap-1.5">
-                  <button
-                    onClick={() => onRun(runner, repo, a.title)}
-                    disabled={!!busy || (needsRepo && !repo)}
-                    className={cn("press flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-xs disabled:opacity-40", a.who === "agent" ? "bg-text font-medium text-bg" : "border border-line text-muted hover:text-text")}
-                  >
-                    {busy === `run:${a.title}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {AGENT_LABELS[runner]}
-                  </button>
+                  {canRun && (
+                    <button
+                      onClick={() => onRun(runner, repo, a.title)}
+                      disabled={!!busy || (needsRepo && !repo)}
+                      className={cn("press flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-xs disabled:opacity-40", a.who === "agent" ? "bg-text font-medium text-bg" : "border border-line text-muted hover:text-text")}
+                    >
+                      {busy === `run:${a.title}` ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {AGENT_LABELS[runner]}
+                    </button>
+                  )}
                   <button
                     onClick={async () => {
                       if (await onPlan(a.title)) setPlanned((p) => new Set([...p, a.title]));
                     }}
                     disabled={!!busy || planned.has(a.title)}
-                    className={cn("press flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-xs disabled:opacity-60", a.who === "lind" ? "bg-text font-medium text-bg" : "border border-line text-muted hover:text-text")}
+                    className={cn("press flex h-9 items-center gap-1.5 rounded-[10px] px-3 text-xs disabled:opacity-60", a.who === "lind" || !canRun ? "bg-text font-medium text-bg" : "border border-line text-muted hover:text-text")}
                   >
                     {planned.has(a.title) ? <Check className="h-3.5 w-3.5" /> : <CalendarPlus className="h-3.5 w-3.5" />} {planned.has(a.title) ? "On today" : "Today"}
                   </button>
