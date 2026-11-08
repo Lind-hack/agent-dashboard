@@ -20,4 +20,7 @@ export const BEARER_ROUTES = [
 // The Obsidian plugin's routes take the account's own sync code (checked in lib/guard.ts), not the cookie.
 export const isVaultSyncRoute = (pathname: string) => pathname === "/api/vault/manifest" || pathname === "/api/vault/file";
 
+// Kuvend's routes take the account's own link code (checked in lib/guard.ts), not the cookie.
+export const isKuvendRoute = (pathname: string) => pathname === "/api/kuvend/rooms" || /^\/api\/kuvend\/rooms\/R-[A-Z0-9]{6,16}$/.test(pathname);
+
 export const isBearerRoute = (pathname: string) => (BEARER_ROUTES as readonly string[]).includes(pathname);

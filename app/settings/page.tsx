@@ -13,6 +13,7 @@ import { page } from "@/lib/guard";
 import Link from "next/link";
 import { AiKeys } from "@/components/ai-keys";
 import { CalendarConnect } from "@/components/calendar-connect";
+import { KuvendConnect } from "@/components/kuvend-connect";
 import { ObsidianConnect } from "@/components/obsidian-connect";
 import { DangerZone, PasswordForm, ProfileForm } from "@/components/account-settings";
 import { People } from "@/components/people";
@@ -58,6 +59,10 @@ function AccountSettings() {
       <div className="mb-8">
         <ObsidianConnect />
       </div>
+      <SectionTitle right="Ask the council from your editor">Kuvend</SectionTitle>
+      <div className="mb-8">
+        <KuvendConnect />
+      </div>
       <SectionTitle>Profile</SectionTitle>
       <div className="mb-8">
         <ProfileForm name={t.name} tz={t.tz} />
@@ -97,6 +102,11 @@ async function SettingsPage() {
       <SectionTitle right="invite-only sign-up">People</SectionTitle>
       <div className="mb-8">
         <People />
+      </div>
+
+      <SectionTitle right="Ask the council from your editor">Kuvend</SectionTitle>
+      <div className="mb-8">
+        <KuvendConnect />
       </div>
 
       <SectionTitle right="mail + calendar, merged into the Inbox and Today">Email accounts</SectionTitle>
