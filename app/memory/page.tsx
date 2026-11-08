@@ -4,6 +4,7 @@ import { readBrainStatus } from "@/lib/brain";
 import { listItems, readSections, slimItem } from "@/lib/library";
 import { memoryStats } from "@/lib/memory";
 import { page } from "@/lib/guard";
+import { isOwner } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +12,13 @@ async function MemoryPage() {
   const stats = await memoryStats();
   return (
     <div className="mx-auto max-w-6xl">
-      <MemoryView stats={stats} items={listItems().map(slimItem)} sections={readSections()} />
-      <div className="mt-10">
-        <BrainStrip status={readBrainStatus()} />
-      </div>
+      <MemoryView stats={stats} items={listItems().map(slimItem)} sections={readSections()} owner={isOwner()} />
+      {/* The brain is fed by the owner's PC collector; other accounts have nothing to show here. */}
+      {isOwner() && (
+        <div className="mt-10">
+          <BrainStrip status={readBrainStatus()} />
+        </div>
+      )}
       <div className="h-28" aria-hidden />
     </div>
   );

@@ -108,6 +108,9 @@ function since(today: string): string {
   }
 }
 
+// The account's first day on the dashboard. Nothing before it is judged: those days never existed here.
+export const firstDay = (at = new Date()) => since(coachNow(at).day);
+
 // Which day Lind still owes an answer for, if any: yesterday (never answered — first thing in the
 // morning), else today once it's over (after RECKON_AT, or from 19:00 when every block is behind him).
 export function reckoningDue(at = new Date()): Reckoning | null {

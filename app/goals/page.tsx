@@ -11,6 +11,8 @@ import { readStage } from "@/lib/life";
 import { readLog, readMentorDay, readPlanFor, readTalk, scorecard } from "@/lib/mentor";
 import { listTodos } from "@/lib/todos";
 import { page } from "@/lib/guard";
+import { syncStatus } from "@/lib/vault-sync";
+import { isOwner } from "@/lib/tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +20,7 @@ export const dynamic = "force-dynamic";
 // The vault file (100 - Me/Goals.md) stays the source; the editor below writes it.
 async function GoalsPage({ searchParams }: { searchParams: Promise<{ recap?: string }> }) {
   const goals = readGoals();
+  const vault = isOwner() || syncStatus().paired; // only someone syncing Obsidian has a Goals.md to point at
   const progress = goalProgress();
   const today = dayString(coachTz());
   const asked = (await searchParams)?.recap;
@@ -46,19 +49,35 @@ async function GoalsPage({ searchParams }: { searchParams: Promise<{ recap?: str
       <div className="mb-6">
         <SayIt from="goals" placeholder="New goal: 10k a month by the end of 2027, and talk through it…" />
       </div>
-      <div className="mb-6 flex flex-col gap-6">
-        <StageCard key={stage.at ?? "new"} text={stage.text} at={stage.at} today={today} />
-        <MentorOrders day={orders} done={done} hasPlans={mentorGoals.some((g) => g.card?.plan.lockedAt)} />
-        <GoalPlans goals={mentorGoals} today={today} />
-      </div>
-      <GoalsBoard progress={progress} recap={recap} today={today} todos={todos.filter((t) => t.goalId)} />
-      <section className="mt-10" aria-labelledby="edit-goals">
-        <h2 id="edit-goals" className="mb-3 px-1 text-xl font-semibold tracking-[-0.02em]">
-          Edit goals
-        </h2>
-        {/* Re-mounted when goals change elsewhere (Say it), so saving here never drops them. */}
-        <GoalsEditor key={goals.map((g) => g.id).join("|")} initial={goals} />
-      </section>
+      {goals.length === 0 ? (
+        // A first visit: writing the first goal is the only thing to do. Orders, plans and the
+        // week's scoreboard have nothing to show until one exists.
+        <>
+          <section className="mb-6" aria-labelledby="edit-goals">
+            <h2 id="edit-goals" className="mb-3 px-1 text-xl font-semibold tracking-[-0.02em]">
+              Your first goal
+            </h2>
+            <GoalsEditor key="first" initial={goals} vault={vault} />
+          </section>
+          <StageCard key={stage.at ?? "new"} text={stage.text} at={stage.at} today={today} />
+        </>
+      ) : (
+        <>
+          <div className="mb-6 flex flex-col gap-6">
+            <StageCard key={stage.at ?? "new"} text={stage.text} at={stage.at} today={today} />
+            <MentorOrders day={orders} done={done} hasPlans={mentorGoals.some((g) => g.card?.plan.lockedAt)} />
+            <GoalPlans goals={mentorGoals} today={today} />
+          </div>
+          <GoalsBoard progress={progress} recap={recap} today={today} todos={todos.filter((t) => t.goalId)} />
+          <section className="mt-10" aria-labelledby="edit-goals">
+            <h2 id="edit-goals" className="mb-3 px-1 text-xl font-semibold tracking-[-0.02em]">
+              Edit goals
+            </h2>
+            {/* Re-mounted when goals change elsewhere (Say it), so saving here never drops them. */}
+            <GoalsEditor key={goals.map((g) => g.id).join("|")} initial={goals} vault={vault} />
+          </section>
+        </>
+      )}
     </div>
   );
 }

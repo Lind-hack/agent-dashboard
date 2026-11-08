@@ -75,11 +75,13 @@ export function TodayPlan({
     <section className="mt-8">
       <SectionTitle right={blocks.length ? `${stats.todayDone}/${stats.todayTotal} done` : undefined}>The plan</SectionTitle>
 
+      {stats.weekTotal + stats.todayTotal + stats.streak > 0 && (
       <div className="mb-2.5 grid grid-cols-3 gap-2">
         <Stat label="this week" value={`${stats.weekDays} day${stats.weekDays === 1 ? "" : "s"}`} hint="with a plan" />
         <Stat label="ticked" value={`${stats.percent}%`} hint={`${stats.weekDone}/${stats.weekTotal} blocks`} />
         <Stat label="streak" value={`${stats.streak}`} hint={stats.streak === 1 ? "day in a row" : "days in a row"} icon={stats.streak > 0} />
       </div>
+      )}
 
       {blocks.length === 0 ? (
         <Panel>

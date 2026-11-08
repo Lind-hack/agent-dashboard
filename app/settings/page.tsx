@@ -59,10 +59,6 @@ function AccountSettings() {
       <div className="mb-8">
         <ObsidianConnect />
       </div>
-      <SectionTitle right="Ask the council from your editor">Kuvend</SectionTitle>
-      <div className="mb-8">
-        <KuvendConnect />
-      </div>
       <SectionTitle>Profile</SectionTitle>
       <div className="mb-8">
         <ProfileForm name={t.name} tz={t.tz} />
@@ -70,6 +66,10 @@ function AccountSettings() {
       <SectionTitle>Password</SectionTitle>
       <div className="mb-8">
         <PasswordForm />
+      </div>
+      <SectionTitle right="Ask the council from your editor">Kuvend</SectionTitle>
+      <div className="mb-8">
+        <KuvendConnect />
       </div>
       <SectionTitle>Account</SectionTitle>
       <div className="mb-8">

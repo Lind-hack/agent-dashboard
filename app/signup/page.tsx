@@ -1,13 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AuthShell, Field, FormError, Submit } from "@/components/auth-shell";
 
 export default function SignupPage() {
   const [f, setF] = useState({ invite: "", name: "", email: "", password: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // An invite link (/signup?invite=CODE) fills the code in.
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("invite");
+    if (!code) return;
+    setF((x) => ({ ...x, invite: code.trim().toUpperCase() }));
+    document.getElementById("name")?.focus();
+  }, []);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
   async function submit(e: React.FormEvent) {
@@ -28,7 +35,7 @@ export default function SignupPage() {
 
   return (
     <AuthShell title="Create your dashboard" lead="Invite only for now. Your notes, plans and keys stay in your own space." onSubmit={submit}>
-      <Field id="invite" label="Invite code" autoComplete="off" spellCheck={false} placeholder="ABCDE-FGHJK…" value={f.invite} onChange={set("invite")} autoFocus />
+      <Field id="invite" label="Invite code" autoComplete="off" spellCheck={false} placeholder="ABCDE-FGHJK…" value={f.invite} onChange={set("invite")} autoFocus={!f.invite} />
       <Field id="name" label="Your name" autoComplete="given-name" value={f.name} onChange={set("name")} />
       <Field id="email" label="Email" type="email" autoComplete="email" spellCheck={false} value={f.email} onChange={set("email")} />
       <Field id="password" label="Password" type="password" autoComplete="new-password" hint="At least 10 characters." value={f.password} onChange={set("password")} />

@@ -92,7 +92,19 @@ export function Sources({ items, picked, onPick, onChange, onBlurt, onPractice }
       {error && <p role="alert" className="mt-1 px-1 text-[13px] text-bad">{error}</p>}
 
       {shown.length === 0 ? (
-        <p className="panel mt-3 px-5 py-8 text-[15px] text-muted">{hits ? "Nothing saved matches that." : "Nothing in Study yet. Search above and add the first source."}</p>
+        hits ? (
+          <p className="panel mt-3 px-5 py-8 text-[15px] text-muted">Nothing saved matches that.</p>
+        ) : (
+          <div className="panel mt-3 px-5 py-7">
+            <p className="text-[15px] font-medium">Nothing in Study yet</p>
+            <p className="mt-1 text-[14px] leading-relaxed text-muted">
+              Study works on what you&apos;ve saved. Save a YouTube video, an article link or a PDF in Memory, then search for it here and add it.
+            </p>
+            <Link href="/memory" className="press mt-4 inline-flex h-10 items-center rounded-[12px] bg-text px-4 text-[14px] font-medium text-bg">
+              Save something in Memory
+            </Link>
+          </div>
+        )
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
           {shown.map((h) => {

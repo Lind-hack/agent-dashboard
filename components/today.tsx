@@ -104,7 +104,7 @@ export function PlanDay({ canWrite, planned, initialNote }: { canWrite: boolean;
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
-            placeholder="Anything about today? “Gym at 6, finish the Bota PR, light evening.”"
+            placeholder="Anything about today? “Gym at 6, finish the essay, light evening.”"
             className={`${field} mt-3 w-full resize-none [field-sizing:content]`}
           />
           <button
