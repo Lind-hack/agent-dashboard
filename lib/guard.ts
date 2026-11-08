@@ -6,7 +6,8 @@ import { readSession, SESSION_COOKIE } from "./auth";
 import { isBearerRoute } from "./bearer-routes";
 import { currentTenant, runAs, type Tenant } from "./tenant";
 import { findUser, tenantById } from "./users";
-import { isVaultSyncRoute } from "./bearer-routes";
+import { isKuvendRoute, isVaultSyncRoute } from "./bearer-routes";
+import { tenantFromLinkCode } from "./kuvend-link";
 import { tenantFromSyncCode } from "./vault-sync";
 import { isWidgetRoute } from "./widget/auth";
 
@@ -42,6 +43,8 @@ export async function requestTenant(req?: Request): Promise<Tenant | null> {
     if (isWidgetRoute(pathname) && widget && widget.length >= 32 && same(bearer, widget)) return tenantById("owner");
     // The Obsidian plugin: its sync code opens only the sync routes of its own account.
     if (isVaultSyncRoute(pathname)) return tenantFromSyncCode(bearer);
+    // Kuvend: its link code opens only the Kuvend routes of its own account.
+    if (isKuvendRoute(pathname)) return tenantFromLinkCode(bearer);
   }
   if (req) return tenantFromCookie(cookieFrom(req.headers.get("cookie")));
   return tenantFromCookie((await cookies()).get(SESSION_COOKIE)?.value);
