@@ -60,7 +60,9 @@ export function BuddyView({ initialThread, today, week, focusJournal, profileAt,
       first.current = false;
       return;
     }
-    end.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // Scroll the conversation box only; the page itself stays where the reader left it.
+    const box = end.current?.parentElement;
+    box?.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
   }, [thread.length]);
 
   async function send(msg: string, voice = false) {
@@ -106,13 +108,14 @@ export function BuddyView({ initialThread, today, week, focusJournal, profileAt,
       <header className="panel brackets relative overflow-hidden px-5 pt-6 pb-5">
         <div className="pointer-events-none absolute -top-24 left-1/2 h-72 w-[36rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(167,139,250,0.28),transparent)] blur-2xl" aria-hidden />
         <div className="relative flex flex-wrap items-center gap-5">
-          <div className="relative h-24 w-24 shrink-0">
+          <div className="relative h-16 w-16 shrink-0 sm:h-24 sm:w-24">
             <Orb className="h-full w-full" state={orbState} />
           </div>
-          <div className="min-w-0 flex-1">
+          {/* A real basis, so on a phone the words wrap under the orb row instead of one word per line. */}
+          <div className="min-w-0 flex-1 basis-[12rem]">
             <p className="hud-label">your buddy</p>
             <h1 className="mt-1 text-[1.9rem] leading-none font-semibold tracking-[-0.04em]">Hey {name}.</h1>
-            {locked && (
+            {locked && locked.score > 0 && (
               <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-line bg-black/30 px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] uppercase" title="From your last 7 days: blocks done, on time, habits, streak, goals touched">
                 <span className={locked.score >= 80 ? "text-ok" : locked.score >= 60 ? "text-hud" : locked.score >= 35 ? "text-warn" : "text-bad"}>{locked.label}</span>
                 <span className="tnum text-faint">{locked.score}/100 this week</span>

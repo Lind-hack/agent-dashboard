@@ -7,7 +7,7 @@ import { addDays } from "@/lib/calendar";
 import { coachNow } from "@/lib/coach";
 import { faceSet } from "@/lib/face";
 import { readPush } from "@/lib/goggins";
-import { readReckoning, snapshot, wall } from "@/lib/reckoning";
+import { firstDay, readReckoning, snapshot, wall } from "@/lib/reckoning";
 import { fmtMin, VERDICT_TONE, VERDICT_WORDS, type DayVerdict } from "@/lib/verdict";
 import { cn } from "@/lib/utils";
 import { page } from "@/lib/guard";
@@ -23,7 +23,11 @@ const label = (d: string, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFor
 async function MirrorPage({ searchParams }: { searchParams: Promise<{ day?: string }> }) {
   const today = coachNow().day;
   const asked = (await searchParams)?.day;
-  const pick = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked <= today ? asked : addDays(today, -1);
+  // Days before the account existed are never opened: they'd read as "no plan" for a day nobody had.
+  const first = firstDay();
+  const wanted = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked <= today ? asked : addDays(today, -1);
+  const empty = (d: string) => !readReckoning(d) && snapshot(d, Number.MAX_SAFE_INTEGER).verdict === "no-plan";
+  const pick = wanted < first && empty(wanted) ? today : wanted;
   const face = faceSet();
   const days = wall(56);
   const counted = days.filter((d) => d.verdict && d.day !== today);
@@ -89,6 +93,8 @@ async function MirrorPage({ searchParams }: { searchParams: Promise<{ day?: stri
         </div>
       </section>
 
+      {/* On the first day there is no finished day to open yet; the hero above already speaks for today. */}
+      {!(pick === today && pick === first && !asked) && (
       <section id="verdict" aria-label={`The verdict for ${pick}`} className="panel mt-6 mb-10 scroll-mt-20 overflow-hidden">
         <div className="border-b border-line px-4 py-3">
           <p className="font-mono text-[10.5px] tracking-[0.12em] text-faint uppercase">{label(pick, { weekday: "long", day: "numeric", month: "long" })}</p>
@@ -110,6 +116,7 @@ async function MirrorPage({ searchParams }: { searchParams: Promise<{ day?: stri
           )}
         </div>
       </section>
+      )}
     </div>
   );
 }

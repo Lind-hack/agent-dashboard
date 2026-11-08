@@ -27,12 +27,16 @@ const KINDS: { kind: SourceKind; label: string; sub: string; icon: typeof Brain 
   { kind: "linear", label: "Linear", sub: "recent issues", icon: ListTodo },
   { kind: "mail", label: "Email", sub: "last 7 days of Gmail", icon: Mail },
 ];
+// Sources that exist for every account; the rest (agent and PC chats, GitHub, Linear, Claude notes,
+// Gmail) are the owner's machines and logins.
+const SHARED: SourceKind[] = ["capture", "web", "calendar", "obsidian"];
 const META = Object.fromEntries(KINDS.map((k) => [k.kind, k])) as Record<SourceKind, (typeof KINDS)[number]>;
 
 type Asked = MemoryAnswer & { q: string };
 type Graph = { nodes: GraphNode[]; groups: GraphGroup[]; entities?: GraphEntity[]; edges?: GraphEdge[] };
 
-export function MemoryView({ stats, items: initialItems, sections: initialSections }: { stats: MemoryStats; items: LibraryItem[]; sections: Section[] }) {
+export function MemoryView({ stats, items: initialItems, sections: initialSections, owner = true }: { stats: MemoryStats; items: LibraryItem[]; sections: Section[]; owner?: boolean }) {
+  const kinds = owner ? KINDS : KINDS.filter((k) => SHARED.includes(k.kind)).map((k) => (k.kind === "obsidian" ? { ...k, sub: "your synced vault" } : k));
   const router = useRouter();
   const params = useSearchParams();
   const [items, setItems] = useState(initialItems);
@@ -235,7 +239,7 @@ export function MemoryView({ stats, items: initialItems, sections: initialSectio
             <p className="text-[11px] text-faint">searched when on</p>
           </div>
           <ul className="flex flex-col">
-            {KINDS.map((k) => {
+            {kinds.map((k) => {
               const Icon = k.icon;
               return (
                 <li key={k.kind} className="flex items-center gap-3 border-b border-line py-2.5 last:border-0">
@@ -254,7 +258,7 @@ export function MemoryView({ stats, items: initialItems, sections: initialSectio
           <button onClick={() => void refreshAll()} className="press mt-4 flex h-10 items-center justify-center gap-2 rounded-[12px] bg-[linear-gradient(90deg,#e879c9,#f0a3c8)] text-sm font-medium text-[#1a0a16] shadow-[0_10px_30px_-12px_rgb(232_121_201/0.7)]">
             <RefreshCw className={cn("h-4 w-4", refreshed === "…" && "animate-spin")} /> Refresh all
           </button>
-          <p className="mt-2 text-center text-[11px] text-faint">{refreshed && refreshed !== "…" ? `Updated ${ago(refreshed)}` : !stats.vault ? "The Obsidian vault isn't readable on the VPS yet." : "Rebuilds the index from every source"}</p>
+          <p className="mt-2 text-center text-[11px] text-faint">{refreshed && refreshed !== "…" ? `Updated ${ago(refreshed)}` : !stats.vault && owner ? "The Obsidian vault isn't readable on the VPS yet." : "Rebuilds the index from every source"}</p>
         </Panel>
       </div>
 
@@ -262,7 +266,7 @@ export function MemoryView({ stats, items: initialItems, sections: initialSectio
         {thinking && (
           <Panel className="shimmer mt-6 p-5">
             <p className="text-sm text-muted">{thinking}</p>
-            <p className="mt-2 text-xs text-faint">Searching {KINDS.filter((k) => enabled[k.kind]).map((k) => k.label.toLowerCase()).join(", ")}…</p>
+            <p className="mt-2 text-xs text-faint">Searching {kinds.filter((k) => enabled[k.kind]).map((k) => k.label.toLowerCase()).join(", ")}…</p>
           </Panel>
         )}
         {asked && !thinking && (

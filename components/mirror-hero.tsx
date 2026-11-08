@@ -5,7 +5,7 @@ import { addDays } from "@/lib/calendar";
 import { tally } from "@/lib/day-tally";
 import { clockNow, coachTz } from "@/lib/coach";
 import { faceSet } from "@/lib/face";
-import { readReckoning } from "@/lib/reckoning";
+import { firstDay, readReckoning } from "@/lib/reckoning";
 import { VERDICT_TONE, VERDICT_WORDS, type DayVerdict } from "@/lib/verdict";
 import { cn } from "@/lib/utils";
 
@@ -41,7 +41,9 @@ export function MirrorHero({ day, action, className }: { day: string; action?: R
   const rank = (i: (typeof s.items)[number]) => (i.missed ? 0 : i.done ? 2 : 1);
   const list = [...s.items].sort((a, z) => rank(a) - rank(z));
   const next = m.rows.find((r) => r.verdict === "upcoming");
-  const hurt = s.verdict === "soft" || s.verdict === "no-plan";
+  // The account's first day with nothing planned yet is a start, not a failure.
+  const dayOne = s.verdict === "no-plan" && day === firstDay();
+  const hurt = !dayOne && (s.verdict === "soft" || s.verdict === "no-plan");
   const label = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "long" }).format(new Date(`${day}T12:00:00Z`));
 
   return (
@@ -53,7 +55,7 @@ export function MirrorHero({ day, action, className }: { day: string; action?: R
           <img src="/api/mirror/face" alt="" className="pain-drift absolute inset-0 h-full w-full object-cover object-[50%_18%] grayscale brightness-[0.78] contrast-[1.45]" />
         )}
         {/* The wash: the verdict's colour multiplied into the photo. */}
-        <div className={cn("absolute inset-0 opacity-80 mix-blend-multiply transition-colors duration-700", WASH[s.verdict])} />
+        <div className={cn("absolute inset-0 opacity-80 mix-blend-multiply transition-colors duration-700", WASH[dayOne ? "pending" : s.verdict])} />
         {hurt && <div className="pain-pulse absolute inset-0 bg-[radial-gradient(ellipse_at_50%_40%,transparent_20%,rgb(150_0_0/0.35)_75%)]" />}
         <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/10 via-40% to-black" />
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_30%,transparent_40%,rgb(0_0_0/0.75)_100%)]" />
@@ -69,8 +71,8 @@ export function MirrorHero({ day, action, className }: { day: string; action?: R
         </div>
 
         <div className="mt-[250px] sm:mt-[320px]">
-          <h2 className={cn("text-[clamp(3.1rem,15vw,7.25rem)] leading-[0.84] font-black tracking-[-0.055em] uppercase", VERDICT_TONE[s.verdict], hurt && "drop-shadow-[0_0_28px_rgb(220_30_30/0.45)]")}>{VERDICT_WORDS[s.verdict]}</h2>
-          <p className="mt-3 text-[15px] font-medium text-white/70 italic">{LINE[s.verdict]}</p>
+          <h2 className={cn("text-[clamp(3.1rem,15vw,7.25rem)] leading-[0.84] font-black tracking-[-0.055em] uppercase", dayOne ? "text-white" : VERDICT_TONE[s.verdict], hurt && "drop-shadow-[0_0_28px_rgb(220_30_30/0.45)]")}>{dayOne ? "Day one." : VERDICT_WORDS[s.verdict]}</h2>
+          <p className="mt-3 text-[15px] font-medium text-white/70 italic">{dayOne ? "Decide what today is for. The mirror starts counting tomorrow." : LINE[s.verdict]}</p>
 
           {s.total > 0 && (
             <p className="tnum mt-6 text-[clamp(1.3rem,5vw,1.9rem)] leading-tight font-semibold">

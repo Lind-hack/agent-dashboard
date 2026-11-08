@@ -325,6 +325,17 @@ function TabLink({ item, path, count }: { item: NavItem; path: string; count: nu
 }
 
 // "More" page content on the phone: everything that isn't in the tab bar, as thumb-sized tiles.
+// One line under each tile on More, so a name like "Room" says what it's for.
+const MORE_HINT: Record<string, string> = {
+  "/room": "Several AIs debate a decision; a judge rules",
+  "/mirror": "Your days, kept or not, without excuses",
+  "/settings": "AI keys, calendar, Obsidian, account",
+  "/goals": "What you're chasing, and the plan for it",
+  "/buddy": "Talk your day through; your journal",
+  "/memory": "Save anything, ask it later",
+  "/calendar": "Your day, plan and tasks",
+};
+
 export function MoreLinks({ owner }: { owner: boolean }) {
   const inTabs = owner ? ["/", "/inbox", "/calendar", "/room", "/learning"] : ["/calendar", "/goals", "/buddy", "/memory", "/learning"];
   const items = [...WORKSPACE, ...TOOLS, { href: "/settings", label: "Settings", icon: Settings }].filter((i) => visible(owner)(i) && !inTabs.includes(i.href));
@@ -333,11 +344,14 @@ export function MoreLinks({ owner }: { owner: boolean }) {
       {items.map((i) => {
         const Icon = i.icon;
         return (
-          <Link key={i.href} href={i.href} className="panel group flex min-h-[96px] flex-col justify-between !rounded-[16px] p-4 transition-colors hover:border-line-hi hover:bg-white/[0.04]">
+          <Link key={i.href} href={i.href} className="panel group flex min-h-[96px] flex-col justify-between gap-3 !rounded-[16px] p-4 transition-colors hover:border-line-hi hover:bg-white/[0.04]">
             <Icon className="h-5 w-5 text-hud" strokeWidth={1.75} aria-hidden />
-            <span className="flex items-center justify-between text-[15px] font-medium">
-              {i.label}
-              <ChevronRight className="h-4 w-4 text-faint transition-transform group-hover:translate-x-0.5" aria-hidden />
+            <span>
+              <span className="flex items-center justify-between text-[15px] font-medium">
+                {i.label}
+                <ChevronRight className="h-4 w-4 text-faint transition-transform group-hover:translate-x-0.5" aria-hidden />
+              </span>
+              {MORE_HINT[i.href] && <span className="mt-0.5 block text-[12.5px] leading-snug text-muted">{MORE_HINT[i.href]}</span>}
             </span>
           </Link>
         );

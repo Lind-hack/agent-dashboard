@@ -20,7 +20,7 @@ const field = "rounded-[12px] border border-line bg-black/30 px-3 py-2 text-[14p
 
 type Row = Goal & { key: string };
 
-export function GoalsEditor({ initial }: { initial: Goal[] }) {
+export function GoalsEditor({ initial, vault = true }: { initial: Goal[]; vault?: boolean }) {
   const router = useRouter();
   const [rows, setRows] = useState<Row[]>(initial.map((g, i) => ({ ...g, key: `${g.id}-${i}` })));
   const [busy, setBusy] = useState(false);
@@ -45,7 +45,7 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.ok) throw new Error(body?.error ?? `error ${res.status}`);
       setRows(((body.goals ?? []) as Goal[]).map((g, i) => ({ ...g, key: `${g.id}-${i}` })));
-      setMsg(body.vault ? "Saved — and mirrored to 100 - Me/Goals.md in Obsidian. The next plan will use them." : "Saved. The next plan will use them. (The Obsidian copy catches up once the vault is writable.)");
+      setMsg(body.vault ? "Saved — and mirrored to 100 - Me/Goals.md in Obsidian. The next plan will use them." : vault ? "Saved. The next plan will use them. (The Obsidian copy catches up once the vault is writable.)" : "Saved. The next plan will use them.");
       router.refresh();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -171,7 +171,7 @@ export function GoalsEditor({ initial }: { initial: Goal[] }) {
           {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save goals
         </button>
         <p className="flex items-center gap-1.5 text-xs text-faint">
-          <Target className="h-3.5 w-3.5" aria-hidden /> 100 - Me/Goals.md · up to 3 active goals steer the day
+          <Target className="h-3.5 w-3.5" aria-hidden /> {vault ? "100 - Me/Goals.md · up" : "Up"} to 3 active goals steer the day
         </p>
       </div>
 
