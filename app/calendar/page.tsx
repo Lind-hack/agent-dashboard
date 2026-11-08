@@ -16,13 +16,20 @@ import { TodoBoard } from "@/components/todo-board";
 import { briefPending, readBrief, readChat, type BriefSlot } from "@/lib/assistant";
 import { autopilotEnabled, readAutopilot } from "@/lib/autopilot";
 import { board } from "@/lib/day-board";
-import { addDays, calendarConnected, type CalEvent } from "@/lib/calendar";
+import { addDays, calendarConnected, calendarReadable, type CalEvent } from "@/lib/calendar";
 import { owed } from "@/lib/accountability";
 import { activeBlocks, planStats, readPlan } from "@/lib/plan-store";
 import { freeSlots, today } from "@/lib/planner";
 import { listTodos } from "@/lib/todos";
 import { ticktickConnected } from "@/lib/ticktick";
 import { cn } from "@/lib/utils";
+import { currentTenant, isOwner } from "@/lib/tenant";
+import { findUser } from "@/lib/users";
+import { providerOrder } from "@/lib/llm";
+import { readGoals } from "@/lib/goals";
+import { FirstRun } from "@/components/first-run";
+import { solLabel } from "@/lib/sol";
+import { CalendarConnect } from "@/components/calendar-connect";
 import { page } from "@/lib/guard";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +51,17 @@ async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_er
   const t = await today();
   const host = (await headers()).get("x-forwarded-host");
   const callback = `${host ? `https://${host}` : "https://agents.383ks.com"}/api/ticktick/callback`;
-  const google = calendarConnected();
+  const google = calendarConnected(); // Google can also take plan blocks; an iCal feed is read-only
+  const readable = calendarReadable();
+  const me = currentTenant();
+  const firstRun = !me.owner && !findUser(me.id)?.setupDone;
+  const steps = firstRun
+    ? [
+        { id: "ai", title: "Turn on your AI", why: "Gemini is free. It plans your day, runs your coach and reads voice notes.", href: "/setup", done: providerOrder().length > 0 },
+        { id: "calendar", title: "Bring in your calendar", why: "Today plans your free time around what's already booked.", href: "#schedule", done: readable },
+        { id: "goal", title: "Write your first goal", why: "Plans and check-ins pull toward it, every day.", href: "/goals", done: (() => { try { return readGoals().length > 0; } catch { return false; } })() },
+      ]
+    : [];
   const ticktick = ticktickConnected();
 
   const time = (iso: string) => new Intl.DateTimeFormat("en-GB", { timeZone: t.tz, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
@@ -82,7 +99,7 @@ async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_er
   ];
 
   const sub = [
-    next ? `${new Date(next.start).getTime() <= now ? "Now" : `Next at ${time(next.start)}`}: ${next.title}` : google ? (timed.length ? "Calendar's done for today" : "Nothing on the calendar") : null,
+    next ? `${new Date(next.start).getTime() <= now ? "Now" : `Next at ${time(next.start)}`}: ${next.title}` : readable ? (timed.length ? "Calendar's done for today" : "Nothing on the calendar") : null,
     open ? `${open} task${open === 1 ? "" : "s"} open` : t.todos.done.length ? "every task done" : null,
   ].filter(Boolean);
 
@@ -94,12 +111,15 @@ async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_er
     <div className="mx-auto max-w-3xl">
       <SectionHero
         clip="today"
-        eyebrow={[google ? `${timed.length} on the calendar` : "calendar not connected", planned > 0 && `${planned} blocks ahead`, `${open} tasks open`, stats.todayTotal > 0 && `${stats.todayDone}/${stats.todayTotal} blocks done`, stats.streak > 0 && `${stats.streak}-day streak`].filter(Boolean).join(" · ")}
+        eyebrow={[readable ? `${timed.length} on the calendar` : "calendar not connected", planned > 0 && `${planned} blocks ahead`, `${open} tasks open`, stats.todayTotal > 0 && `${stats.todayDone}/${stats.todayTotal} blocks done`, stats.streak > 0 && `${stats.streak}-day streak`].filter(Boolean).join(" · ")}
         title={dayTitle(t.today, { weekday: "long", day: "numeric", month: "long" })}
         sub={sub.length ? `${sub.join(" · ")}.` : "Your day, in one place."}
       >
-        <NowCard items={nowItems} dayStart={zoned(t.today, dayStart, t.tz)} dayEnd={zoned(t.today, dayEnd, t.tz)} freeMin={freeMin} tz={t.tz} />
+        {/* On a first visit the day is empty: the setup steps come first. */}
+        {!firstRun && <NowCard items={nowItems} dayStart={zoned(t.today, dayStart, t.tz)} dayEnd={zoned(t.today, dayEnd, t.tz)} freeMin={freeMin} tz={t.tz} />}
       </SectionHero>
+
+      {firstRun && <FirstRun steps={steps} />}
 
       {/* Strict blocks (v5.4): skipped blocks wait here for a decision. */}
       <div className="mb-6 empty:hidden">
@@ -132,15 +152,20 @@ async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_er
         completedTaskIds={listTodos().filter((t) => t.done).map((t) => t.id)}
       />
 
-      <section className="mt-8">
+      <section id="schedule" className="mt-8 scroll-mt-20">
         <SectionTitle>Schedule</SectionTitle>
-        {google ? (
+        {readable ? (
           <Panel className="overflow-hidden">
             {schedule.length === 0 ? (
               <Empty>{blocks.length ? "No fixed events — your plan is above." : "A clear day. Plan it above, or add something below."}</Empty>
             ) : (
               <Day events={schedule} time={time} now={now} />
             )}
+          </Panel>
+        ) : !isOwner() ? (
+          <Panel className="p-5">
+            <p className="mb-3 text-[15px] font-medium">Bring in your calendar</p>
+            <CalendarConnect />
           </Panel>
         ) : (
           <Panel className="p-5 text-sm leading-relaxed text-muted">
@@ -157,6 +182,7 @@ async function TodayPage({ searchParams }: { searchParams: Promise<{ ticktick_er
 
       <AssistantPanel
         slotNow={slotNow}
+        planner={isOwner() ? solLabel().split(" · ")[0] : "your AI"}
         initial={{ day: t.today, chat: readChat(t.today), briefs: { morning: readBrief(t.today, "morning"), midday: readBrief(t.today, "midday"), evening: readBrief(t.today, "evening") }, pending: briefPending() }}
       />
 

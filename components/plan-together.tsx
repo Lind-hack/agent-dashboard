@@ -117,7 +117,7 @@ export function StageCard({ text, at, today }: { text: string; at?: string; toda
       {editing ? (
         <div className="mt-3 flex flex-col gap-3">
           <p className="max-w-prose text-[14px] text-muted">Tell your mentor what&apos;s real: what&apos;s built, what&apos;s live, what isn&apos;t yet, and the hours you actually have. Today and your goals are planned from this, and it beats anything else it thinks it knows.</p>
-          <VoiceBox value={value} onChange={setValue} label="Where you are now" rows={5} disabled={busy} placeholder="383ks.com isn't launched yet. Still building checkout. University until 3pm most days…" />
+          <VoiceBox value={value} onChange={setValue} label="Where you are now" rows={5} disabled={busy} placeholder="The shop isn't launched yet. Still building checkout. University until 3pm most days…" />
           {error && <p className="text-[13px] text-bad">{error}</p>}
           <div className="flex gap-2">
             <button onClick={() => void save()} disabled={busy || !value.trim()} className="press flex h-11 items-center gap-2 rounded-[12px] bg-text px-4 text-[14px] font-semibold text-bg disabled:opacity-50">

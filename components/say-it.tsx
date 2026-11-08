@@ -35,7 +35,7 @@ function detail(it: SayItem, today: string): string {
   return `${it.target}${it.unit ? ` ${it.unit}` : ""} · ${it.days.length ? `${it.days.length} days a week` : "every day"}`;
 }
 
-export function SayIt({ placeholder = "Gym at 6 for an hour, finish the 383 pitch today, new goal…", from = "today" }: { placeholder?: string; from?: "today" | "goals" }) {
+export function SayIt({ placeholder = "Gym at 6 for an hour, finish the essay today, new goal…", from = "today" }: { placeholder?: string; from?: "today" | "goals" }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState<"" | "hearing" | "sorting">("");

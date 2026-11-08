@@ -252,14 +252,14 @@ export function Shell({ children, me }: { children: React.ReactNode; me: Me }) {
         </div>
       </header>
 
-      {me.setup && path !== "/setup" && (
+      {me.setup && path !== "/setup" && path !== "/calendar" && (
         <Link href="/setup" className="mx-auto mt-3 flex max-w-[1180px] items-center gap-2 px-4 text-sm text-hud lg:px-8">
           <span className="h-1.5 w-1.5 rounded-full bg-hud shadow-[0_0_8px_var(--color-hud)]" aria-hidden />
           Finish setting up your dashboard
           <ChevronRight className="h-4 w-4" aria-hidden />
         </Link>
       )}
-      <FocusBar />
+      {!me.setup && path !== "/setup" && <FocusBar />}
 
       <main id="main" tabIndex={-1} className="pb-tabbar mx-auto max-w-[1180px] min-w-0 overflow-x-clip px-4 pt-4 outline-none lg:px-8">
         {children}

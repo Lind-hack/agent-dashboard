@@ -18,7 +18,10 @@ type Act = AssistantAction & { label: string };
 const SLOT_LABEL: Record<BriefSlot, string> = { morning: "Morning plan", midday: "Midday re-plan", evening: "Evening review" };
 const QUICK = ["What should I do right now?", "I'm behind — reshuffle the rest of today", "What can I cut today?", "Break my next task into small steps"];
 
-export function AssistantPanel({ initial, slotNow }: { initial: State; slotNow: BriefSlot }) {
+export function AssistantPanel({ initial, slotNow, planner = "gpt-6.1-sol" }: { initial: State; slotNow: BriefSlot; planner?: string }) {
+  // The owner's planner is Sol (his Codex login); every other account plans with its own AI.
+  const sol = planner !== "your AI";
+  const ask = sol ? "Ask Sol" : "Plan now";
   const router = useRouter();
   const [s, setS] = useState<State>(initial);
   const [slot, setSlot] = useState<BriefSlot>((["evening", "midday", "morning"] as BriefSlot[]).find((k) => initial.briefs[k]) ?? slotNow);
@@ -136,10 +139,10 @@ export function AssistantPanel({ initial, slotNow }: { initial: State; slotNow: 
           </span>
           <span className="min-w-0 flex-1">
             <span className="block text-[15px] font-medium">Day assistant</span>
-            <span className="block truncate font-mono text-[10.5px] text-faint">plans with gpt-6.1-sol · chats on a fast model · knows your tasks, plan, calendar and goals</span>
+            <span className="block truncate font-mono text-[10.5px] text-faint">plans with {planner} · knows your tasks, plan, calendar and goals</span>
           </span>
           <button onClick={askSol} disabled={s.pending} className="flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] border border-line-hi px-3 text-[13px] text-muted hover:bg-white/5 hover:text-text disabled:opacity-60">
-            {s.pending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-hermes" />} {s.pending ? "Sol is thinking…" : "Ask Sol"}
+            {s.pending ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-hermes" />} {s.pending ? "Thinking…" : ask}
           </button>
         </div>
 
@@ -174,7 +177,7 @@ export function AssistantPanel({ initial, slotNow }: { initial: State; slotNow: 
             </div>
           ) : (
             <p className="py-4 text-[13.5px] text-muted">
-              {SLOT_LABEL[slot]} comes {slot === "morning" ? "at 07:30" : slot === "midday" ? "at 13:00" : "at 21:25"} on its own (and as a push). Tap <span className="text-text">Ask Sol</span> for one now.
+              {SLOT_LABEL[slot]} comes {slot === "morning" ? "at 07:30" : slot === "midday" ? "at 13:00" : "at 21:25"} on its own (and as a push). Tap <span className="text-text">{ask}</span> for one now.
             </p>
           )}
         </div>
