@@ -23,7 +23,7 @@ export function HomeDay({ day }: { day: Today }) {
   return (
     <div className="flex flex-col gap-3">
       <OwedGate owed={owed(day.today)} today={day.today} />
-      <MirrorHero day={day.today} />
+      {MirrorHero({ day: day.today }) /* called now: it reads this user's data */}
       <section aria-label="The day" className="panel overflow-hidden">
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
         <p className="font-mono text-[10.5px] tracking-[0.16em] text-faint uppercase">The day · block by block</p>
